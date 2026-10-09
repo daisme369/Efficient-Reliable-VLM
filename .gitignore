@@ -206,6 +206,12 @@ tempCodeRunnerFile.py
 # Ruff stuff:
 .ruff_cache/
 
+# Repository-local test scratch space
+/.test-tmp/
+
+# Repository-local dependency resolver cache
+/.uv-cache/
+
 # PyPI configuration file
 .pypirc
 
@@ -216,3 +222,33 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Docs
+/docs
+
+# Data
+/data
+
+# Generated research and release artifacts
+/artifacts/
+/checkpoints/
+/outputs/
+/release-dist/
+/runs/
+/wandb/
+*.ckpt
+*.dcm
+*.h5
+*.hdf5
+*.nii
+*.nii.gz
+*.onnx
+*.pt
+*.pth
+*.safetensors
+
+# Claude
+/.claude/
+CLAUDE.md
+AGENTS.md
+DETAILED_ACTION_PLAN.md

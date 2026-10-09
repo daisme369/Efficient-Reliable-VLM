@@ -1,0 +1,8 @@
+**
+!.dockerignore
+!docker/
+!docker/Dockerfile.gpu
+!requirements.txt
+!requirements/
+!requirements/gpu-cu130.txt
+!requirements/gpu-runtime.txt

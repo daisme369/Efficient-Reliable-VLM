@@ -1,0 +1,2 @@
+# Linux GPU runtime addition. Resolve only with PyPI.
+bitsandbytes==0.50.2
