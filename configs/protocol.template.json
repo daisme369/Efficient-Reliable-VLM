@@ -1,0 +1,15 @@
+{
+  "status": "draft",
+  "decision_record": "UNRESOLVED",
+  "config_sha256": null,
+  "manifest_sha256": null,
+  "provenance_sha256": null,
+  "split_policy": "UNRESOLVED",
+  "input_policy": "UNRESOLVED",
+  "uncertain_label_policy": "UNRESOLVED",
+  "template_policy": "UNRESOLVED",
+  "metric_policy": "UNRESOLVED",
+  "training_data_overlap": "UNRESOLVED",
+  "access_review": "UNRESOLVED",
+  "segmentation_training_decision": null
+}

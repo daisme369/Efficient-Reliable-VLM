@@ -1,2 +1,4 @@
 # Linux GPU runtime addition. Resolve only with PyPI.
 bitsandbytes==0.50.2
+# JPEG/PNG input pipeline. Linux-only, Apache-2.0, CUDA 13 wheel.
+nvidia-dali-cuda130==2.3.0

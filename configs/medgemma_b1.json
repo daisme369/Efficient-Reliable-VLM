@@ -1,0 +1,32 @@
+{
+  "run_id": "medgemma-b1-pilot",
+  "task": "medgemma",
+  "baseline": "B1",
+  "data": {
+    "root": "/private/project/images",
+    "manifest": "/private/project/images/prepared/manifest.jsonl",
+    "provenance": "/private/project/images/prepared/provenance.json",
+    "synthetic": false
+  },
+  "output_root": "/private/project/runs",
+  "protocol": "/private/project/protocol-b1.json",
+  "device": "cuda",
+  "seed": 42,
+  "jira_issue": null,
+  "train": {
+    "epochs": 1, "batch_size": 1, "accumulation_steps": 8,
+    "learning_rate": 0.0002, "weight_decay": 0.01, "max_grad_norm": 1.0,
+    "precision": "bf16"
+  },
+  "medgemma": {
+    "model_id": "google/medgemma-1.5-4b-it",
+    "revision": "UNRESOLVED",
+    "prompt": "Answer the question using the chest X-ray. Give a concise answer.",
+    "max_length": 4096,
+    "max_new_tokens": 128,
+    "lora_rank": 16,
+    "lora_alpha": 32,
+    "lora_dropout": 0.05,
+    "local_files_only": true
+  }
+}

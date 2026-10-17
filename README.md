@@ -2,6 +2,12 @@
 
 Research repository for an efficient, clinically grounded, and selectively reliable Radiology Visual Question Answering system.
 
+## Research package
+
+The research code lives in `src/cxr_research`, with separate `data`, `preprocessing`, `augmentation`, `models`, `training`, `evaluation`, `metrics`, `experiments`, and `utils` packages. `scripts` contains operational tooling.
+
+See the [architecture](src/cxr_research/README.md) for module responsibilities and the [run guide](configs/README.md) for synthetic CPU checks and MedGemma/U-Net experiment templates. The GPU and full research evaluation paths remain subject to the documented runtime and protocol gates.
+
 ## Automation
 
 The current CI validates repository safety controls and dependency-free unit tests. CD creates an audited research-source bundle and a draft GitHub Release; it does not deploy a clinical system or publish model weights.

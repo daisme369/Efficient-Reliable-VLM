@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools==84.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cxr-research"
+version = "0.1.0"
+description = "Reproducible MedGemma and anatomical segmentation research pipelines"
+readme = "README.md"
+requires-python = ">=3.12"
+license = {file = "LICENSE"}
+dynamic = ["dependencies"]
+
+[project.scripts]
+cxr-research = "cxr_research.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["cxr_research*"]
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}

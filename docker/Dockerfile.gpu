@@ -33,6 +33,13 @@ RUN uv pip install --system \
     && chown -R researcher:researcher /workspace /home/researcher \
     && rm -rf /tmp/requirements
 
+RUN sed -i 's,http://deb.debian.org,https://deb.debian.org,g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update -o APT::Update::Error-Mode=any \
+    && apt-get install --yes --no-install-recommends git=1:2.39.5-0+deb12u3 \
+    && git --version \
+    && python -c "from importlib.metadata import version; assert version('nvidia-dali-cuda130') == '2.3.0'" \
+    && rm -rf /var/lib/apt/lists/*
+
 USER researcher
 WORKDIR /workspace
 

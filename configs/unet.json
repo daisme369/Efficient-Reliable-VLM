@@ -1,0 +1,21 @@
+{
+  "run_id": "unet-pilot-no-augmentation",
+  "task": "unet",
+  "baseline": "S1",
+  "data": {
+    "root": "/private/project/images",
+    "manifest": "/private/project/images/prepared/manifest.jsonl",
+    "provenance": "/private/project/images/prepared/provenance.json",
+    "synthetic": false
+  },
+  "output_root": "/private/project/runs",
+  "protocol": "/private/project/protocol-unet.json",
+  "device": "cuda",
+  "seed": 42,
+  "jira_issue": null,
+  "train": {"epochs": 1, "batch_size": 2, "precision": "fp16", "learning_rate": 0.0002},
+  "unet": {
+    "size": 256, "base_channels": 32, "threshold": 0.5,
+    "rotation_degrees": 0.0, "brightness": 0.0, "contrast": 0.0
+  }
+}

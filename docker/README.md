@@ -10,6 +10,14 @@ The GPU environment is a Linux `amd64` container shared by the approved training
 
 This is a research environment, not a clinical deployment image.
 
+The user approved a local RTX 3060 exception on 2026-10-17 for synthetic
+DALI/CUDA smoke tests only. Use `--role smoke` for that check. Real-data
+training/inference still rejects `sm86`; smoke results are not research benchmarks.
+
+See [the local I/O smoke results](IO_SMOKE_STATUS.md) for the tested image and
+remaining clean-build checks, and [the proposed rental flow](RENTED_GPU_FLOW.md)
+for source, data and artifact staging.
+
 ## Host prerequisites
 
 - Linux x86-64 host.
@@ -65,6 +73,6 @@ docker run --rm --gpus all \
   python scripts/ci/check_gpu_environment.py --role inference
 ```
 
-The preflight fails on Windows containers, an unsupported GPU architecture, a driver below release 580, a non-CUDA-13.0 PyTorch build, or a dependency mismatch. Record the successful preflight output with the experiment manifest. Do not silently fall back to a different CUDA image; update the dependency decision and re-resolve the lock first.
+The preflight fails on Windows containers, an unsupported GPU architecture, a driver below release 580, a non-CUDA-13.0 PyTorch build, or a dependency mismatch. Before a real train or evaluate command, set `CXR_CONTAINER_IMAGE_ID` to the immutable Docker image ID in `sha256:<64 hex>` form. The research CLI records it with the driver release, runtime versions, role and selected device in `run.json`, and rejects GPU execution when the identifier is absent or malformed. Do not silently fall back to a different CUDA image; update the dependency decision and re-resolve the lock first.
 
 For an interactive shell after a successful preflight, rerun the container with `--entrypoint bash`. Keep the source mount read-only and use separate access-controlled mounts for data, model cache, and experiment outputs. Writable mounts must be owned by container UID 10001, or the provider must map an equivalent non-root user. Use a persistent cache to avoid repeatedly downloading model files, subject to the model license and access policy.

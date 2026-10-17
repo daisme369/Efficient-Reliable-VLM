@@ -1,0 +1,48 @@
+{
+  "image_root": "/private/project/images",
+  "prepared_dir": "/private/project/images/prepared",
+  "patient_namespace": "mimic-cxr",
+  "split_policy": "UNRESOLVED",
+  "uncertain_label_policy": "UNRESOLVED",
+  "input_policy": "UNRESOLVED",
+  "template_policy": "UNRESOLVED",
+  "access_review": "UNRESOLVED",
+  "producer_commit": "UNRESOLVED",
+  "mask_coordinates": "original_resolution",
+  "minimum_rca": null,
+  "primary_template_ids": [],
+  "split_values": {"train": "train", "validate": "validation", "test": "test"},
+  "qa_split_values": {"train": "train", "val": "validation", "test": "test"},
+  "answer_type_values": {"closed": "closed", "open": "open"},
+  "images": {
+    "path": "/private/project/image-index.csv",
+    "format": "csv", "name": "MIMIC-CXR-JPG", "version": "2.1.0",
+    "access": "UNRESOLVED", "license": "UNRESOLVED",
+    "columns": {
+      "image_id": "UNRESOLVED", "patient_id": "UNRESOLVED", "image": "UNRESOLVED",
+      "view": "UNRESOLVED", "split": "UNRESOLVED"
+    }
+  },
+  "qa": {
+    "path": "/private/project/vqa.json", "format": "json", "records_key": null,
+    "name": "MIMIC-Ext-MIMIC-CXR-VQA", "version": "1.0.0",
+    "access": "UNRESOLVED", "license": "UNRESOLVED",
+    "derivation": {
+      "producer": "UNRESOLVED", "method": "UNRESOLVED",
+      "source_report_section": "UNRESOLVED", "filters": "UNRESOLVED"
+    },
+    "columns": {
+      "image_id": "UNRESOLVED", "question": "UNRESOLVED", "answer": "UNRESOLVED",
+      "answer_type": "UNRESOLVED", "template_id": "UNRESOLVED", "split": "UNRESOLVED"
+    }
+  },
+  "masks": {
+    "path": "/private/project/chexmask-original-resolution.csv.gz", "format": "csv",
+    "name": "CheXmask", "version": "1.0.0",
+    "access": "UNRESOLVED", "license": "UNRESOLVED",
+    "columns": {
+      "image_id": "UNRESOLVED", "rca": "Dice RCA (Mean)", "height": "Height", "width": "Width",
+      "left_lung": "Left Lung", "right_lung": "Right Lung"
+    }
+  }
+}

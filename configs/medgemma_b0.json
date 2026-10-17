@@ -1,0 +1,25 @@
+{
+  "run_id": "medgemma-b0-validation",
+  "task": "medgemma",
+  "baseline": "B0",
+  "data": {
+    "root": "/private/project/images",
+    "manifest": "/private/project/images/prepared/manifest.jsonl",
+    "provenance": "/private/project/images/prepared/provenance.json",
+    "synthetic": false
+  },
+  "output_root": "/private/project/runs",
+  "protocol": "/private/project/protocol-b0.json",
+  "device": "cuda",
+  "seed": 42,
+  "jira_issue": null,
+  "train": {"batch_size": 1, "precision": "bf16"},
+  "medgemma": {
+    "model_id": "google/medgemma-1.5-4b-it",
+    "revision": "UNRESOLVED",
+    "prompt": "Answer the question using the chest X-ray. Give a concise answer.",
+    "max_length": 4096,
+    "max_new_tokens": 128,
+    "local_files_only": true
+  }
+}

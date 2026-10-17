@@ -32,7 +32,7 @@ RELEASE_EXACT_PATHS = frozenset(
         "requirements.txt",
     }
 )
-RELEASE_PREFIXES = ("configs/", "docker/", "requirements/", "scripts/", "src/", "tests/")
+RELEASE_PREFIXES = ("configs/", "docker/", "docs/agents/", "requirements/", "scripts/", "src/", "tests/")
 
 
 def sha256_bytes(content: bytes) -> str:

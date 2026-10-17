@@ -1,0 +1,14 @@
+# Merge this section into a sweep's base or a single experiment JSON config.
+# Replace the index path and SHA-256 printed by `pack`.
+io:
+  backend: webdataset
+  shard_index: /private/project/shards/index.json
+  shard_index_sha256: REPLACE_WITH_PACK_OUTPUT
+  decoder: dali
+  num_workers: 2
+  prefetch_factor: 2
+  pin_memory: true
+  group_by_length: true
+  bucket_batches: 16
+  cache_bytes_mb: 64
+  dali_threads: 2

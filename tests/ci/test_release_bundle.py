@@ -44,6 +44,8 @@ class ReleaseBundleTests(unittest.TestCase):
                 "LICENSE",
                 "src/example.py",
                 "docker/Dockerfile.gpu",
+                "docs/agents/RESEARCH-SCOPE.md",
+                "docs/others/private-notes.md",
                 "requirements/gpu-cu130.txt",
                 "requirements/gpu-runtime.txt",
                 ".github/workflows/ci.yml",
@@ -59,6 +61,7 @@ class ReleaseBundleTests(unittest.TestCase):
                 "LICENSE",
                 "README.md",
                 "docker/Dockerfile.gpu",
+                "docs/agents/RESEARCH-SCOPE.md",
                 "requirements/gpu-cu130.txt",
                 "requirements/gpu-runtime.txt",
                 "src/example.py",
@@ -68,7 +71,12 @@ class ReleaseBundleTests(unittest.TestCase):
         )
 
     def test_bundle_contains_only_allowlisted_source_and_manifest(self) -> None:
-        sources = ["README.md", "LICENSE", "src/example.py", ".github/workflows/ci.yml"]
+        self.write("AGENTS-INSTRUCTIONS.md", b"# Policy router\n")
+        self.write("docs/agents/DATA-PRIVACY.md", b"# Data policy\n")
+        sources = [
+            "README.md", "LICENSE", "src/example.py", ".github/workflows/ci.yml",
+            "AGENTS-INSTRUCTIONS.md", "docs/agents/DATA-PRIVACY.md",
+        ]
         archive, manifest_path, checksums_path = build_bundle(
             self.root,
             self.root / "dist",
@@ -82,8 +90,10 @@ class ReleaseBundleTests(unittest.TestCase):
         prefix = "Efficient-Reliable-VLM-v1.2.3/"
         self.assertEqual(
             [
+                prefix + "AGENTS-INSTRUCTIONS.md",
                 prefix + "LICENSE",
                 prefix + "README.md",
+                prefix + "docs/agents/DATA-PRIVACY.md",
                 prefix + "src/example.py",
                 prefix + "release-manifest.json",
             ],

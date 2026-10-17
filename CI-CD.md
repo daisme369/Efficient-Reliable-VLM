@@ -8,7 +8,7 @@ Run the same checks before requesting review:
 
 ```powershell
 python scripts/ci/check_repository.py --scope repository
-python -m compileall -q scripts tests
+python -m compileall -q src scripts tests
 python -m unittest discover -s tests -p "test_*.py" -v
 ```
 
@@ -39,4 +39,4 @@ Create a protected GitHub environment named `release` and require a maintainer r
 
 ## Current boundary
 
-The project does not yet contain training or inference code. CI statically checks the GPU environment policy and unit-tests its preflight logic, but it does not build the multi-gigabyte image or access a GPU. CI therefore makes no claim about model quality, clinical correctness, real GPU compatibility, reproducibility of experiments, or deployment readiness. The first rented instance must build the image and pass the role-specific preflight; add stronger gates only when the corresponding implementation and synthetic test fixtures exist.
+The research package contains MedGemma and U-Net development paths. CI checks package boundaries, data/config contracts and the GPU preflight logic. Tensor/image smoke tests require the project CPU environment and are skipped in dependency-free CI. CI does not build the multi-gigabyte GPU image or access a GPU, so it makes no claim about model quality, clinical correctness, real GPU compatibility or deployment readiness. Real runs must pass the role-specific preflight and the recorded protocol checks.

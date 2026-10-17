@@ -1,0 +1,48 @@
+# Development template. Replace private paths and supply reviewed per-run protocols.
+# The current GPU policy still requires a recorded exception for RTX U-Net training.
+schema_version: 1
+sweep_id: unet-augmentation-pilot
+seeds: [42, 43, 44]
+on_error: stop
+
+base:
+  task: unet
+  baseline: S1
+  output_root: /private/project/sweeps
+  device: cuda
+  data:
+    root: /private/project/data
+    manifest: /private/project/data/manifest.jsonl
+    provenance: /private/project/data/provenance.json
+    synthetic: false
+  train:
+    epochs: 1
+    batch_size: 2
+    accumulation_steps: 1
+    learning_rate: 0.0002
+    weight_decay: 0.01
+    max_grad_norm: 1.0
+    precision: fp16
+  unet:
+    size: 256
+    base_channels: 32
+    threshold: 0.5
+    rotation_degrees: 0.0
+    brightness: 0.0
+    contrast: 0.0
+
+variants:
+  - name: no-augmentation
+    overrides: {}
+  - name: light-augmentation
+    overrides:
+      unet:
+        rotation_degrees: 5.0
+        brightness: 0.05
+        contrast: 0.05
+
+# Each seed/variant has a different config fingerprint. For real training, map
+# every generated run ID to its own approved protocol with matching fingerprints.
+# protocols:
+#   no-augmentation-seed-42: /private/project/protocols/no-augmentation-seed-42.json
+#   ... repeat for each run, using the IDs shown by --dry-run.
