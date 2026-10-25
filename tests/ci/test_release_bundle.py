@@ -40,6 +40,8 @@ class ReleaseBundleTests(unittest.TestCase):
         selected = select_release_paths(
             [
                 ".dockerignore",
+                "DATA_MANIFESTS.md",
+                "DATA_PROCESSING.md",
                 "README.md",
                 "LICENSE",
                 "src/example.py",
@@ -58,6 +60,8 @@ class ReleaseBundleTests(unittest.TestCase):
         self.assertEqual(
             [
                 ".dockerignore",
+                "DATA_MANIFESTS.md",
+                "DATA_PROCESSING.md",
                 "LICENSE",
                 "README.md",
                 "docker/Dockerfile.gpu",

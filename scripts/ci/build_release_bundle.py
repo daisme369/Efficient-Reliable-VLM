@@ -25,6 +25,8 @@ RELEASE_EXACT_PATHS = frozenset(
         "AGENTS-INSTRUCTIONS.md",
         "CI-CD.md",
         "CITATION.cff",
+        "DATA_MANIFESTS.md",
+        "DATA_PROCESSING.md",
         "DEPENDENCIES.md",
         "LICENSE",
         "README.md",

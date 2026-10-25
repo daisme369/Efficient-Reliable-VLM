@@ -24,6 +24,12 @@ The safety checker rejects common restricted-data paths and formats, model weigh
 
 `.github/workflows/ci.yml` runs on pull requests, pushes to `main`, manual dispatch, and calls from the release workflow. It has read-only repository permissions, uses GitHub-hosted runners, receives no dataset or compute credentials, and runs only synthetic or repository-local tests.
 
+The data tests install NumPy, Pillow, pydicom, Hugging Face Hub and PyYAML with
+the existing `requirements.txt` pins as constraints. This supports synthetic
+mask/DICOM/config tests and mocked cache boundaries without installing Torch,
+Transformers, CUDA or model weights. Action pins, triggers, permissions and
+credential access are unchanged.
+
 Configure the `Repository quality and safety` job as a required status check in the GitHub branch protection rules for `main`. Keep the repository's default Actions token permission at read-only.
 
 ## Research-source delivery
@@ -39,4 +45,11 @@ Create a protected GitHub environment named `release` and require a maintainer r
 
 ## Current boundary
 
-The research package contains MedGemma and U-Net development paths. CI checks package boundaries, data/config contracts and the GPU preflight logic. Tensor/image smoke tests require the project CPU environment and are skipped in dependency-free CI. CI does not build the multi-gigabyte GPU image or access a GPU, so it makes no claim about model quality, clinical correctness, real GPU compatibility or deployment readiness. Real runs must pass the role-specific preflight and the recorded protocol checks.
+The research package contains MedGemma and U-Net development paths. CI checks
+package boundaries, data/config contracts, synthetic image/mask processing and
+GPU preflight logic. Tensor-training tests require the full project CPU
+environment and are skipped in the lightweight CI environment. CI does not
+build the multi-gigabyte GPU image or access a GPU, so it makes no claim about
+model quality, clinical correctness, real GPU compatibility or deployment
+readiness. Real runs must pass the role-specific preflight and recorded protocol
+checks.

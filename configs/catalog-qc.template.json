@@ -1,0 +1,12 @@
+{
+  "data_root": "E:/Project/Efficient-Reliable-VLM/data",
+  "catalog_dir": "E:/Project/Efficient-Reliable-VLM/data/manifests/2026-10-19-v4",
+  "output_dir": "E:/Project/Efficient-Reliable-VLM/data/qc/next-audit",
+  "catalog_report_sha256": "UNRESOLVED",
+  "normalization": "cxr-text-nfc-space-v1",
+  "uncertain_label_policy": "preserve_source_answers",
+  "review_policy": "retain_and_flag",
+  "datasets": ["mimic-cxr", "nih-chestxray14", "vindr-cxr"],
+  "image_limit_per_dataset": 32,
+  "voi_policy": "none"
+}

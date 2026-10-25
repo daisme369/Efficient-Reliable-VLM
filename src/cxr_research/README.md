@@ -44,6 +44,26 @@ Add a module to the package that owns its behavior. A new metric should not need
 
 Keep imports explicit and package `__init__.py` files light. Importing the CLI must not initialize PyTorch, Transformers, CUDA or model downloads. `tests/research/test_package.py` enforces dependency boundaries and checks module import cycles.
 
+`data/catalog.py` owns the private SQLite catalog, source fingerprints, aggregate
+audits and crosswalk exports. `data/catalog_sources.py` owns release-specific
+ingestion, while `data/source_refs.py` reads original CSV/ZIP references.
+`catalog` exposes this path through the package CLI. Its intermediate schema is
+kept separate from training records. `data/catalog_adapter.py`, exposed as
+`prepare-catalog --spec`, converts pinned development QA to canonical schema 3
+using explicit policy choices, `SplitAudit` and the canonical manifest loader.
+It retains the union test seal and does not create grounding or segmentation
+targets. See [the manifest guide](../../../DATA_MANIFESTS.md) for private storage,
+specification fields and remaining training gates.
+
+`data/quality.py` owns resumable private QC, with development QA processing in
+`data/qa_audit.py` and bounded image/mask checks in `data/image_audit.py`.
+`preprocessing/labels.py` owns versioned, meaning-preserving text operations and
+lexical review cues. `preprocessing/dicom.py` owns explicit auxiliary DICOM
+display conversion; `preprocessing/annotations.py` owns original-coordinate box
+and scene-graph parsing. These modules do not select clinical labels, primary
+templates or a finding-grounding protocol. See the
+[processing guide](../../../DATA_PROCESSING.md).
+
 `experiments/sweep.py` owns YAML variant/seed expansion and sequential process
 orchestration. It invokes the normal training CLI in a fresh process for each
 run, so model state and CUDA allocations are not shared between experiments.

@@ -1,0 +1,37 @@
+{
+  "data_root": "E:/Project/Efficient-Reliable-VLM/data",
+  "catalog_dir": "E:/Project/Efficient-Reliable-VLM/data/manifests/2026-10-19-v4",
+  "prepared_dir": "E:/Project/Efficient-Reliable-VLM/data/prepared/next-vqa-snapshot",
+  "catalog_report_sha256": "UNRESOLVED",
+  "patient_namespace": "mimic-cxr",
+  "split_policy": "mimic-official",
+  "input_policy": "UNRESOLVED",
+  "views": ["UNRESOLVED"],
+  "uncertain_label_policy": "preserve_source_answers",
+  "normalization": "cxr-text-nfc-space-v1",
+  "review_policy": "retain_and_flag",
+  "template_policy": "UNRESOLVED",
+  "primary_template_ids": [],
+  "template_id_field": "template_program",
+  "answer_type_field": "UNRESOLVED",
+  "answer_type_values": {},
+  "answer_rendering": "UNRESOLVED",
+  "empty_answer_policy": "UNRESOLVED",
+  "answer_separator": "UNRESOLVED",
+  "access_review": "UNRESOLVED",
+  "producer_commit": "UNRESOLVED",
+  "sources": {
+    "images": {
+      "name": "MIMIC-CXR-JPG", "version": "2.1.0",
+      "access": "UNRESOLVED", "license": "UNRESOLVED"
+    },
+    "qa": {
+      "name": "MIMIC-Ext-MIMIC-CXR-VQA", "version": "1.0.0",
+      "access": "UNRESOLVED", "license": "UNRESOLVED",
+      "derivation": {
+        "producer": "UNRESOLVED", "method": "UNRESOLVED",
+        "source_report_section": "UNRESOLVED", "filters": "UNRESOLVED"
+      }
+    }
+  }
+}

@@ -90,6 +90,10 @@ real data stay in private storage, just like checkpoints.
 
 ## Data preparation
 
+For the separate binary-lung U-Net manifest, private pilot configuration and
+policy-gated startup, see [the U-Net pipeline](UNET_PIPELINE.md). That path uses
+existing CheXmask catalog references and does not require a MedGemma cache.
+
 For tar shards, token caching, length grouping and GPU decoding, see
 [the I/O pipeline guide](IO_PIPELINE.md). These options work with both single
 experiment configs and the YAML sweep's `base.io` section.

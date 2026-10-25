@@ -19,7 +19,9 @@ ENV HF_HOME=/home/researcher/.cache/huggingface \
 COPY --from=uv /uv /uvx /bin/
 COPY requirements.txt requirements/gpu-runtime.txt requirements/gpu-cu130.txt /tmp/requirements/
 
-RUN uv pip install --system \
+RUN --mount=type=cache,id=cxr-uv-0.11.21-py312-cu130-amd64,target=/root/.cache/uv,sharing=locked \
+    export UV_NO_CACHE=0 UV_LINK_MODE=copy UV_CONCURRENT_DOWNLOADS=4 \
+    && uv pip install --system \
         --default-index https://pypi.org/simple \
         --requirement /tmp/requirements/requirements.txt \
         --requirement /tmp/requirements/gpu-runtime.txt \

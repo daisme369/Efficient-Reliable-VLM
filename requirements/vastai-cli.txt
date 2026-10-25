@@ -1,0 +1,2 @@
+# Local provider tooling only; keep out of the research GPU environment.
+vastai==1.8.3

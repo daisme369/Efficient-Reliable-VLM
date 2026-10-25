@@ -1,0 +1,20 @@
+{
+  "data_root": "/private/project/data",
+  "catalog_dir": "/private/project/data/manifests/snapshot",
+  "catalog_report_sha256": "UNRESOLVED",
+  "prepared_dir": "/private/project/data/prepared/unet-pilot",
+  "purpose": "smoke_only",
+  "image_limit_per_split": {"train": 32, "validation": 8},
+  "target": "binary_lung_union",
+  "mask_coordinates": "original_resolution",
+  "split_policy": "mimic-official",
+  "views": ["AP", "PA"],
+  "minimum_rca": 0.7,
+  "quality_policy": "UNRESOLVED",
+  "segmentation_training_decision": "UNRESOLVED",
+  "access_review": "UNRESOLVED",
+  "sources": {
+    "images": {"name": "MIMIC-CXR-JPG", "version": "2.1.0", "access": "UNRESOLVED", "license": "UNRESOLVED"},
+    "masks": {"name": "CheXmask", "version": "1.0.0", "access": "UNRESOLVED", "license": "UNRESOLVED"}
+  }
+}

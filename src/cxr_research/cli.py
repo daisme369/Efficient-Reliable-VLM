@@ -21,6 +21,14 @@ def main(argv=None):
     fixture.add_argument("--output", type=Path, required=True)
     prepare = commands.add_parser("prepare")
     prepare.add_argument("--spec", type=Path, required=True)
+    catalog = commands.add_parser("catalog", help="index local releases and audit dataset links")
+    catalog.add_argument("--data-root", type=Path, required=True)
+    catalog.add_argument("--output", type=Path, required=True)
+    catalog.add_argument("--split-policy", choices=["audit-only", "mimic-official"], default="audit-only")
+    adapter = commands.add_parser("prepare-catalog", help="convert audited catalog QA to canonical schema 3")
+    adapter.add_argument("--spec", type=Path, required=True)
+    audit = commands.add_parser("audit-catalog", help="process development QA and resume private image/mask QC")
+    audit.add_argument("--spec", type=Path, required=True)
     pack = commands.add_parser("pack", help="create private WebDataset shards and token cache")
     pack.add_argument("--config", type=Path, required=True)
     pack.add_argument("--output", type=Path, required=True)
@@ -38,6 +46,18 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         repository = repository_root(args.repository)
+        if args.command == "audit-catalog":
+            from cxr_research.data.quality import audit_catalog
+            print(json.dumps(audit_catalog(args.spec, repository)))
+            return 0
+        if args.command == "catalog":
+            from cxr_research.data.catalog import build
+            print(json.dumps(build(args.data_root, args.output, args.split_policy, repository=repository)))
+            return 0
+        if args.command == "prepare-catalog":
+            from cxr_research.data.catalog_adapter import prepare_catalog
+            print(json.dumps(prepare_catalog(args.spec, repository)))
+            return 0
         if args.command == "sweep":
             from cxr_research.experiments.sweep import load_sweep, run_sweep
             plan = load_sweep(args.config, repository)
