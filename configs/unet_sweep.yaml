@@ -1,5 +1,5 @@
 # Development template. Replace private paths and supply reviewed per-run protocols.
-# The current GPU policy still requires a recorded exception for RTX U-Net training.
+# GPU training permits H100/H200 or RTX PRO 6000 Blackwell after preflight.
 schema_version: 1
 sweep_id: unet-augmentation-pilot
 seeds: [42, 43, 44]

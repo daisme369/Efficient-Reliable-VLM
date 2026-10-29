@@ -44,8 +44,8 @@ Copy [io_webdataset.example.yaml](io_webdataset.example.yaml) into the sweep's
 `base`, or use equivalent fields in a single JSON config. Set `shard_index` to
 an absolute path and `shard_index_sha256` to the checksum printed by `pack`.
 On CPU use `decoder: pil`. On the approved Linux CUDA environment use `dali`.
-The existing GPU policy still applies, including the pending RTX U-Net training
-exception. No hardware gate was relaxed by this change.
+Training uses H100, H200 or RTX PRO 6000 Blackwell under the existing GPU preflight.
+The RTX 3060/4090 U-Net training exception remains pending; RTX 5090 is inference-only.
 
 ```bash
 PYTHONPATH=src python -m cxr_research validate --config /private/project/b1.json
@@ -88,7 +88,7 @@ and variable token-budget batches are outside this single-GPU runner.
 Changing worker count or decoder is not assumed to preserve bitwise resume.
 The synthetic CPU Trainer test compares uninterrupted training with a restart
 from a checkpoint inside an epoch and checks identical final weights. Actual
-MedGemma QLoRA checkpoint resume still needs validation with the real GPU/model
+MedGemma LoRA/QLoRA checkpoint resume still needs validation with the real GPU/model
 environment.
 
 ## DALI and preprocessing

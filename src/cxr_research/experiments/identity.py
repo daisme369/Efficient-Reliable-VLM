@@ -14,7 +14,9 @@ def _identity(config, manifest, processor):
             "chat_template_sha256": digest(processor.chat_template),
             "model_revision": config.medgemma.revision,
             "objective": "assistant_answer_and_end_of_turn_only",
-            "quantization": "nf4_double_quant", "adapter_scope": "language_projections"}
+            "precision": config.train.precision,
+            "quantization": "nf4_double_quant" if config.medgemma.quantization == "nf4" else "none",
+            "adapter_scope": "language_projections"}
 
 
 def _verify_parent(path, identity):

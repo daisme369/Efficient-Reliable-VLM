@@ -1,14 +1,17 @@
 # Linux GPU container
 
-The GPU environment is a Linux `amd64` container shared by the approved training and inference hardware profiles. PyTorch is locked to CUDA 13.0 so one image can cover Ada (`sm89`), Hopper (`sm90`), and client Blackwell (`sm120`). Runtime policy still separates the roles:
+The GPU environment is a Linux `amd64` container shared by the approved training and inference hardware profiles. PyTorch is locked to CUDA 13.0 so one image can cover Ada (`sm89`), Hopper (`sm90`), and RTX Blackwell (`sm120`). Runtime policy validates the allowed workload roles:
 
 | Role | Approved GPUs | Compute capability |
 |---|---|---|
 | Training | NVIDIA H100 or H200 | `sm90` |
+| Training | RTX PRO 6000 Blackwell | `sm120` plus model-name check |
 | Test, inference, or deployment research | RTX 4090 | `sm89` |
 | Test, inference, or deployment research | RTX 5090 or RTX PRO 6000 Blackwell | `sm120` |
 
 This is a research environment, not a clinical deployment image.
+
+RTX PRO 6000 Blackwell supports both training and inference under HW-2026-10-29 in `DETAILED_ACTION_PLAN.md`. Training accepts its Server, Workstation and Max-Q Workstation Editions. The preflight requires the model identity as well as `sm120`; RTX 5090 remains inference-only.
 
 The user approved a local RTX 3060 exception on 2026-10-17 for synthetic
 DALI/CUDA smoke tests only. Use `--role smoke` for that check. Real-data
@@ -53,7 +56,7 @@ The build context is restricted by `.dockerignore` to the Dockerfile and depende
 
 Mount the checked-out repository and run the matching preflight before a workload.
 
-Training on H100 or H200:
+Training on H100, H200 or RTX PRO 6000 Blackwell:
 
 ```bash
 docker run --rm --gpus all \

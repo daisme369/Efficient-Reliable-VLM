@@ -61,16 +61,33 @@ def vast_status(key: str, storage: int) -> dict:
     client = VastAI(api_key=key, raw=True, quiet=True)
     # No create/start/stop/destroy/payment endpoint is used by this helper.
     client.show_user()
-    query = ("verified=true rentable=true datacenter=true num_gpus=1 compute_cap=900 "
-             "cpu_arch=amd64 driver_version>=580.0.0 cuda_vers>=13 reliability>0.99 "
-             f"disk_space>={storage}")
-    offers = client.search_offers(query=query, storage=storage, limit=100, order="dph_total")
+    common = ("verified=true rentable=true datacenter=true num_gpus=1 "
+              "cpu_arch=amd64 driver_version>=580.0.0 cuda_vers>=13 reliability>0.99 "
+              f"disk_space>={storage}")
+    pro_names = [prefix + "RTX_PRO_6000_Blackwell" + suffix
+                 for prefix in ("", "NVIDIA_")
+                 for suffix in ("", "_Server_Edition", "_Workstation_Edition", "_Max-Q_Workstation_Edition")]
+    queries = [common + " compute_cap=900",
+               common + " compute_cap=1200 gpu_name in [" + ",".join(pro_names) + "]"]
+    # Filter Blackwell model identity at the provider before its result limit;
+    # cheaper inference-only cards must not crowd out the approved training GPU.
+    offers = [row for query in queries for row in
+              client.search_offers(query=query, storage=storage, limit=100, order="dph_total")]
     fields = ("id", "gpu_name", "gpu_ram", "num_gpus", "cpu_arch", "driver_version",
               "datacenter", "reliability", "dph_total", "storage_cost", "inet_up_cost", "inet_down_cost")
-    selected = [{k: row[k] for k in fields if k in row} for row in offers
-                if str(row.get("gpu_name", "")).replace("_", " ").startswith(("H100", "H200"))][:10]
-    return {"account_authenticated": True, "storage_gib": storage, "query": query,
-            "offers": selected, "instance_created": False,
+    selected = []
+    for row in offers:
+        name = " ".join(str(row.get("gpu_name", "")).replace("_", " ").split())
+        hopper = name.startswith(("H100", "H200")) and row.get("compute_cap") == 900
+        pro_blackwell = row.get("compute_cap") == 1200 and re.fullmatch(
+            r"(?:NVIDIA )?RTX PRO 6000 Blackwell(?: (?:Server|(?:Max-Q )?Workstation) Edition)?",
+            name, re.IGNORECASE,
+        ) is not None
+        if hopper or pro_blackwell:
+            selected.append({k: row[k] for k in fields if k in row})
+    selected.sort(key=lambda row: float(row.get("dph_total", "inf")))
+    return {"account_authenticated": True, "storage_gib": storage, "query": queries[0],
+            "additional_queries": queries[1:], "offers": selected[:10], "instance_created": False,
             "note": "Live offers only; host privacy/access review and final GPU preflight remain required."}
 
 

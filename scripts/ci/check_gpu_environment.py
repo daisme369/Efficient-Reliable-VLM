@@ -19,7 +19,7 @@ EXPECTED_CUDA = "13.0"
 MINIMUM_DRIVER_MAJOR = 580
 ROLE_CAPABILITIES = {
     "smoke": frozenset({(8, 6)}),
-    "train": frozenset({(9, 0)}),
+    "train": frozenset({(9, 0), (12, 0)}),
     "inference": frozenset({(8, 9), (12, 0)}),
 }
 
@@ -56,6 +56,7 @@ def validate_profile(
     dali_version: str,
     capabilities: Sequence[tuple[int, int]],
     driver_majors: Sequence[int],
+    device_names: Sequence[str] = (),
 ) -> list[str]:
     errors: list[str] = []
     if role not in ROLE_CAPABILITIES:
@@ -86,6 +87,17 @@ def validate_profile(
                 f"GPU {index} has sm{capability[0]}{capability[1]}; "
                 f"role {role!r} permits only {expected}"
             )
+        if role == "train":
+            name = device_names[index] if index < len(device_names) else ""
+            name = " ".join(name.replace("_", " ").split())
+            pro_blackwell = re.fullmatch(
+                r"(?:NVIDIA )?RTX PRO 6000 Blackwell(?: (?:Server|(?:Max-Q )?Workstation) Edition)?",
+                name, re.IGNORECASE,
+            ) is not None
+            if capability == (12, 0) and not pro_blackwell:
+                errors.append(f"GPU {index}: Blackwell training requires RTX PRO 6000 Blackwell model identity")
+            elif pro_blackwell and capability != (12, 0):
+                errors.append(f"GPU {index}: RTX PRO 6000 Blackwell training requires sm120")
 
     if not driver_majors:
         errors.append("no NVIDIA driver version was detected")
@@ -153,6 +165,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         dali_version=_installed_version("nvidia-dali-cuda130"),
         capabilities=capabilities,
         driver_majors=driver_majors,
+        device_names=names,
     )
     if errors:
         print(f"GPU preflight failed with {len(errors)} error(s):", file=sys.stderr)

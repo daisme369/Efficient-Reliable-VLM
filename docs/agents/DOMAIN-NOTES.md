@@ -198,7 +198,7 @@ Source:   link to data card, decision record, or primary paper (fill when known)
 - **PROPOSED (24 GB claim):** The 24 GB profile is claimed only if measured on a 24 GB device (RTX 4090) or enforced by a hard memory cap on a larger device. Record peak allocated and peak reserved memory, at the maximum input length.
 - **PROPOSED (incremental cost):** For `M1`, report incremental latency and VRAM relative to `B1`, including extra forward passes, extra heads, or repeated decoding.
 - **PROPOSED (training cost):** Trainable parameters count adapter parameters only, with the quantization and adapter configuration stated. GPU-hours include failed and interrupted runs that informed decisions.
-- **Rule:** Do not mix training-hardware numbers (H100/H200) with inference-hardware claims (see [GPU policy](GPU-DOCKER.md#22-linux-docker-and-gpu-execution-policy)).
+- **Rule:** Report training and inference measurements separately with the actual GPU and workload role, including when RTX PRO 6000 Blackwell is used for both (see [GPU policy](GPU-DOCKER.md#22-linux-docker-and-gpu-execution-policy)).
 
 ## D13. Error analysis and clinical review
 

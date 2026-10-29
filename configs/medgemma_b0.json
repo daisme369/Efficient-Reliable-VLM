@@ -17,6 +17,7 @@
   "medgemma": {
     "model_id": "google/medgemma-1.5-4b-it",
     "revision": "UNRESOLVED",
+    "quantization": "none",
     "prompt": "Answer the question using the chest X-ray. Give a concise answer.",
     "max_length": 4096,
     "max_new_tokens": 128,

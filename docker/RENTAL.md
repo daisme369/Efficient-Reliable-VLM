@@ -76,9 +76,14 @@ The helper accepts `vastai_api_key` or `VAST_API_KEY`, and
 `hf_full_access_token` or `HF_TOKEN`, from the local file. It never sources that
 file as shell code, prints credentials, or puts keys in command arguments.
 Its Vast operations authenticate and search on-demand offers only. The search
-requires one H100/H200, `sm90`, Linux amd64, driver 580+, CUDA 13 support, a
+requires one H100/H200 (`sm90`) or RTX PRO 6000 Blackwell (`sm120` plus model identity), Linux amd64, driver 580+, CUDA 13 support, a
 verified datacenter and reliability above 0.99. Advertised specifications still
 need the real training preflight. A datacenter filter is not a data-use approval.
+
+The helper searches Hopper and RTX PRO 6000 Blackwell separately, restricting
+Blackwell model names before the provider's result limit, then merges offers by
+price. It accepts the full Blackwell family name and official edition suffixes;
+ambiguous provider abbreviations are excluded until their identity is verified.
 
 After the account holder accepts the MedGemma model terms, download the pinned
 files to private storage before renting:
@@ -90,7 +95,7 @@ files to private storage before renting:
 ```
 
 The cache command checks metadata sizes and LFS SHA-256 hashes, then loads the
-processor offline. It does not load the full model or prove QLoRA compatibility.
+processor offline. It does not load the full model or prove BF16 LoRA/QLoRA compatibility.
 Interrupted downloads remain cached for a retry. No dataset is sent to Hugging Face.
 
 Before paying for a selected offer, review its specific host's access and retention
@@ -157,7 +162,7 @@ Ensure UID 10001 can write cache and runs, and that Git can read the staged
 checkout with its actual ownership. Keep secrets in the provider's runtime secret
 mechanism. Verify volume retention separately from container lifetime.
 
-Use one visible H100/H200 for training, the locked Linux amd64 image, NVIDIA
+Use one visible H100, H200 or RTX PRO 6000 Blackwell for training, the locked Linux amd64 image, NVIDIA
 Container Toolkit, and host driver release 580 or newer.
 
 ## Check the container, then start the pilot
@@ -178,7 +183,10 @@ The default command checks storage permissions, canonical data, protocol,
 Git provenance, shard contents when selected, the training GPU profile, cached
 weight-file presence, and offline processor loading. It does not load the full
 model or start training. A cache presence check does not prove weight integrity
-or that QLoRA will fit in memory.
+or that BF16 LoRA/QLoRA will fit in memory. The current B0/B1 templates explicitly
+select BF16 unquantized weights with `medgemma.quantization: "none"`; follow the
+[profile and migration notes](../configs/README.md#medgemma-bf16-lora-profile)
+when preparing a private config. The legacy NF4 default is not the BF16 profile.
 
 After these checks pass, start a separately prepared small pilot:
 
@@ -221,4 +229,4 @@ model identity check when loading the real model.
 Verify `run.json`, `metrics.json`, adapter files, and checkpoint hashes. Back up
 private artifacts and confirm their persistence before terminating compute.
 Standalone evaluation uses the approved inference hardware profile; H100/H200
-remain training hardware under the repository policy.
+remain training hardware under the repository policy, while RTX PRO 6000 Blackwell supports both roles.

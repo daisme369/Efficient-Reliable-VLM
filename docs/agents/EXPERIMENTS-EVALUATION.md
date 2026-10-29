@@ -38,7 +38,7 @@ BLEU and ROUGE are lexical similarity metrics; never present them alone as proof
 Use these stable identifiers unless an approved decision record changes them:
 
 - `B0`: zero-shot/frozen VLM.
-- `B1`: QLoRA VQA baseline.
+- `B1`: BF16 LoRA VQA baseline (unquantized frozen base, language-only adapters), per the user-requested MODEL-2026-10-30 record in `DETAILED_ACTION_PLAN.md`. An explicitly selected NF4 QLoRA profile is recorded separately; do not mix its artifacts or measurements with BF16.
 - `B2`: `B1` plus answer-only calibration/risk.
 - `B3`: `B1` plus grounding-only risk.
 - `M1`: joint grounding-conditioned risk/abstention method.

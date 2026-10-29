@@ -1,6 +1,41 @@
 # Running research experiments
 
-These templates are development settings, not approved research protocols. `medgemma_b0.json` and `medgemma_b1.json` share the model and prompt settings; B1 adds language-only QLoRA. `unet.json` describes a binary anatomical segmentation pilot with augmentation disabled initially.
+These templates are development settings, not approved research protocols. `medgemma_b0.json` and `medgemma_b1.json` share BF16 unquantized base weights and the same model/prompt settings; B1 adds language-only LoRA. `unet.json` describes a binary anatomical segmentation pilot with augmentation disabled initially.
+
+## MedGemma BF16 LoRA profile
+
+The B0/B1 templates explicitly set `train.precision: "bf16"` and
+`medgemma.quantization: "none"`, as requested in MODEL-2026-10-30 in
+`DETAILED_ACTION_PLAN.md`. B0 is frozen; B1 freezes the base model, vision tower
+and multimodal projector and trains only language projection LoRA adapters.
+The loader does not create a bitsandbytes quantization config or call k-bit
+preparation in this profile. Nonreentrant gradient checkpointing remains enabled
+for training. LoRA rank 16, alpha 32, dropout 0.05, batch size 1, accumulation 8
+and the existing learning rate are unchanged.
+
+BF16 refers to the unquantized base weights and Trainer mixed-precision compute.
+PEFT keeps trainable adapters in FP32 through `autocast_adapter_dtype=True`, its
+[documented stability behavior](https://huggingface.co/docs/peft/developer_guides/troubleshooting#dtype-related-issues).
+This is adapter training; base weights remain frozen.
+
+`medgemma.quantization: "nf4"` selects the retained double-quantized 4-bit QLoRA
+path, with `train.precision` controlling its compute dtype. Omitted quantization
+retains the legacy `nf4` default; new BF16 configs must explicitly choose
+`"none"`. Never silently switch profiles after an OOM. Record a new config and
+reviewed protocol if changing quantization. Use the same profile for B0/B1
+comparisons and for training versus adapter evaluation.
+
+Resolved configs/fingerprints and `model_identity.json` bind quantization and
+precision. Existing artifacts cannot be resumed or loaded under a different
+identity. Adding the new config field changes old fingerprints, including
+U-Net fingerprints because all nested settings are hashed. Retain old artifacts
+with their original source/environment; start a new run and protocol for this
+code version instead of editing saved identities to bypass validation.
+
+Model revision remains `UNRESOLVED` in development templates. Real model
+forward/backward, peak VRAM, export/reload and resumable Trainer checkpoints
+still require a pilot on approved Linux training hardware before a full run.
+Synthetic CPU loader tests do not establish MedGemma 4B memory requirements.
 
 ## Local CPU smoke run
 
@@ -116,7 +151,7 @@ The provenance includes source table versions/checksums, mapping specification, 
 2. For MedGemma, accept model terms independently and replace `UNRESOLVED` with the exact 40-character model revision. Download weights separately into private cache; the default loader is offline.
 3. Copy the relevant experiment config outside the repository and set absolute private input/output paths. Run `validate` to obtain config, manifest and provenance fingerprints. This command checks data, not GPU compatibility or protocol approval.
 4. Set a real Jira issue key in the experiment config. Complete `protocol.template.json` with the actual decision record and reviewers' decisions. Bind all three fingerprints. Do not change `status` solely to bypass unresolved research choices.
-5. Run the GPU commands inside the locked Linux Docker environment with source mounted read-only, restricted data and output mounted separately, and one GPU visible. Set `CXR_CONTAINER_IMAGE_ID` to the immutable `sha256:<64 hex>` image ID used for the run. The runtime invokes the repository's existing hardware preflight and records the image ID, driver release, CUDA/runtime versions, role and selected device. Its current roles permit H100/H200 training and RTX inference. The requested RTX 3060/4090 U-Net training exception is still pending; no GPU gate is bypassed here.
+5. Run the GPU commands inside the locked Linux Docker environment with source mounted read-only, restricted data and output mounted separately, and one GPU visible. Set `CXR_CONTAINER_IMAGE_ID` to the immutable `sha256:<64 hex>` image ID used for the run. The runtime invokes the repository's existing hardware preflight and records the image ID, driver release, CUDA/runtime versions, role and selected device. Training permits H100, H200 or RTX PRO 6000 Blackwell; inference permits RTX 4090, RTX 5090 or RTX PRO 6000 Blackwell. The requested RTX 3060/4090 U-Net training exception is still pending; no GPU gate is bypassed here.
 
 No real data, model, run directory or row-level output belongs in the source checkout. Private Hugging Face caches also stay outside the checkout. The CLI does not send predictions to remote trackers or the Hub.
 

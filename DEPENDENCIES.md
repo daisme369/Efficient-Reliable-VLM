@@ -4,9 +4,9 @@
 
 GPU workloads run in the Linux `amd64` image defined by `docker/Dockerfile.gpu`. Its Python and uv base images are pinned by digest. `requirements/gpu-cu130.txt` locks the official CUDA 13.0 builds of PyTorch 2.14.1 and TorchVision 0.29.1; `requirements/gpu-runtime.txt` locks bitsandbytes 0.50.2 and NVIDIA DALI CUDA 13 2.3.0. The earlier dependency resolution covered the environment before DALI was added. Rebuild and validate the extended environment on Linux before a GPU run.
 
-The CUDA 13.0 profile is shared across the approved hardware, while runtime validation keeps the roles separate:
+The CUDA 13.0 profile is shared across the approved hardware, while runtime validation enforces the allowed workload roles:
 
-- Train on H100 or H200 (`sm90`).
+- Train on H100 or H200 (`sm90`), or RTX PRO 6000 Blackwell (`sm120`). Blackwell training checks the model name as well as capability; RTX 5090 is not a training profile.
 - Run testing, inference, and deployment research on RTX 4090 (`sm89`), RTX 5090 (`sm120`), or RTX PRO 6000 Blackwell (`sm120`).
 - Require an NVIDIA release 580 or newer host driver and NVIDIA Container Toolkit.
 - Run `scripts/ci/check_gpu_environment.py` before every rented-GPU workload and record its output in the experiment manifest.

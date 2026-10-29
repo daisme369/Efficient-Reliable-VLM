@@ -1,7 +1,7 @@
 # Detailed Action Plan — Capstone A Radiology VQA
 
-**Phiên bản:** 2.2  
-**Ngày cập nhật:** 15/10/2026  
+**Phiên bản:** 2.4\
+**Ngày cập nhật:** 30/10/2026\
 **Phạm vi:** Computing Technology Project A và nghiên cứu tiếp nối để công bố; không lập lịch Capstone B  
 **Chủ sở hữu kế hoạch:** Lê Đức Anh và Giáp Hoàng Gia Khánh  
 **Quyết định thay đổi phạm vi:** [SCRUM-6, CR-2026-10-11 và CR-2026-10-15](https://vlminmedical.atlassian.net/browse/SCRUM-6)
@@ -28,14 +28,14 @@ Xây dựng một Radiology VQA system tập trung vào **reliability** và mộ
 2. Cung cấp clinical grounding và sử dụng bằng chứng grounding để ước lượng rủi ro của câu trả lời.
 3. Có khả năng abstain/selective prediction khi rủi ro cao.
 4. Nhận ảnh chest X-ray và câu hỏi qua app; hiển thị câu trả lời, vùng grounding, điểm tin cậy hoặc rủi ro, ngưỡng và quyết định abstain. Ít nhất một ca phù hợp phải hiển thị vùng do pipeline grounding tạo ra, kèm tên phương pháp và giới hạn kiểm định; nếu không xác định được vùng, app phải ghi rõ trạng thái đó thay vì vẽ vùng giả.
-5. Có thể fine-tune bằng PEFT/QLoRA trên H100/H200 và suy luận trên GPU RTX theo policy Docker, với mục tiêu profile RTX 4090 24 GB nếu backbone và cách lượng tử hóa cho phép.
+5. Có thể fine-tune bằng BF16 LoRA/PEFT trên H100, H200 hoặc RTX PRO 6000 Blackwell và suy luận trên GPU RTX theo policy Docker, với mục tiêu profile RTX 4090 24 GB nếu backbone và profile thực tế cho phép. NF4 QLoRA là profile thay thế được chọn rõ, không tự bật trong BF16 LoRA.
 6. Ghi nhận trade-off giữa answer quality, reliability và efficiency. Multi-teacher knowledge distillation là nhánh nghiên cứu tiếp nối sau video; trước đó chỉ thử một teacher và một student khi đường găng MVP đã hoàn thành.
 
 ### 2.2 Câu hỏi nghiên cứu ban đầu
 
 - **RQ1 — Reliability:** Grounding-conditioned confidence có giảm AURC và cải thiện coverage tại một mức selective risk cố định so với confidence chỉ dựa trên answer probability không?
 - **RQ2 — Faithfulness:** Khi can thiệp counterfactual vào vùng ảnh có ý nghĩa lâm sàng, risk score và abstention decision có phản ứng đúng hướng hơn so với khi can thiệp vùng không liên quan không?
-- **RQ3 — Efficiency:** PEFT/QLoRA và, ở giai đoạn tiếp nối, knowledge distillation có thể giảm VRAM, GPU-hours hoặc latency mà không làm giảm đáng kể answer quality và selective reliability không?
+- **RQ3 — Efficiency:** PEFT (BF16 LoRA hoặc profile NF4 QLoRA được ghi riêng) và, ở giai đoạn tiếp nối, knowledge distillation có thể giảm VRAM, GPU-hours hoặc latency mà không làm giảm đáng kể answer quality và selective reliability không?
 
 Trong Capstone A, RQ1 và app MVP là ưu tiên giao bài. RQ2 và các so sánh nhiều seed có thể ở mức exploratory trước ngày 06/12. Không tuyên bố RQ3 về distillation nếu chưa có student, đối chứng và phép đo. Các giả thuyết, ngưỡng non-inferiority và primary endpoint phải được khóa trước khi đánh giá test set.
 
@@ -45,7 +45,7 @@ Trong Capstone A, RQ1 và app MVP là ưu tiên giao bài. RQ2 và các so sánh
 - [MIMIC-CXR-JPG v2.1.0](https://physionet.org/content/mimic-cxr-jpg/2.1.0/) làm nguồn ảnh; [MIMIC-Ext-MIMIC-CXR-VQA v1.0.0](https://physionet.org/content/mimic-ext-mimic-cxr-vqa/1.0.0/) làm nguồn câu hỏi và đáp án; [Chest ImaGenome v1.0.0](https://physionet.org/content/chest-imagenome/1.0.0/) làm nguồn vùng giải phẫu gắn với finding. [CheXmask v1.0.0](https://physionet.org/content/chexmask-cxr-segmentation-data/1.0.0/) bổ sung mask phổi trái, phổi phải và tim để kiểm tra vùng giải phẫu hoặc hiển thị có ghi rõ phương pháp; không thay nhãn VQA hay vùng bệnh lý. Nhóm đã có quyền truy cập ba bộ dữ liệu credentialed trên PhysioNet; Cáp xác minh quyền riêng, version và khóa nối ảnh trước khi xử lý. CheXmask open access không làm thay đổi hạn chế của ảnh MIMIC gốc.
 - Primary benchmark là tập template có đáp án có thể suy ra từ ảnh, với quy tắc chọn và mã template được khóa trước khi xem test. Full benchmark là secondary benchmark, báo riêng theo content type. Giữ patient-level split và test gold độc lập; không dùng test để chọn model, prompt hoặc ngưỡng.
 - Closed-ended và open-ended Radiology VQA.
-- Baseline zero-shot và QLoRA/PEFT.
+- Baseline zero-shot và BF16 LoRA/PEFT theo MODEL-2026-10-30; profile NF4 QLoRA được ghi riêng nếu dùng.
 - Clinical grounding, uncertainty calibration, selective prediction và hallucination/error analysis.
 - Đo latency, throughput, peak VRAM, trainable parameters và GPU-hours.
 - [MedGemma 1.5 4B](https://huggingface.co/google/medgemma-1.5-4b-it) là baseline đầu tiên. [Qwen3-VL-4B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct) và [LLaVA-Med v1.5 Mistral 7B](https://github.com/microsoft/LLaVA-Med) là ứng viên so sánh sau gate về giấy phép, runtime, VRAM và giao diện ảnh.
@@ -67,7 +67,7 @@ Trong Capstone A, RQ1 và app MVP là ưu tiên giao bài. RQ2 và các so sánh
 | ID | Hệ thống | Mục đích |
 |---|---|---|
 | B0 | MedGemma 1.5 4B frozen/zero-shot | Baseline đầu tiên; đo answer quality, chi phí inference và failure modes |
-| B1 | MedGemma 1.5 4B + QLoRA VQA | Baseline trainable có thể tái lập; là đường găng của MVP nếu B0 chưa đủ |
+| B1 | MedGemma 1.5 4B + BF16 LoRA VQA | Base model BF16 không lượng tử hóa; chỉ train LoRA trên language projections; là đường găng của MVP nếu B0 chưa đủ |
 | B2 | B1 + answer-only calibration/risk | Đối chứng reliability không dùng grounding |
 | B3 | B1 + grounding-only risk | Tách giá trị của tín hiệu grounding |
 | M1 | B1 + joint grounding-conditioned risk/abstention | Phương pháp đề xuất chính |
@@ -149,7 +149,7 @@ Planning đầu tuần xác nhận capacity, mục tiêu, dependency và Definit
 | [MVD-2](https://vlminmedical.atlassian.net/browse/MVD-2) | Gia Khánh | Literature gap matrix và research questions | Research freeze |
 | [MVD-3](https://vlminmedical.atlassian.net/browse/MVD-3) | Cáp Việt Anh | MIMIC VQA/grounding schema và CheXmask anatomical QC | Data gate |
 | [MVD-4](https://vlminmedical.atlassian.net/browse/MVD-4) | Đức Anh | Backbone selection và zero-shot benchmark | Baseline gate |
-| [MVD-6](https://vlminmedical.atlassian.net/browse/MVD-6) | Đức Anh | Reproducible QLoRA baseline | Sprint 1 demo |
+| [MVD-6](https://vlminmedical.atlassian.net/browse/MVD-6) | Đức Anh | Reproducible PEFT baseline; profile local BF16 LoRA theo MODEL-2026-10-30, Jira chưa đồng bộ | Sprint 1 demo |
 | [MVD-5](https://vlminmedical.atlassian.net/browse/MVD-5) | Gia Khánh | Reliability/calibration evaluation | Sprint 1 demo |
 | [MVD-7](https://vlminmedical.atlassian.net/browse/MVD-7) | Cáp Việt Anh | Counterfactual grounding pipeline | Sprint 2 prototype |
 | [MVD-8](https://vlminmedical.atlassian.net/browse/MVD-8) | Đức Anh | Grounding-conditioned risk prototype | Sprint 2 prototype |
@@ -185,7 +185,7 @@ Jira ghi phụ thuộc `Blocks` theo đường găng: data gate → B0/B1; metri
 | A1 — App interface và scaffold | 18–31/10 | Đức Anh; Tuấn Kiệt hỗ trợ | Khóa contract `image + question → answer + grounding + confidence/risk + abstain + latency`; dựng app skeleton, config, experiment ID và synthetic smoke test | App skeleton; response schema; registry template | Synthetic upload và trả kết quả chạy end-to-end; trường nào chưa có model phải hiện rõ là chưa khả dụng |
 | A1 — Team & Project Plan | 12–25/10 | Gia Khánh chủ trì; cả nhóm | Hoàn thiện team profile, teamwork, risk/ethics, solution alternatives, KoST, backlog và STAR summaries | PDF và 4 STAR summaries trước **25/10 20:59** | Rubric checklist hoàn tất; Jira/Git/meeting evidence có link; mỗi thành viên có contribution record |
 | A2 — MedGemma B0 gate | 25/10–01/11 | Đức Anh | Xác nhận model terms/revision; chạy zero-shot trên primary validation; đo VRAM, latency và failure cases trên Docker profile | B0 config, decision record và validation table | Closed-Acc, macro-F1, normalized match, ECE/Brier inputs, p50/p95 và peak VRAM; không dùng gold test |
-| A2 — B1 và data pipeline | 26/10–08/11 | Đức Anh, Cáp | Loader có split audit; fine-tune MedGemma bằng QLoRA trên H100/H200 nếu B0 gate qua; ghi run manifest và checkpoint hợp lệ | B1 run hoặc blocker có bằng chứng; configs; split audit | Reproduce trên clean environment; log trainable params, GPU-hours, peak VRAM; không có restricted artifact trong Git |
+| A2 — B1 và data pipeline | 26/10–08/11 | Đức Anh, Cáp | Loader có split audit; fine-tune MedGemma bằng BF16 LoRA trên H100, H200 hoặc RTX PRO 6000 Blackwell nếu B0 gate qua; ghi precision, quantization, run manifest và checkpoint hợp lệ | B1 run hoặc blocker có bằng chứng; configs; split audit | Reproduce trên clean environment; log trainable params, GPU-hours, peak VRAM; không có restricted artifact trong Git |
 | A2 — Reliability metrics | 26/10–10/11 | Gia Khánh | Chuẩn hóa đáp án; định nghĩa confidence; ECE, Brier, risk–coverage, AURC, coverage@risk và answer-only abstention | Metric package; validation/calibration table | Hand-computed tests qua; ngưỡng chỉ chọn trên calibration split; raw score chưa hiệu chuẩn được gắn nhãn |
 | A2 — Sprint 1 review | 09–15/11 | Đức Anh, Tuấn Kiệt; Gia Khánh review | Demo app skeleton với B0 hoặc B1, ghi supervisor feedback và retrospective | Sprint 1 PDF, baseline demo, 4 STAR summaries trước **15/11 20:59** | Upload và hỏi đáp hoạt động; báo accuracy, latency, VRAM với protocol; fallback đã diễn tập |
 | A3 — Grounding module và QC | 09–22/11 | Cáp, Đức Anh | Dùng Chest ImaGenome cho vùng gắn với finding; nếu CheXmask qua feasibility thì dùng organ mask cho anatomical QC hoặc visualization có nhãn; kiểm tra ánh xạ câu hỏi sang vùng | Grounding interface; QC set; exclusion report | Báo organ-mask QC riêng với finding grounding; ảnh không có vùng hỗ trợ trả trạng thái "không xác định"; không gọi mask giải phẫu là bằng chứng bệnh lý |
@@ -232,7 +232,7 @@ Nếu distillation không cải thiện reliability hoặc efficiency, báo kế
 | Join ba bộ dữ liệu sai version | MIMIC-Ext image/study ID không map hết sang JPG v2.1.0 | Báo join coverage và exclusion theo version; khóa mapping trước training | Cáp |
 | CheXmask lệch ảnh hoặc mask kém chất lượng | Image ID không khớp, mask sai kích thước hoặc RCA thấp | Kiểm tra join và căn chỉnh trên mẫu nhỏ; tiền định ngưỡng chất lượng; hoãn mask integration nếu không đạt | Cáp |
 | Demo Kaggle thiếu quyền hoặc là bản sao MIMIC | Không có nguồn gốc, license hoặc quyền trình chiếu rõ | Chọn lại bộ công khai có provenance; không quay ảnh chưa được duyệt | Cáp |
-| Thuê GPU không ổn định/chi phí tăng | Queue dài, OOM, run bị preempt | Smoke run nhỏ, checkpoint/resume, 4-bit PEFT, budget cap theo experiment | Đức Anh |
+| Thuê GPU không ổn định/chi phí tăng | Queue dài, OOM, run bị preempt | Smoke run nhỏ, checkpoint/resume, đo VRAM BF16 LoRA và budget cap; nếu đổi sang NF4 phải ghi profile/protocol mới | Đức Anh |
 | Data leakage | Patient xuất hiện nhiều split; tuning trên test | Automated split audit, immutable manifest, test access gate | Cáp + Gia Khánh |
 | Reliability claim yếu | Accuracy tăng nhưng AURC/ECE không cải thiện | Giữ reliability là primary endpoint; answer-only và grounding-only controls | Gia Khánh |
 | Grounding không faithful | Heatmap đẹp nhưng counterfactual response yếu | Intervention tests, negative controls, explicit failure taxonomy | Đức Anh + Cáp |
@@ -274,3 +274,7 @@ Change record phải nêu: lý do, evidence mới, ảnh hưởng tới timeline
 CR-2026-10-11. Gia Khánh xác nhận Đức Anh đã đồng ý thay đổi; record ghi rõ approval của Đức Anh được chuyển lời bởi Gia Khánh, không giả lập chữ ký hoặc comment riêng của Đức Anh. Thay đổi đưa MVP app và ba model candidate vào Capstone A, đặt image-answerable subset là primary, full benchmark là secondary, bỏ lịch Capstone B và chuyển multi-teacher KD sang nghiên cứu sau video. Khi nhóm chọn student, dataset Kaggle cụ thể, compute budget lớn hoặc thay metric chính, tạo decision record mới trước khi chạy.
 
 CR-2026-10-15 trong cùng issue chấp thuận CheXmask v1.0.0 làm nguồn mask giải phẫu phụ trợ. Gia Khánh xác nhận Đức Anh đã đồng ý, nhưng record không giả lập xác nhận trực tiếp từ Đức Anh. Primary VQA benchmark, nguồn finding grounding và deadline MVP không đổi. Nếu dùng CheXmask làm đầu vào huấn luyện hoặc risk feature cho B3/M1, nhóm phải ghi protocol và chạy lại đối chứng liên quan.
+
+HW-2026-10-29 — Theo yêu cầu trực tiếp của người dùng ngày 29/10/2026, bổ sung **RTX PRO 6000 Blackwell (`sm120`)** vào GPU được phép training, cùng H100/H200 (`sm90`); GPU này tiếp tục được phép inference. Phạm vi gồm kế hoạch, policy Docker, runtime preflight và bộ lọc GPU thuê. Quyền training Blackwell yêu cầu đúng họ RTX PRO 6000 Blackwell và compute capability 12.0; không mở cho mọi GPU `sm120`. Backbone, dataset/split, metric, CUDA/package pins và deadline giữ nguyên. Thay đổi này không cấp ngân sách thuê máy hoặc bắt đầu GPU run; từng run vẫn cần protocol, quyền dữ liệu tại nơi chạy và preflight thực tế. Khi so sánh hardware mới, ghi riêng GPU-hours, VRAM, throughput và latency theo cùng protocol; không suy ra hiệu năng từ việc thêm vào danh sách. Không có work item bị thay thế hoặc kết quả cũ bị sửa. Nguồn phê duyệt là yêu cầu người dùng trong chat này; Jira/reviewer riêng chưa được cung cấp, không ghi thay xác nhận của hai lead.
+
+MODEL-2026-10-30 — Người dùng yêu cầu trực tiếp sửa profile model sang **BF16 LoRA**. Chấp nhận thay đổi local: template B0/B1 dùng `train.precision: bf16`, `medgemma.quantization: none`; B1 giữ base model không lượng tử hóa và đóng băng, chỉ train LoRA trên language projections. PEFT giữ adapter trainable FP32 để ổn định, Trainer dùng BF16 mixed precision. NF4 double-quant QLoRA chỉ chạy khi chọn `quantization: nf4`; config cũ bỏ trường này giữ mặc định NF4 để tránh âm thầm đổi cách load. Precision và quantization được ghi trong identity; không resume hoặc dùng lẫn artifact NF4 cũ cho BF16. Việc thêm trường config làm đổi fingerprint của cả config cũ (kể cả U-Net vì fingerprint chứa toàn bộ nested settings); không sửa identity/hashes cũ để vượt kiểm tra, cần protocol và run mới. B0/B1 hoặc kết quả reliability phụ thuộc profile cũ phải được đo lại nếu dùng trong so sánh mới. Backbone, dataset/split, prompt, metric, LoRA hyperparameters, dependency pins và deadline không đổi; không có work item khác bị thay thế. VRAM/GPU-hours thực tế chưa được đo; từng run vẫn qua data/protocol/hardware/budget gate. Record này chỉ cho phép sửa source/config và kiểm thử synthetic local, không cấp quyền thuê GPU hoặc bắt đầu real-data run. Nguồn là yêu cầu người dùng trong chat; Jira chưa cập nhật, không ghi thay phê duyệt của Team Lead/Research Lead hay human review.

@@ -36,6 +36,13 @@ flowchart LR
 
 MedGemma keeps its own processor and chat template. U-Net uses paired letterboxing and mask transforms. Neither applies the other task's preprocessing. No horizontal flip or random crop is exposed.
 
+MedGemma B0/B1 templates load unquantized BF16 base weights via
+`medgemma.quantization: "none"`. B1 trains language-only LoRA with FP32 adapters
+and BF16 mixed-precision compute; base, vision and projector weights stay frozen.
+The explicit `"nf4"` option retains QLoRA for separately recorded profiles.
+Model identity includes precision/quantization and rejects mismatched artifacts.
+See [the profile and migration notes](../../../configs/README.md#medgemma-bf16-lora-profile).
+
 `UNet` is a `torch.nn.Module`; datasets are PyTorch dataset classes; `VQACollator` owns processor state; `SplitAudit` owns the identity maps; configuration and records use dataclasses. Stateless calculations remain functions. There is no generic base trainer or plugin registry: Hugging Face owns MedGemma optimization, while U-Net uses its own short training loop.
 
 ## Extension rules
@@ -86,6 +93,6 @@ Two design candidates were reviewed: task-owned training loops, and a shared gen
 
 The package separation follows the user's requested directory boundaries. `scripts/research` was a temporary prototype and has no remaining Python source or compatibility aliases. `scripts/ci` remains operational tooling.
 
-CPU synthetic tests verify data checks, paired transforms, assistant token masking, U-Net learning and deterministic epoch-boundary resume. They do not verify MedGemma weights, QLoRA CUDA execution, real dataset mapping or clinical performance. The GPU role policy is unchanged: RTX U-Net training still needs its own recorded hardware exception. Test-set execution is deliberately unavailable until a final evaluation protocol is implemented and locked.
+CPU synthetic tests verify data checks, paired transforms, assistant token masking, U-Net learning and deterministic epoch-boundary resume. They do not verify MedGemma weights, BF16 LoRA/QLoRA CUDA execution, real dataset mapping or clinical performance. GPU training permits H100, H200 or RTX PRO 6000 Blackwell after the normal preflight. RTX 3060/4090 training exceptions remain pending; RTX 5090 is inference-only. Test-set execution is deliberately unavailable until a final evaluation protocol is implemented and locked.
 
 See [the run guide](../../../configs/README.md) for commands and unresolved real-run decisions.

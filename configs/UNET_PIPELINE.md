@@ -104,10 +104,11 @@ weights, tokenizer, HF token or model-cache prerequisite.
 After protocol/access review and rental authorization, stage the exact source
 checkout, private selected assets and configs in the paths recorded by the
 Linux config. Keep original relative image paths. Run in the verified Linux
-Docker environment as `researcher` with one visible H100/H200 and a driver of
+Docker environment as `researcher` with one visible H100, H200 or RTX PRO 6000 Blackwell and a driver of
 release 580 or newer. Record the actual immutable image ID in
 `CXR_CONTAINER_IMAGE_ID`. Current policy does not authorize real U-Net training
-on the local RTX 3060 or an RTX inference profile.
+on RTX 3060, RTX 4090 or RTX 5090. RTX PRO 6000 Blackwell is approved for both
+training and inference, subject to the normal preflight.
 
 ```bash
 cd /workspace/repo

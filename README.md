@@ -23,7 +23,7 @@ docker build --platform linux/amd64 --file docker/Dockerfile.gpu \
   --tag efficient-reliable-vlm:py312-cu130 .
 ```
 
-See [docker/README.md](docker/README.md) for the H100/H200 training profile, the RTX 4090/5090/RTX PRO 6000 Blackwell inference profile, host requirements, runtime preflight, and data-security boundary.
+See [docker/README.md](docker/README.md) for the H100/H200/RTX PRO 6000 Blackwell training profiles, the RTX 4090/5090/RTX PRO 6000 Blackwell inference profiles, host requirements, runtime preflight, and data-security boundary.
 
 For local CPU development, install the pinned foundational packages into `.venv` with:
 

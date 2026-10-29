@@ -11,7 +11,7 @@ The default core scope is:
 - Chest X-ray only until the X-ray baseline and reliability pipeline pass their gates.
 - MIMIC-CXR-JPG v2.1.0 images, MIMIC-Ext-MIMIC-CXR-VQA v1.0.0 questions and answers, and Chest ImaGenome v1.0.0 finding-linked regions, with patient-level split isolation. CheXmask v1.0.0 is optional anatomical mask quality control, not lesion-grounding ground truth.
 - Closed-ended and open-ended VQA.
-- A zero-shot baseline, a QLoRA/PEFT baseline, answer-only risk, grounding-only risk, and a joint grounding-conditioned risk/abstention method.
+- A zero-shot baseline, a PEFT baseline (BF16 LoRA per the user-requested MODEL-2026-10-30 record in `DETAILED_ACTION_PLAN.md`; NF4 QLoRA only as an explicit separate profile), answer-only risk, grounding-only risk, and a joint grounding-conditioned risk/abstention method.
 - Clinical grounding, uncertainty calibration, selective prediction, counterfactual faithfulness tests, and clinical error analysis.
 - Efficiency measured with trainable parameters, GPU-hours, peak VRAM, throughput, and p50/p95 latency.
 - A target inference profile that can run within 24 GB VRAM when supported by the selected backbone.

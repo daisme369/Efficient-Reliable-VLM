@@ -1,4 +1,4 @@
-"""Hugging Face QLoRA training and adapter export."""
+"""Hugging Face LoRA/QLoRA training and adapter export."""
 
 from __future__ import annotations
 

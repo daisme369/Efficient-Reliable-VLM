@@ -51,6 +51,7 @@ class MedGemmaConfig:
     lora_alpha: int = 32
     lora_dropout: float = 0.05
     local_files_only: bool = True
+    quantization: str = "nf4"
 
 
 @dataclass(frozen=True)
@@ -173,6 +174,9 @@ def validate_config(c: ExperimentConfig) -> None:
         raise ContractError("MedGemma requires an immutable checkpoint revision")
     if c.task == "medgemma" and not c.medgemma.prompt.strip():
         raise ContractError("prompt must be recorded")
+    if (not isinstance(c.medgemma.quantization, str)
+            or c.medgemma.quantization not in {"none", "nf4"}):
+        raise ContractError("MedGemma quantization must be none or nf4")
 
 
 def check_storage(c: ExperimentConfig, repository: Path) -> None:
