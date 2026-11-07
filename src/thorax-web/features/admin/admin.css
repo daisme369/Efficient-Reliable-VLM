@@ -1,0 +1,307 @@
+.admin-workspace {
+  max-width: 1328px;
+  margin-inline: auto;
+  padding: 32px 24px;
+}
+
+.admin-page-heading {
+  margin-block-end: 24px;
+}
+
+.admin-page-heading h1,
+.admin-panel-heading h2 {
+  margin: 0;
+  color: var(--text);
+  font-weight: 650;
+}
+
+.admin-page-heading h1 {
+  font-size: 24px;
+  line-height: 1.25;
+  letter-spacing: -.02em;
+}
+
+.admin-page-heading p,
+.admin-panel-heading p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  max-width: 68ch;
+}
+
+.admin-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+  margin-block-end: 24px;
+}
+
+.admin-tabs button {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 8px 16px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease;
+}
+
+.admin-tabs button:hover,
+.admin-tabs button[aria-selected="true"] {
+  background: color-mix(in srgb, var(--primary) 6%, var(--surface));
+  color: var(--primary);
+}
+
+.admin-tabs button[aria-selected="true"] {
+  border-bottom-color: var(--primary);
+}
+
+.admin-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+  align-items: start;
+  gap: 16px;
+}
+
+.admin-panel {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.admin-panel-heading {
+  padding: 16px 24px;
+}
+
+.admin-panel-heading h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 18px;
+  line-height: 1.35;
+}
+
+.admin-panel-heading h2 svg {
+  color: var(--primary);
+}
+
+.admin-panel-heading p,
+.admin-table,
+.admin-field-help,
+.admin-field-error,
+.admin-fixture-details {
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.admin-table-wrap {
+  overflow-x: auto;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.admin-table th,
+.admin-table td {
+  padding: 8px 16px;
+  border-top: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+.admin-table th:first-child {
+  padding-inline-start: 24px;
+}
+
+.admin-table th:last-child,
+.admin-table td:last-child {
+  padding-inline-end: 24px;
+  text-align: right;
+}
+
+.admin-table thead th {
+  padding-block: 12px;
+  background: var(--canvas);
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.admin-table tbody th {
+  font-weight: 600;
+}
+
+.admin-table tbody td:last-child {
+  white-space: nowrap;
+}
+
+.admin-table tbody tr:hover {
+  background: color-mix(in srgb, var(--canvas) 45%, var(--surface));
+}
+
+.admin-panel-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--line);
+}
+
+.admin-form fieldset {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  margin: 0;
+  border: 0;
+  padding: 0 24px 24px;
+}
+
+.admin-form label {
+  margin-block-end: 4px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.admin-form input + label,
+.admin-form select + label,
+.admin-field-error + label {
+  margin-block-start: 12px;
+}
+
+.admin-form input,
+.admin-form select {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--muted);
+  border-radius: 6px;
+  padding: 8px 12px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+
+.admin-form input[aria-invalid="true"] {
+  border-color: var(--error-text);
+}
+
+.admin-form :is(input, select):disabled {
+  background: var(--canvas);
+  color: var(--muted);
+}
+
+.admin-form fieldset > .button {
+  justify-self: start;
+  margin-block-start: 16px;
+}
+
+.admin-field-help,
+.admin-field-error {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.admin-field-error {
+  color: var(--error-text);
+}
+
+.admin-active {
+  background: color-mix(in srgb, var(--approved) 10%, var(--surface));
+  color: var(--approved);
+}
+
+.admin-inactive {
+  background: var(--canvas);
+  color: var(--muted);
+}
+
+.admin-fixture-details {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-fixture-details div {
+  display: grid;
+  grid-template-columns: minmax(135px, 1fr) minmax(0, 3fr);
+  align-items: start;
+  gap: 12px;
+  padding: 12px 24px;
+  border-top: 1px solid var(--line);
+}
+
+.admin-fixture-details dt {
+  color: var(--muted);
+}
+
+.admin-fixture-details dd {
+  margin: 0;
+}
+
+.admin-empty,
+.admin-list-error,
+.admin-loading {
+  margin: 0;
+  border-top: 1px solid var(--line);
+  padding: 16px 24px 24px;
+  color: var(--muted);
+}
+
+.admin-list-error p {
+  margin: 0 0 8px;
+}
+
+.admin-loading span {
+  display: block;
+  height: 16px;
+  margin-block: 16px;
+  border-radius: 4px;
+  background: var(--canvas);
+}
+
+.admin-loading span:nth-child(2) { width: 82%; }
+.admin-loading span:nth-child(3) { width: 65%; }
+
+.admin-panel > .admin-feedback {
+  margin: 0 24px 16px;
+}
+
+.admin-feedback {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.admin-feedback .button {
+  margin-inline-start: auto;
+}
+
+.admin-success {
+  color: var(--approved);
+}
+
+.admin-confirm-copy {
+  margin: 0 0 8px;
+}
+
+@media (max-width: 960px) {
+  .admin-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 520px) {
+  .admin-workspace { padding-inline: 16px; }
+  .admin-tabs button { padding-inline: 8px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-tabs button { transition: none; }
+}

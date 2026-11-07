@@ -1,0 +1,12 @@
+/.next/
+/.next-build/
+/.thorax-demo/
+/node_modules/
+/next-env.d.ts
+/*.tsbuildinfo
+/.env*
+!/.env.example
+!/lib/
+!/lib/**
+**/__pycache__/
+*.py[cod]
