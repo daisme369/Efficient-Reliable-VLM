@@ -85,7 +85,9 @@ def bootstrap(config_path: Path, cache: Path, repository: Path = ROOT, resume: P
             "provenance_sha256": manifest.provenance_sha256, "gpu": evidence,
             "source_commit": git.stdout.strip(), "source_dirty": bool(dirty.stdout.strip()),
             "model_cache": "files present and processor loaded offline; model load checked during training",
-            "checkpoint_policy": "epoch boundaries only"}
+            "checkpoint_policy": {"epoch_boundaries": True,
+                                  "recovery_optimizer_steps": config.train.checkpoint_steps,
+                                  "logging_optimizer_steps": config.train.logging_steps}}
 
 
 def main(argv=None):

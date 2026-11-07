@@ -1,0 +1,24 @@
+# RUNTIME-2026-10-30: PyPI side of the isolated MedGemma BF16/files/PIL profile.
+# Install exact torch/vision first from gpu-cu128.txt; constrain that pair here.
+# No bitsandbytes or DALI. The default requirements.txt/cu130 profile is unchanged.
+accelerate==1.15.0
+datasets==5.1.0
+evaluate==0.4.6
+huggingface-hub==2.2.0
+peft==0.21.2
+protobuf==7.36.2
+safetensors==0.8.0
+sentencepiece==0.2.2
+transformers==5.19.0
+numpy==2.5.3
+pandas==3.0.6
+pillow==12.3.0
+pydicom==3.0.2
+pyyaml==6.0.3
+scikit-learn==1.9.1
+scipy==1.18.1
+tqdm==4.70.1
+bert-score==0.3.13
+matplotlib==3.11.2
+rouge-score==0.1.2
+sacrebleu==2.6.0

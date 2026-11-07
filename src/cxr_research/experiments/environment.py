@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import platform
+import json
 import os
 import re
 import subprocess
@@ -36,7 +37,7 @@ def gpu_preflight(config: ExperimentConfig, operation: str, repository: Path) ->
         raise ContractError("GPU preflight requires a train or evaluate operation")
     role = "train" if operation == "train" else "inference"
     checker = repository / "scripts/ci/check_gpu_environment.py"
-    result = subprocess.run([sys.executable, str(checker), "--role", role],
+    result = subprocess.run([sys.executable, str(checker), "--profile", config.runtime_profile, "--role", role],
                             capture_output=True, text=True, check=False)
     if result.returncode != 0:
         raise ContractError("GPU environment preflight failed")
@@ -45,7 +46,21 @@ def gpu_preflight(config: ExperimentConfig, operation: str, repository: Path) ->
         result.stdout,
     )
     image_id = os.environ.get("CXR_CONTAINER_IMAGE_ID", "")
-    if driver is None or not re.fullmatch(r"sha256:[0-9a-f]{64}", image_id):
+    exception = None
+    if not image_id and config.protocol:
+        protocol = json.loads(Path(config.protocol).read_text(encoding="utf-8"))
+        candidate = protocol.get("image_provenance_exception")
+        if (isinstance(candidate, dict) and candidate.get("approved_by") == "user"
+                and candidate.get("instance_id") == 58351663
+                and os.environ.get("CONTAINER_ID") == "58351663"
+                and candidate.get("run_id") == config.run_id
+                and candidate.get("decision_record") == "USER-IMAGE-EXCEPTION-2026-10-30-VAST58351663"
+                and config.runtime_profile == "medgemma-bf16-cu128"
+                and operation == "train" and config.task == "medgemma" and config.baseline == "B1"
+                and protocol.get("status") == "approved"
+                and protocol.get("config_sha256") == config.fingerprint):
+            exception = candidate
+    if driver is None or (not re.fullmatch(r"sha256:[0-9a-f]{64}", image_id) and exception is None):
         raise ContractError("GPU provenance requires preflight output and an immutable container image ID")
     import torch
     if torch.cuda.device_count() != 1:
@@ -53,9 +68,12 @@ def gpu_preflight(config: ExperimentConfig, operation: str, repository: Path) ->
     return {
         "preflight": "passed",
         "role": role,
+        "runtime_profile": config.runtime_profile,
         "driver_versions": driver.group(1).split(","),
         "driver_release_min": int(driver.group(2)),
-        "container_image_id": image_id,
+        "container_image_id": image_id or None,
+        "image_provenance": "user_approved_exception" if exception else "image_id_supplied",
+        "image_provenance_exception": exception,
         "cuda": torch.version.cuda,
         "torch": version("torch"),
         "devices": [{"index": 0, "name": torch.cuda.get_device_name(0),

@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGES = {"openssh-server": "1:9.2p1-2+deb12u10", "rsync": "3.2.7-1+deb12u6",
-            "curl": "7.88.1-10+deb12u15"}
+            "curl": "7.88.1-10+deb12u15", "awscli": "2.9.19-1"}
 
 
 def prepare(output: Path):

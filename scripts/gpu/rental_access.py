@@ -53,12 +53,13 @@ def read_credentials(path: Path | None) -> dict[str, str]:
 
 
 def vast_status(key: str, storage: int) -> dict:
-    if version("vastai") != "1.8.3":
+    cli_version = version("vastai")
+    if cli_version not in {"1.8.3", "1.9.1"}:
         raise ValueError("install requirements/vastai-cli.txt in the provider CLI environment")
     if not key or storage < 64:
         raise ValueError("VAST_API_KEY and at least 64 GiB storage are required")
     from vastai import VastAI
-    client = VastAI(api_key=key, raw=True, quiet=True)
+    client = VastAI(api_key=key, raw=True, quiet=True, retry=1)
     # No create/start/stop/destroy/payment endpoint is used by this helper.
     client.show_user()
     common = ("verified=true rentable=true datacenter=true num_gpus=1 "
@@ -86,7 +87,7 @@ def vast_status(key: str, storage: int) -> dict:
         if hopper or pro_blackwell:
             selected.append({k: row[k] for k in fields if k in row})
     selected.sort(key=lambda row: float(row.get("dph_total", "inf")))
-    return {"account_authenticated": True, "storage_gib": storage, "query": queries[0],
+    return {"account_authenticated": True, "cli_version": cli_version, "storage_gib": storage, "query": queries[0],
             "additional_queries": queries[1:], "offers": selected[:10], "instance_created": False,
             "note": "Live offers only; host privacy/access review and final GPU preflight remain required."}
 

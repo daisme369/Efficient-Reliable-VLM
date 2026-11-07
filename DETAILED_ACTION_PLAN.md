@@ -267,6 +267,8 @@ Một work item chỉ được chuyển sang Done khi:
 
 ## 13. Change control
 
+RUNTIME-2026-10-30 — Người dùng xác nhận cho phép **chuẩn bị profile CUDA 12.8 riêng trên Vast instance 58351663** sau khi SSH xác minh RTX PRO 6000 Blackwell Workstation 96 GB, driver 570.195.03, đĩa 800 GiB, Python 3.12.15 và PyTorch 2.11.0+cu128/TorchVision 0.26.0+cu128. Profile `medgemma-bf16-cu128` giữ backbone, BF16 không lượng tử hóa, language-only LoRA, hyperparameters, dữ liệu/split/prompt/objective; dùng files/PIL, không dùng NF4, bitsandbytes hay DALI. Giữ các pin Hugging Face hiện tại; Torch/TorchVision có lock cu128 riêng từ index PyTorch chính thức. CUDA 13/driver ≥580 vẫn là mặc định. Profile riêng phải qua kiểm tra package/kernel/BF16 thực tế và ghi môi trường riêng; không trộn số đo với cu130. Nguồn phê duyệt là câu trả lời người dùng trong chat, không giả lập phê duyệt lead/Jira. Đây là quyền chuẩn bị runtime và kiểm thử synthetic; không tự phê duyệt protocol, quyền chuyển MIMIC tới host hoặc provenance image còn chưa xác minh. Các gate dữ liệu, protocol và image identity vẫn áp dụng trước real-data run.
+
 Mọi thay đổi một trong các mục sau cần được ghi thành quyết định và được Team Lead cùng Research Lead duyệt trước khi thực hiện: research question, modality, dataset/split, backbone chính, primary metric, proposed method, compute budget lớn hoặc submission target.
 
 Change record phải nêu: lý do, evidence mới, ảnh hưởng tới timeline/compute, work item bị thay thế, metrics cần chạy lại và quyết định accept/reject/defer. Sau khi duyệt, cập nhật Jira và tài liệu này trước khi coding agent thực hiện.

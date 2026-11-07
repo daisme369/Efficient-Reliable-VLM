@@ -95,7 +95,7 @@ def prepare_rental(data_root: Path, qc_report: Path, output: Path, repository: P
                                 "successful training-role GPU preflight", "pilot and checkpoint recovery"]},
         "verification_scope": "catalog export checksums and QC linkage; no full image scan or clinical review",
         "test_qa_payload_read": False, "manifest_created": False,
-        "checkpoint_policy": "current trainer saves at epoch boundaries only",
+        "checkpoint_policy": "epoch boundaries plus configured recovery optimizer steps",
     }
     output.mkdir(parents=True, exist_ok=False)
     files = {"catalog-preparation.json": prep, "b1.json": train, "protocol-b1.json": protocol}

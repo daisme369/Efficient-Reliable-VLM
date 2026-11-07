@@ -1,14 +1,17 @@
 # Proposed rented-GPU workflow
 
-Status: engineering proposal, 2026-10-17. No rental or dataset transfer has been
-executed. Real runs still require the existing data-access and protocol reviews.
+Status: B1 stage tooling implemented 2026-10-30; see
+[the executable B1 workflow](../configs/B1_PIPELINE.md). No rental or bulk dataset
+transfer has been executed. Real runs still require data-access/protocol reviews
+and actual locked-container GPU verification.
 
 ## Prepare before renting
 
 Build and smoke-test the locked Linux image. Pin its digest and the source commit
 used by each run. The Dockerfile now includes pinned Git because the previous
-image failed the provenance smoke test without it. AWS CLI still needs an
-explicit provisioning step or a reviewed image addition. Do not assume a clone contains uncommitted local
+image failed the provenance smoke test without it. The generated Vast transport
+recipe now includes pinned Debian AWS CLI for the S3 stage; verify that new
+image before use. Do not assume a clone contains uncommitted local
 implementation work. Commit/push and publishing the image are separate actions.
 
 Use the environment already built into the container. A fresh empty venv hides
@@ -36,8 +39,9 @@ before renting. Do not rebuild the environment during each paid experiment.
 
 The existing package implements preparation, packing, validation and task runs.
 The AWS environment helper below loads credentials for explicit CLI commands.
-S3 download planning and the startup orchestrator are not implemented yet.
-This document does not authorize automatically starting a rental.
+`dataset_sync.py` now implements private S3 planning and conditional, restartable
+selected-object downloads. `setup_b1.py` prepares data/config drafts; `bootstrap.py`
+checks or explicitly trains. There is no auto-rental or all-in-one startup action.
 
 ## Dataset and credentials
 
@@ -85,8 +89,8 @@ quotes, blank lines and comments. An unquoted inline comment starts with whitesp
 followed by `#`. UTF-8 BOM and CRLF are accepted. Values are literal; multiline
 values, quote escapes and variable expansion are not supported. Duplicate supported
 keys and empty values are errors. Unknown keys, including PhysioNet passwords and
-the five dataset access-point keys, are ignored. Dataset mapping belongs to the
-future download planner; this helper only loads AWS authentication/settings.
+the five dataset access-point keys, are ignored. `dataset_sync.py` separately
+parses the two B1 sources; this helper only loads AWS authentication/settings.
 
 Python callers can reuse the same loader:
 

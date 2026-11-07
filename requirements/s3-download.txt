@@ -1,0 +1,6 @@
+# Optional full-JPEG downloader only; no change to the research CUDA lock.
+# Verified against official PyPI metadata on 2026-10-30. Python >=3.10.
+# boto3 requires botocore>=1.43.122,<1.44.0. Both use Apache-2.0;
+# compatible as optional dependencies of this MIT-licensed source project.
+boto3==1.43.122
+botocore==1.43.122

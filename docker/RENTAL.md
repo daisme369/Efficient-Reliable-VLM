@@ -1,5 +1,9 @@
 # Prepare a rented GPU run
 
+For AWS sources configured in `.env`, use [the B1 pipeline](../configs/B1_PIPELINE.md)
+for metadata/selected-image downloads, mapped supervision, BF16 config drafts
+and aggregate monitoring. The existing-local-data route below remains available.
+
 Run source commands from the C checkout. Keep restricted inputs and generated
 outputs under the E data root. Nothing in this procedure provisions a machine,
 uploads data, accepts model terms, approves a protocol, or publishes an image.
@@ -220,9 +224,10 @@ python scripts/gpu/bootstrap.py \
   --resume /private/project/runs/parent-run/checkpoint-100 --train
 ```
 
-`checkpoint-100` is an example path. Use an existing checkpoint from the actual
-run. The trainer currently saves at epoch boundaries, so a job interrupted before
-its first epoch ends may have no recoverable checkpoint. Keep the parent run for
+`checkpoint-100` is an example path. Use an existing inventoried checkpoint from
+the actual run. The trainer saves at epoch boundaries and every configured
+`train.checkpoint_steps` optimizer updates (default 100); an interruption before
+the first save may still leave no recoverable checkpoint. Keep the parent run for
 identity and best-checkpoint references. The trainer performs the final parent
 model identity check when loading the real model.
 

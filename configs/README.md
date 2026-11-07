@@ -37,6 +37,28 @@ forward/backward, peak VRAM, export/reload and resumable Trainer checkpoints
 still require a pilot on approved Linux training hardware before a full run.
 Synthetic CPU loader tests do not establish MedGemma 4B memory requirements.
 
+### Optional fast demo profile
+
+Explicit per-run overrides support `medgemma.attention: "sdpa"`,
+`train.gradient_checkpointing: false`, `tf32: true`,
+`optimizer: "adamw_torch_fused"`, `lr_scheduler: "cosine"`,
+`warmup_ratio: 0.03`, and `full_determinism: false`. These do not change the
+template defaults. Measure batch memory and throughput on the target GPU before
+choosing a larger physical batch. Keep precision, original processor geometry,
+frozen base/vision scope, and patient isolation explicit.
+
+For a final-adapter demo run, `evaluation_strategy: "no"` disables epoch
+validation and best-checkpoint selection; `evaluation_after_training: false`
+also skips the final validation pass. Checkpoints then use `checkpoint_steps`
+and retain `save_total_limit` checkpoints (default two); the final adapter is still exported. This mode
+provides no validation quality measurement. Seeded runs with
+`full_determinism: false` do not promise bitwise reproducibility.
+
+The added settings change config fingerprints. Retain the original source and
+config for older checkpoints; use a new protocol/run for different LoRA rank,
+batch/objective settings, or performance choices. Never rewrite saved identities
+to resume an incompatible checkpoint.
+
 ## Local CPU smoke run
 
 Use the existing project environment. The package can run from source without installing it:
@@ -124,6 +146,10 @@ inspect artifacts before attempting recovery. Logs and resolved configs for
 real data stay in private storage, just like checkpoints.
 
 ## Data preparation
+
+For the implemented AWS metadata/selected-image download, MIMIC/VQA mapping,
+BF16 LoRA configuration, checkpoint recovery and monitoring commands, use
+[the B1 pipeline](B1_PIPELINE.md). It preserves explicit protocol and rental gates.
 
 For the separate binary-lung U-Net manifest, private pilot configuration and
 policy-gated startup, see [the U-Net pipeline](UNET_PIPELINE.md). That path uses

@@ -15,7 +15,7 @@ def load_model(config, *, training: bool):
     dtype = {"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}[config.train.precision]
     model_kwargs = dict(revision=m.revision, local_files_only=m.local_files_only,
                         trust_remote_code=False, dtype=dtype, device_map={"": 0},
-                        attn_implementation="eager")
+                        attn_implementation=m.attention)
     if m.quantization == "nf4":
         from transformers import BitsAndBytesConfig
         model_kwargs["quantization_config"] = BitsAndBytesConfig(
@@ -31,12 +31,13 @@ def load_model(config, *, training: bool):
         from peft import LoraConfig, get_peft_model
         if m.quantization == "nf4":
             from peft import prepare_model_for_kbit_training
-            model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True,
+            model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=config.train.gradient_checkpointing,
                     gradient_checkpointing_kwargs={"use_reentrant": False})
         else:
             model.requires_grad_(False)
-            model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
-            model.enable_input_require_grads()
+            if config.train.gradient_checkpointing:
+                model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+                model.enable_input_require_grads()
         target_pattern = r".*language_model.*\.(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)"
         if not any(re.fullmatch(target_pattern, name) for name, _ in model.named_modules()):
             raise ContractError("language-only LoRA target modules were not found")

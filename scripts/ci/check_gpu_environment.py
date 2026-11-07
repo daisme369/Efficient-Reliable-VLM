@@ -57,8 +57,16 @@ def validate_profile(
     capabilities: Sequence[tuple[int, int]],
     driver_majors: Sequence[int],
     device_names: Sequence[str] = (),
+    profile: str = "cu130",
+    driver_versions: Sequence[str] = (),
 ) -> list[str]:
     errors: list[str] = []
+    if profile not in {"cu130", "medgemma-bf16-cu128"}:
+        return ["unknown GPU runtime profile"]
+    alternate = profile == "medgemma-bf16-cu128"
+    if alternate and role == "smoke":
+        return ["cu128 profile is restricted to approved MedGemma train/inference hardware"]
+    expected_cuda = "12.8" if alternate else EXPECTED_CUDA
     if role not in ROLE_CAPABILITIES:
         errors.append(f"unknown GPU role: {role}")
         return errors
@@ -66,14 +74,14 @@ def validate_profile(
         errors.append(f"GPU workloads require a Linux container, found {operating_system}")
     if not cuda_available:
         errors.append("PyTorch cannot access CUDA; check --gpus and NVIDIA Container Toolkit")
-    if cuda_version != EXPECTED_CUDA:
-        errors.append(f"PyTorch CUDA is {cuda_version!r}, expected {EXPECTED_CUDA!r}")
-    for package, installed, expected in (
-        ("torch", torch_version, EXPECTED_TORCH),
-        ("torchvision", torchvision_version, EXPECTED_TORCHVISION),
-        ("bitsandbytes", bitsandbytes_version, EXPECTED_BITSANDBYTES),
-        ("nvidia-dali-cuda130", dali_version, EXPECTED_DALI),
-    ):
+    if cuda_version != expected_cuda:
+        errors.append(f"PyTorch CUDA is {cuda_version!r}, expected {expected_cuda!r}")
+    packages = [("torch", torch_version, "2.11.0+cu128" if alternate else EXPECTED_TORCH),
+                ("torchvision", torchvision_version, "0.26.0+cu128" if alternate else EXPECTED_TORCHVISION)]
+    if not alternate:
+        packages += [("bitsandbytes", bitsandbytes_version, EXPECTED_BITSANDBYTES),
+                     ("nvidia-dali-cuda130", dali_version, EXPECTED_DALI)]
+    for package, installed, expected in packages:
         if installed != expected:
             errors.append(f"{package} is {installed!r}, expected {expected!r}")
 
@@ -102,11 +110,18 @@ def validate_profile(
     if not driver_majors:
         errors.append("no NVIDIA driver version was detected")
     for index, driver_major in enumerate(driver_majors):
-        if driver_major < MINIMUM_DRIVER_MAJOR:
+        if not alternate and driver_major < MINIMUM_DRIVER_MAJOR:
             errors.append(
                 f"GPU {index} uses driver release {driver_major}; "
                 f"CUDA 13.0 requires release {MINIMUM_DRIVER_MAJOR} or newer"
             )
+    if alternate:
+        if len(driver_versions) != len(driver_majors):
+            errors.append("cu128 profile requires exact driver versions")
+        for value in driver_versions:
+            if (not re.fullmatch(r"[0-9]+(?:\.[0-9]+)+", value)
+                    or tuple(int(v) for v in value.split(".")) < (570, 124, 6)):
+                errors.append("cu128 profile requires driver 570.124.06 or newer")
     return errors
 
 
@@ -135,14 +150,16 @@ def _installed_version(package: str) -> str:
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--role", choices=sorted(ROLE_CAPABILITIES), required=True)
+    parser.add_argument("--profile", choices=["cu130", "medgemma-bf16-cu128"], default="cu130")
     return parser.parse_args(argv)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
     try:
-        import bitsandbytes  # noqa: F401 - import is part of the runtime check.
-        import nvidia.dali  # noqa: F401 - import is part of the runtime check.
+        if args.profile == "cu130":
+            import bitsandbytes  # noqa: F401 - import is part of the runtime check.
+            import nvidia.dali  # noqa: F401 - import is part of the runtime check.
         import torch
         import torchvision  # noqa: F401 - import is part of the runtime check.
 
@@ -166,6 +183,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         capabilities=capabilities,
         driver_majors=driver_majors,
         device_names=names,
+        profile=args.profile,
+        driver_versions=driver_versions,
     )
     if errors:
         print(f"GPU preflight failed with {len(errors)} error(s):", file=sys.stderr)
@@ -178,7 +197,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         for name, capability in zip(names, capabilities, strict=True)
     )
     print(
-        f"GPU preflight passed: role={args.role}, devices={devices}, "
+        f"GPU preflight passed: role={args.role}, profile={args.profile}, devices={devices}, "
         f"CUDA={torch.version.cuda}, torch={_installed_version('torch')}, "
         f"driver-versions={','.join(driver_versions)}, "
         f"driver-release-min={min(driver_majors)}."

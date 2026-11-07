@@ -28,6 +28,17 @@ class TrainingConfig:
     weight_decay: float = 0.01
     max_grad_norm: float = 1.0
     precision: str = "fp32"
+    logging_steps: int = 10
+    checkpoint_steps: int = 100
+    save_total_limit: int = 2
+    gradient_checkpointing: bool = True
+    tf32: bool = False
+    optimizer: str = "adamw_torch"
+    lr_scheduler: str = "linear"
+    warmup_ratio: float = 0.0
+    evaluation_strategy: str = "epoch"
+    evaluation_after_training: bool = True
+    full_determinism: bool = True
 
 
 @dataclass(frozen=True)
@@ -52,6 +63,7 @@ class MedGemmaConfig:
     lora_dropout: float = 0.05
     local_files_only: bool = True
     quantization: str = "nf4"
+    attention: str = "eager"
 
 
 @dataclass(frozen=True)
@@ -84,6 +96,7 @@ class ExperimentConfig:
     unet: UNetConfig = field(default_factory=UNetConfig)
     medgemma: MedGemmaConfig = field(default_factory=MedGemmaConfig)
     io: IOConfig = field(default_factory=IOConfig)
+    runtime_profile: str = "cu130"
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -123,6 +136,21 @@ def config_from_dict(raw: dict) -> ExperimentConfig:
 
 
 def validate_config(c: ExperimentConfig) -> None:
+    if (any(type(v) is not bool for v in (c.train.gradient_checkpointing, c.train.tf32,
+            c.train.evaluation_after_training, c.train.full_determinism))
+            or c.train.optimizer not in {"adamw_torch", "adamw_torch_fused"}
+            or c.train.lr_scheduler not in {"linear", "cosine"}
+            or c.train.evaluation_strategy not in {"epoch", "no"}
+            or type(c.train.warmup_ratio) not in (int, float)
+            or not 0 <= c.train.warmup_ratio < 1
+            or c.medgemma.attention not in {"eager", "sdpa"}):
+        raise ContractError("invalid training performance settings")
+    if not isinstance(c.runtime_profile, str) or c.runtime_profile not in {"cu130", "medgemma-bf16-cu128"}:
+        raise ContractError("unsupported runtime profile")
+    if c.runtime_profile == "medgemma-bf16-cu128" and (
+            c.task != "medgemma" or c.device != "cuda" or c.train.precision != "bf16"
+            or c.medgemma.quantization != "none" or c.io.backend != "files" or c.io.decoder != "pil"):
+        raise ContractError("cu128 profile requires CUDA MedGemma BF16, no quantization and files/PIL")
     if c.io.backend not in {"files", "webdataset"} or c.io.decoder not in {"pil", "dali"}:
         raise ContractError("unsupported I/O backend or decoder")
     if (type(c.io.num_workers) is not int or c.io.num_workers < 0
@@ -149,6 +177,7 @@ def validate_config(c: ExperimentConfig) -> None:
     if type(c.data.synthetic) is not bool or type(c.seed) is not int or c.seed < 0:
         raise ContractError("invalid synthetic flag or seed")
     positive = (c.train.epochs, c.train.batch_size, c.train.accumulation_steps,
+                c.train.logging_steps, c.train.checkpoint_steps, c.train.save_total_limit,
                 c.unet.size, c.unet.base_channels, c.medgemma.max_length,
                 c.medgemma.max_new_tokens, c.medgemma.lora_rank, c.medgemma.lora_alpha)
     if any(type(x) is not int or x <= 0 for x in positive):
@@ -195,11 +224,20 @@ def check_storage(c: ExperimentConfig, repository: Path) -> None:
 def check_protocol(c: ExperimentConfig, manifest_hash: str, provenance_hash: str) -> None:
     if c.data.synthetic:
         return
-    if not isinstance(c.jira_issue, str) or not re.fullmatch(r"[A-Z][A-Z0-9]+-[1-9][0-9]*", c.jira_issue):
-        raise ContractError("real runs require a valid Jira issue key")
+    has_jira = isinstance(c.jira_issue, str) and re.fullmatch(r"[A-Z][A-Z0-9]+-[1-9][0-9]*", c.jira_issue)
+    if not has_jira and (c.jira_issue is not None or not c.protocol):
+        raise ContractError("real runs require a valid Jira issue key or an explicit user waiver")
     if not c.protocol:
         raise ContractError("real runs require a reviewed protocol file")
     p = json.loads(Path(c.protocol).read_text(encoding="utf-8"))
+    if not has_jira:
+        waiver = p.get("jira_waiver")
+        if (not isinstance(waiver, dict) or waiver.get("approved_by") != "user"
+                or waiver.get("run_id") != c.run_id
+                or any(not isinstance(waiver.get(k), str) or not waiver[k].strip()
+                       or waiver[k].strip().casefold() == "unresolved"
+                       for k in ("decision_record", "reason"))):
+            raise ContractError("real runs require a valid Jira issue key or an explicit user waiver")
     required = ("decision_record", "split_policy", "input_policy", "uncertain_label_policy",
                 "template_policy", "metric_policy", "training_data_overlap", "access_review")
     if p.get("status") != "approved" or any(not p.get(k) or p[k] == "UNRESOLVED" for k in required):

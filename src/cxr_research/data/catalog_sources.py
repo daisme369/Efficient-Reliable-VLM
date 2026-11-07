@@ -1,6 +1,7 @@
 """Dataset-specific release indexing; datasets retain separate namespaces."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -121,20 +122,28 @@ def questions(catalog):
     paths = sorted(base.rglob("*.json"))
     if {p.name for p in paths} != {"train.json", "valid.json", "test.json"} or len(paths) != 3:
         raise ValueError("Expected exactly the three release VQA source tables")
-    sources = {}
+    sources, source_hashes = {}, {}
     for path in paths:
         source = catalog.source(path)
-        rows = json.loads(path.read_text(encoding="utf-8"))
+        raw = path.read_bytes()
+        sha = hashlib.sha256(raw).hexdigest()
+        rows = json.loads(raw.decode("utf-8"))
+        del raw
         sources[path] = source
         for row in rows:
             split = SPLITS[row["split"]]
             patient = str(row["subject_id"])
             catalog.db.execute("INSERT OR IGNORE INTO memberships VALUES(?,?,?)", (patient, "qa", split))
-        catalog.finish_source(path, file_hash(path), len(rows))
+        catalog.finish_source(path, sha, len(rows))
+        source_hashes[path] = sha
     catalog.db.execute("INSERT INTO sealed_patients SELECT DISTINCT patient_id FROM memberships WHERE split='test'")
     sealed = {row[0] for row in catalog.db.execute("SELECT patient_id FROM sealed_patients")}
     for path in paths:
-        rows = json.loads(path.read_text(encoding="utf-8"))
+        raw = path.read_bytes()
+        if hashlib.sha256(raw).hexdigest() != source_hashes[path]:
+            raise ValueError("VQA source changed during indexing")
+        rows = json.loads(raw.decode("utf-8"))
+        del raw
         for index, row in enumerate(rows):
             split = SPLITS[row["split"]]
             patient, study = str(row["subject_id"]), str(row["study_id"])

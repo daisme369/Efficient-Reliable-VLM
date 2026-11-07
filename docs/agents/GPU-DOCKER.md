@@ -13,6 +13,16 @@ Hardware roles are locked unless an approved dependency or experiment decision c
 - User-approved exception, 2026-10-17: local RTX 3060 (`sm86`) may run synthetic DALI/CUDA smoke tests only, using `--role smoke`. This does not authorize real-data training/inference or research performance claims. The experiment runner continues to select only `train` or `inference`.
 - The host must expose an NVIDIA release 580 or newer driver through NVIDIA Container Toolkit.
 
+User-approved preparation exception RUNTIME-2026-10-30: on Vast instance 58351663,
+prepare the explicit `medgemma-bf16-cu128` profile under Linux amd64, Python 3.12,
+Torch 2.11.0+cu128 and TorchVision 0.26.0+cu128, with driver ≥570.124.06.
+It is restricted to MedGemma BF16/unquantized files/PIL; NF4 and DALI are excluded.
+Use its separate exact requirements and `--profile medgemma-bf16-cu128` preflight.
+The CUDA 13 default and other hardware gates remain strict. This permission covers
+runtime preparation and synthetic checks; real-data protocol/access and actual
+immutable image provenance still require evidence. Do not invent an image ID from
+the provider's mutable image tag. See the decision record in `DETAILED_ACTION_PLAN.md`.
+
 Blackwell training requires both compute capability 12.0 and the RTX PRO 6000 Blackwell model identity (Server, Workstation or Max-Q Workstation Edition). RTX 5090 remains inference-only even though it also uses `sm120`. See [NVIDIA's compute-capability table](https://developer.nvidia.com/cuda/gpus). Hardware eligibility does not replace a successful preflight on the actual host or approve a rental budget.
 
 Before starting a paid GPU workload, run `python scripts/ci/check_gpu_environment.py --role train` or `--role inference` inside the container. Stop if the preflight fails; do not bypass the role, driver, architecture, CUDA, or dependency check. Record the successful output, image identifier, host driver, and selected devices in the experiment manifest.
