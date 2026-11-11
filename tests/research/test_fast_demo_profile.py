@@ -8,14 +8,14 @@ from dataclasses import replace
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 from cxr_research.experiments.config import config_from_dict
 from cxr_research.utils.errors import ContractError
-from test_medgemma_profile import LoaderContractTests, profile
+from tests.research import test_medgemma_profile as medgemma_profile
 
 
 class FastDemoTests(unittest.TestCase):
     def test_sdpa_without_checkpointing_still_freezes_base_and_scope(self):
-        fixture = LoaderContractTests()
+        fixture = medgemma_profile.LoaderContractTests()
         fixture.setUp()
-        c = profile()
+        c = medgemma_profile.profile()
         c = replace(c, train=replace(c.train, gradient_checkpointing=False),
                     medgemma=replace(c.medgemma, attention='sdpa', lora_rank=8, lora_alpha=16, lora_dropout=0.0))
         fixture.load(c)
@@ -27,7 +27,7 @@ class FastDemoTests(unittest.TestCase):
         self.assertEqual(fixture.peft.LoraConfig.call_args.kwargs['r'], 8)
 
     def test_fast_configuration_roundtrip_and_invalid_choices(self):
-        c = profile()
+        c = medgemma_profile.profile()
         c = replace(c, train=replace(c.train, gradient_checkpointing=False, tf32=True,
                     optimizer='adamw_torch_fused', lr_scheduler='cosine', warmup_ratio=.03,
                     evaluation_strategy='no', evaluation_after_training=False, full_determinism=False),

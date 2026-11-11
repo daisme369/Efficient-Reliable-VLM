@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import contextlib
 import argparse
+from dataclasses import replace
 import hashlib
 import io
 import json
@@ -186,8 +187,11 @@ class B1PipelineTests(unittest.TestCase):
             protocol = json.loads((configured / name).read_text())
             self.assertEqual(protocol["status"], "draft")
             self.assertEqual(protocol["config_sha256"], config.fingerprint)
-            with self.assertRaises(ContractError):
-                check_protocol(config, protocol["manifest_sha256"], protocol["provenance_sha256"])
+            # The remote config names a deployment-only path; inspect its emitted draft locally.
+            review_config = replace(config, protocol=str(configured / name), jira_issue="SYN-1")
+            with self.subTest(protocol=name), self.assertRaisesRegex(
+                    ContractError, "research protocol decisions are unresolved"):
+                check_protocol(review_config, protocol["manifest_sha256"], protocol["provenance_sha256"])
         with self.assertRaises(ContractError):
             setup_b1.configure(Path(spec["prepared_dir"]), configured, "a" * 40, repository=self.repository)
 
