@@ -142,6 +142,16 @@ input, textarea, select { min-width: 0; }
 .study-list { display: grid; gap: 12px; }
 .study-list .nested-table { border: 1px solid var(--line); background: var(--surface); }
 .worklist-footer { border-top: 1px solid var(--line); padding: 12px 24px; color: var(--muted); font-size: 14px; min-height: 49px; }
+.worklist-table { overflow-x: auto; }
+
+@media (max-width: 1279px) {
+  .page-wrap { width: calc(100% - 32px); }
+  .worklist .page-heading { align-items: flex-start; flex-wrap: wrap; }
+  .worklist-toolbar { flex-wrap: wrap; padding: 16px; }
+  .worklist-search { max-width: 100%; }
+  .data-table th, .data-table td { padding-inline: 12px; }
+  .data-table .study-cell { padding: 12px; }
+}
 
 @media (max-width: 900px) {
   .app-descriptor, .account-name { display: none; }

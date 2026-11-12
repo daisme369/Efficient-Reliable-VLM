@@ -452,7 +452,8 @@ function completeAnalysis(state: MockState, reading: MockSession, request: AIReq
   }
   if (image.view === 'PA') {
     boxes.push({
-      id: nextId(state), image_id: imageId, bbox_xyxy: [501.25, 542.5, 663.75, 685],
+      id: nextId(state), image_id: imageId,
+      bbox_xyxy: [image.width * 0.63, image.height * 0.62, image.width * 0.83, image.height * 0.78],
       label: 'Left basilar region', note: null, source: 'ai', review_action: 'pending', revision: 1,
       deleted_at: null, ai_request_id: request.request_id,
     });
@@ -476,8 +477,8 @@ function completeAnswer(state: MockState, reading: MockSession, request: AIReque
       ? 'Mock response for the lateral view. The fixture supplies no additional observation for this image.'
       : 'Mock response for the selected frontal image. The fixture marks a possible left basilar opacity. Review the image and current findings to determine whether it should be included.';
   const context = { image_id: input.image_id, box_id: input.box_id ?? null, box_snapshot, created_at: isoNow() };
-  const question = { ...context, id: nextId(state), role: 'user' as const, text: input.question, model_version: null, latency_ms: null };
-  const response = { ...context, id: nextId(state), role: 'assistant' as const, text: answer, model_version: modelArtifacts[0].version, latency_ms: 1400 };
+  const question = { ...context, id: nextId(state), role: 'doctor' as const, text: input.question, model_version: null, latency_ms: null };
+  const response = { ...context, id: nextId(state), role: 'ai' as const, text: answer, model_version: modelArtifacts[0].version, latency_ms: 1400 };
   reading.messages.push(question, response);
   return { message_ids: [question.id, response.id] };
 }

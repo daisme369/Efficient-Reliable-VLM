@@ -1,0 +1,11 @@
+**
+!src/
+!src/thorax-web/
+!src/thorax-web/**
+**/.env*
+**/.next*
+**/node_modules
+**/*.tsbuildinfo
+**/*.log
+**/*.jpg
+**/*.jpeg

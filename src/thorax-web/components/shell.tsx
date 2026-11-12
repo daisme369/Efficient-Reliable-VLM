@@ -180,7 +180,7 @@ export function DemoBadge({ mode }: { mode?: 'mock' | 'real' }) {
   return mode === 'real' ? <Badge><FlaskConical size={14} aria-hidden />Academic demonstration</Badge> : <Badge><FlaskConical size={14} aria-hidden />Academic demonstration — mock data</Badge>;
 }
 
-const desktopMedia = '(min-width: 1280px)';
+const desktopMedia = '(min-width: 768px)';
 function subscribeDesktop(callback: () => void) {
   const media = window.matchMedia(desktopMedia);
   media.addEventListener('change', callback);
@@ -189,5 +189,5 @@ function subscribeDesktop(callback: () => void) {
 export function useDesktop() { return useSyncExternalStore(subscribeDesktop, () => window.matchMedia(desktopMedia).matches, () => false); }
 
 export function DesktopNotice({ showWorklist = true }: { showWorklist?: boolean }) {
-  return <main id="main-content" className="desktop-notice"><Monitor size={32} aria-hidden /><h1>Desktop window required</h1><p>Thorax AI is designed for a desktop window at least 1280 px wide.</p>{showWorklist && <Link className="button" prefetch={false} href="/worklist">Worklist</Link>}</main>;
+  return <main id="main-content" className="desktop-notice"><Monitor size={32} aria-hidden /><h1>Wider window required</h1><p>Expand this browser panel or open Thorax AI in a browser window at least 768 px wide.</p>{showWorklist && <Link className="button" prefetch={false} href="/worklist">Worklist</Link>}</main>;
 }

@@ -225,6 +225,7 @@ __marimo__/
 
 # Docs
 /docs/*
+!/docs/LOCAL_INTEGRATION.md
 !/docs/agents/
 
 # Data
@@ -252,3 +253,9 @@ __marimo__/
 /.claude/
 CLAUDE.md
 AGENTS.md
+
+# Thorax local runtime and downloaded optional images
+/.runtime*/
+/infra/.env.compose
+/scripts/integration/fixtures/public-radiographs/*.png
+/scripts/integration/fixtures/public-radiographs/*.jpg

@@ -10,7 +10,7 @@ import {
   assigned, fail, hash, hashPassword, idleMs, idempotent, invalid, keyedHash, missing, MockError, nextId,
   passwordMatches, publicUser, readState, saveState, validPassword, type MockSession, type MockState, type MockUser,
 } from '../../../../lib/server/mock-state';
-import { assetHashes, fixtureChecksum, fixtureKey, patients, studies } from '../../../../lib/server/fixtures';
+import { fixtureChecksum, fixtureKey, imageAssets, patients, studies } from '../../../../lib/server/fixtures';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -170,7 +170,7 @@ function page<T>(
 function imageAsset(view: View) {
   const filenames: Record<View, string> = { PA: 'pa.png', AP: 'ap.png', LAT: 'lat.png' };
   const asset = readFileSync(join(process.cwd(), 'lib', 'server', 'assets', filenames[view]));
-  if (hash(asset) !== assetHashes[view]) throw new Error('Fixture checksum mismatch');
+  if (hash(asset) !== imageAssets[view].sha256) throw new Error('Fixture checksum mismatch');
   return asset;
 }
 

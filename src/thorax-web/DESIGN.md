@@ -11,4 +11,4 @@ The clinical workspace follows the Figma sketch's patient strip, three-column or
 
 ## Study workspace
 
-Operate mode. Keep the patient strip and review tabs visible while the viewer, context and review regions scroll. The left rail explains study history and reading progress. The image occupies the flexible center column. Each review panel explains its current state and presents the next available action. At 1280–1439 px, study context opens in a separate drawer. Below 1280 px, show the supported-width notice.
+Operate mode. Keep the patient strip and review tabs visible while the viewer, context and review regions scroll. The left rail explains study history and reading progress. The image occupies the flexible center column. Each review panel explains its current state and presents the next available action. At 768–1439 px, study context opens in a separate drawer. Below 1280 px, the identity strip wraps and the review column narrows to fit a browser panel. Below 768 px, show the supported-width notice with recovery instructions.

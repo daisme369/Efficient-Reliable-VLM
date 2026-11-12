@@ -8,6 +8,12 @@ The research code lives in `src/cxr_research`, with separate `data`, `preprocess
 
 See the [architecture](src/cxr_research/README.md) for module responsibilities and the [run guide](configs/README.md) for synthetic CPU checks and MedGemma/U-Net experiment templates. The GPU and full research evaluation paths remain subject to the documented runtime and protocol gates.
 
+## Thorax application backend
+
+The independent application package is in [`apps/api`](apps/api/README.md). It contains the FastAPI API, OOP domain/services/repositories, PostgreSQL migrations, durable inference worker and private mock inference service. Its environment and dependency lock are separate from research. See its README for setup, tests and integration limitations.
+
+See [the local demo guide](docs/LOCAL_INTEGRATION.md) for a complete workflow.
+
 ## Automation
 
 The current CI validates repository safety controls and dependency-free unit tests. CD creates an audited research-source bundle and a draft GitHub Release; it does not deploy a clinical system or publish model weights.

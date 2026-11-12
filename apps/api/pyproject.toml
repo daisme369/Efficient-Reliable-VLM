@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools==84.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "thorax-api"
+version = "0.1.0"
+description = "Modular Thorax AI backend with doctor-controlled review gates"
+requires-python = ">=3.12"
+license = "MIT"
+dependencies = [
+  "fastapi==0.162.0",
+  "pydantic==2.14.3",
+  "sqlalchemy==2.0.57",
+  "alembic==1.20.1",
+  "psycopg[binary]==3.3.8",
+  "bcrypt==5.0.0",
+  "httpx==0.28.1",
+  "pillow==12.3.0",
+  "uvicorn==0.54.0",
+  "python-multipart==0.0.33",
+]
+
+[project.optional-dependencies]
+test = ["pytest==9.2.0"]
+
+[project.scripts]
+thorax-worker = "thorax.worker.main:main"
+thorax-admin = "thorax.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["thorax*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

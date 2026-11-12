@@ -147,7 +147,7 @@ export interface ReportDTO {
 
 export interface MessageDTO {
   id: number;
-  role: 'user' | 'assistant';
+  role: 'doctor' | 'ai';
   text: string;
   image_id: number;
   box_id: number | null;

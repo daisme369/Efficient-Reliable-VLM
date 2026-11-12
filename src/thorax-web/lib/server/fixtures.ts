@@ -3,10 +3,10 @@ import type { HistoryReport, ImageDTO, PatientIdentity, View } from '../contract
 
 export const fixtureKey = 'thorax-demo-v1';
 
-export const assetHashes: Record<View, string> = {
-  PA: '95f7a5c42b6dcc1c16ff975c60de27ad6d5870b205543ef78a6d025337c43332',
-  AP: '1bb63e0e941b68a233524f0dde05a7f0994c8e9a44f2352e6cfe9f9a56c84c45',
-  LAT: 'c003f5a4c88f693e24b94f2ce586ae5aa81a1e9303894dd774df906388182027',
+export const imageAssets: Record<View, Pick<ImageDTO, 'width' | 'height' | 'sha256'>> = {
+  PA: { width: 800, height: 880, sha256: '95f7a5c42b6dcc1c16ff975c60de27ad6d5870b205543ef78a6d025337c43332' },
+  AP: { width: 800, height: 880, sha256: '1bb63e0e941b68a233524f0dde05a7f0994c8e9a44f2352e6cfe9f9a56c84c45' },
+  LAT: { width: 800, height: 880, sha256: 'c003f5a4c88f693e24b94f2ce586ae5aa81a1e9303894dd774df906388182027' },
 };
 
 const identities = [
@@ -63,9 +63,7 @@ function makeStudy(patient_id: number, current: boolean): FixtureStudy {
         id: imageId,
         study_id: id,
         view,
-        width: 800,
-        height: 880,
-        sha256: assetHashes[view],
+        ...imageAssets[view],
         media_type: 'image/png',
         content_url: `/api/v1/images/${imageId}/content`,
       };

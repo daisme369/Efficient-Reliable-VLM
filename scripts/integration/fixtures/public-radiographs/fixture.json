@@ -1,0 +1,104 @@
+{
+  "fixture_key": "thorax-public-radiographs-v1",
+  "patients": [
+    {
+      "id": 101,
+      "code": "CXR-101",
+      "name": "Charlotte Bennett",
+      "birth_year": 1970,
+      "sex": "F"
+    },
+    {
+      "id": 102,
+      "code": "CXR-102",
+      "name": "Oliver Reed",
+      "birth_year": 1965,
+      "sex": "M"
+    },
+    {
+      "id": 103,
+      "code": "CXR-103",
+      "name": "Henry Parker",
+      "birth_year": 1975,
+      "sex": "M"
+    }
+  ],
+  "studies": [
+    {
+      "id": 3401,
+      "patient_id": 101,
+      "study_date": "2026-11-12",
+      "indication": "Teaching example: paired PA and lateral chest radiographs."
+    },
+    {
+      "id": 3402,
+      "patient_id": 102,
+      "study_date": "2026-11-12",
+      "indication": "Teaching example: a second paired PA and lateral chest radiograph."
+    },
+    {
+      "id": 3403,
+      "patient_id": 103,
+      "study_date": "2026-11-12",
+      "indication": "Teaching example: single AP chest radiograph."
+    }
+  ],
+  "images": [
+    {
+      "id": 34010,
+      "study_id": 3401,
+      "view": "PA",
+      "asset": "public-pair-pa.png",
+      "input_sha256": "a43431b089a6dfab031c10eceef6c821e4f326913bf9015f73f4a1f0446d2be1",
+      "source": "https://commons.wikimedia.org/wiki/File:Chest_Xray_PA_3-8-2010.png",
+      "author": "Stillwaterising",
+      "license": "CC0-1.0",
+      "download_url": "https://upload.wikimedia.org/wikipedia/commons/c/c8/Chest_Xray_PA_3-8-2010.png"
+    },
+    {
+      "id": 34011,
+      "study_id": 3401,
+      "view": "LAT",
+      "asset": "public-pair-lat.png",
+      "input_sha256": "d07a306fb285a8456739e0349fb208b64ade12eb4bb84bc09889c7b3ec7f99a7",
+      "source": "https://commons.wikimedia.org/wiki/File:Chest_Xray_Lateral_3-8-2010.png",
+      "author": "Stillwaterising",
+      "license": "CC0-1.0",
+      "download_url": "https://upload.wikimedia.org/wikipedia/commons/9/9d/Chest_Xray_Lateral_3-8-2010.png"
+    },
+    {
+      "id": 34020,
+      "study_id": 3402,
+      "view": "PA",
+      "asset": "public-second-pa.jpg",
+      "input_sha256": "8925f49b4c6aeee969d113813e5c0e3f62a2184254dd2d76acdddd861bfc2d2b",
+      "source": "https://commons.wikimedia.org/wiki/File:Chest_radiograph_in_influensa_and_H_influenzae,_posteroanterior.jpg",
+      "author": "Mikael Häggström",
+      "license": "CC0-1.0",
+      "download_url": "https://upload.wikimedia.org/wikipedia/commons/d/da/Chest_radiograph_in_influensa_and_H_influenzae%2C_posteroanterior.jpg"
+    },
+    {
+      "id": 34021,
+      "study_id": 3402,
+      "view": "LAT",
+      "asset": "public-second-lat.jpg",
+      "input_sha256": "081f27eb8565a8c23dcee88ed9f3daa4592051a90ba013e7a24fd8f567645264",
+      "source": "https://commons.wikimedia.org/wiki/File:Chest_radiograph_in_influensa_and_H_influenzae,_lateral.jpg",
+      "author": "Mikael Häggström",
+      "license": "CC0-1.0",
+      "download_url": "https://upload.wikimedia.org/wikipedia/commons/a/af/Chest_radiograph_in_influensa_and_H_influenzae,_lateral.jpg"
+    },
+    {
+      "id": 34030,
+      "study_id": 3403,
+      "view": "AP",
+      "asset": "public-ap.jpg",
+      "input_sha256": "3151ba22f0124028ac4b4d7c9748ff7b2494d07de26fe16b62818c1bb724384f",
+      "source": "https://commons.wikimedia.org/wiki/File:X-ray_of_COPD_exacerbation_-_anteroposterior_view.jpg",
+      "author": "Mikael Häggström",
+      "license": "CC0-1.0",
+      "download_url": "https://upload.wikimedia.org/wikipedia/commons/3/36/X-ray_of_COPD_exacerbation_-_anteroposterior_view.jpg"
+    }
+  ],
+  "past_reports": []
+}

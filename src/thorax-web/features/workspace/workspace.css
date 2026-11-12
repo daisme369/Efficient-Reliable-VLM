@@ -130,11 +130,19 @@
 .report-signature { display: flex; gap: 12px; align-items: center; padding: 14px; background: var(--approved-bg); border-radius: 6px; color: #056447; }
 .report-signature p { font-size: 14px; }
 
-@media (min-width: 1280px) and (max-width: 1439px) {
+@media (max-width: 1439px) {
   .workspace-grid { grid-template-columns: minmax(560px, 1fr) 420px; }
   .context-rail { display: none; }
   .context-toggle { display: inline-flex; }
   .context-drawer { display: block; position: absolute; z-index: 3; top: 12px; bottom: 12px; left: 12px; width: 240px; overflow: auto; box-shadow: 0 4px 20px #0f172a20; }
   .identity-strip > dl > div { padding-inline: 9px; }
   .identity-strip > dl > div:first-child { padding-left: 0; }
+}
+
+@media (max-width: 1279px) {
+  .workspace-grid { grid-template-columns: minmax(0, 1fr) 360px; }
+  .identity-strip { flex-wrap: wrap; padding: 10px 16px; gap: 8px; }
+  .identity-strip > dl { flex-basis: 100%; flex-wrap: wrap; gap: 8px 0; }
+  .identity-strip > dl > div { flex: 1 1 25%; border: 0; padding: 0 8px 0 0; }
+  .identity-end { flex-wrap: wrap; }
 }

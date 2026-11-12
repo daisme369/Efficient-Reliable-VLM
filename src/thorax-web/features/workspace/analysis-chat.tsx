@@ -174,11 +174,11 @@ export function ChatPanel({ data, image, actions, disabled, reason, attachment, 
       {next && <button className="button ghost" disabled={loading} onClick={() => void loadOlder()}>{loading ? 'Loading…' : 'Load earlier messages'}</button>}
       {error && <Notice tone="error">{error}</Notice>}
       {!messages.length && !liveQuestion && <EmptyState title="No saved messages">Ask a question about this X-ray or select a region.</EmptyState>}
-      {messages.map(message => <article className={`message ${message.role === 'user' ? 'doctor' : 'assistant'}`} key={message.id}>
-        <div className="message-meta"><strong>{message.role === 'user' ? 'Doctor' : 'AI assistant'}</strong><time dateTime={message.created_at}>{formatTime(message.created_at)}</time></div>
-        {message.role === 'assistant' && <Badge tone="pending">{aiSuggestion}</Badge>}<p>{message.text}</p><Badge>{imageLabel(data.images, message.image_id)}</Badge>
+      {messages.map(message => <article className={`message ${message.role === 'doctor' ? 'doctor' : 'assistant'}`} key={message.id}>
+        <div className="message-meta"><strong>{message.role === 'doctor' ? 'Doctor' : 'AI assistant'}</strong><time dateTime={message.created_at}>{formatTime(message.created_at)}</time></div>
+        {message.role === 'ai' && <Badge tone="pending">{aiSuggestion}</Badge>}<p>{message.text}</p><Badge>{imageLabel(data.images, message.image_id)}</Badge>
         {message.box_snapshot && <details className="source-details"><summary>Region as submitted</summary><p className="mono">Region {message.box_snapshot.box_id}, revision {message.box_snapshot.revision}</p><p className="mono">{message.box_snapshot.bbox_xyxy.join(', ')} px</p></details>}
-        {message.role === 'assistant' && message.model_version && <small className="muted">Model {message.model_version}</small>}
+        {message.role === 'ai' && message.model_version && <small className="muted">Model {message.model_version}</small>}
       </article>)}
       {liveQuestion && <article className="message doctor"><div className="message-meta"><strong>Doctor</strong><span>Pending</span></div><p>{liveQuestion.question}</p><Badge>{imageLabel(data.images, liveQuestion.image_id)}</Badge></article>}
     </div>

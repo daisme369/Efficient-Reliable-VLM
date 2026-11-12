@@ -1,0 +1,20 @@
+{
+  "adapter_path": "../private-adapter-directory",
+  "base_model_id": "google/medgemma-1.5-4b-it",
+  "base_revision": "91850547d9f0b2fdd21aa7c5f4f3d1a8a52c243b",
+  "artifact": {
+    "id": "medgemma-b1-2026-10-31",
+    "version": "final-adapter",
+    "sha256": "bd568cb6efd57fe7ec637643a1876537895a48d44c8789d06b52f437ac82824c"
+  },
+  "file_hashes": {
+    "README.md": "8b05a07bcbf180ac3c4727f9bd4fe37687c04d2446603351e3386b1738f47230",
+    "adapter_config.json": "f28152172a3059de734d03d5aff9645b275e57fd347895c1357f8e6644c3af28",
+    "adapter_model.safetensors": "bd568cb6efd57fe7ec637643a1876537895a48d44c8789d06b52f437ac82824c",
+    "chat_template.jinja": "7de1c58e208eda46e9c7f86397df37ec49883aeece39fb961e0a6b24088dd3c4",
+    "model_identity.json": "f3ff9f1a0e7748e48257b0031bfb817f121ad16ab2270ca74c13d5ac4a8c01b0",
+    "processor_config.json": "90eeb521cab526796d26f85f6a9bcfb05128a71b7c74a8621205c37568aa3048",
+    "tokenizer.json": "daab2354f8a74e70d70b4d1f804939b68a8c9624dd06cb7858e52dd8970e9726",
+    "tokenizer_config.json": "a8c69c758602d0e41bb1b351dbb7114ff9518a9ad2c9e3d1c51da41bad61cf0c"
+  }
+}

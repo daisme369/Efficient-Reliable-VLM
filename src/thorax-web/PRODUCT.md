@@ -20,7 +20,7 @@ Thorax AI is an academic demonstration of chest X-ray reading assistance. A read
 
 ## Capabilities and Constraints
 
-The MVP uses English and supports desktop browser widths of 1280 CSS pixels or more. Images are immutable PNG or JPEG assets. The browser uses the same-origin REST contract. The local demo uses synthetic fixtures. The supplied real inference artifacts and backend are separate integration inputs.
+The MVP uses English. The full desktop layout targets 1280 CSS pixels or more; the local integration also supports compact browser panels from 768 px, using the existing study-context drawer and a narrower two-column workspace. Images are immutable PNG or JPEG assets. The browser uses the same-origin REST contract. The local demo uses synthetic fixtures. The supplied real inference artifacts and backend are separate integration inputs.
 
 ## Evidence on Hand
 
