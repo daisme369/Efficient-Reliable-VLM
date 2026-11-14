@@ -22,13 +22,16 @@ The local demo keeps synthetic state under `.thorax-demo/state.json`. Set `THORA
 The local demo API above is an in-process mock. The real backend in `src/thorax_api` (FastAPI and SQLite) implements the same contract plus the annotator role, labeling, the full administrator console, self-service password changes and the AI pause switch. See `src/thorax_api/README.md`.
 
 ```powershell
-# From the repository root: create accounts and synthetic data once, then start the API on port 8000.
+# Once, from the repository root: create accounts and synthetic data in thorax.sqlite3. Re-running keeps existing data.
 Get-Content src\thorax-web\.env.local | % { if ($_ -match '^(\w+)=(.+)$') { Set-Item "env:$($matches[1])" $matches[2] } }
 $env:PYTHONPATH='src'; python -m thorax_api.accounts seed-demo
+
+# Every time: start the API on port 8000 (repository root), then the web app (src\thorax-web) in another terminal.
 python scripts/serve_api.py
-# In src\thorax-web, in another terminal:
-$env:THORAX_API_ORIGIN='http://127.0.0.1:8000'; pnpm dev
+pnpm dev
 ```
+
+For `pnpm dev` to use the backend, set `THORAX_API_ORIGIN=http://127.0.0.1:8000` in `.env.local`. Leave it empty to use the local demo API instead. Restart `pnpm dev` after changing it.
 
 Set `THORAX_DEMO_ANNOTATOR_PASSWORD` in `.env.local` to create `annotator@thorax.demo` and `annotator2@thorax.demo`. Run only one Next.js server per folder: two servers share `.next` and break each other.
 
