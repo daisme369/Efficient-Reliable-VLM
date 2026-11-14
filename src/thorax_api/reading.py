@@ -6,7 +6,7 @@ as the mock, and writes it back inside a single IMMEDIATE transaction; the readi
 If-Match) rejects stale writes.
 
 AI is the mock's fixed demo output for now ("provider_mode": "mock"). Jobs settle by elapsed time when
-a reading is next read, like the mock. Replacing them with calls to scripts/serve_vlm.py is a later step.
+a reading is next read, like the mock. Calling a real model service instead is a later step.
 """
 
 from __future__ import annotations

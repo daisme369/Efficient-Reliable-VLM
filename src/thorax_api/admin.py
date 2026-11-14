@@ -107,7 +107,7 @@ class AdminStore:
 
 
 def model_service() -> dict:
-    """Health of the separate inference service (scripts/serve_vlm.py), if one is configured."""
+    """Health of the separate inference service at THORAX_VLM_URL, if one is configured."""
     url = os.environ.get("THORAX_VLM_URL", "").rstrip("/")
     if not url:
         return {"status": "not_configured", "url": None}
