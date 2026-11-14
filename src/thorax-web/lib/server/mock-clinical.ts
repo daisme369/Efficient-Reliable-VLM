@@ -453,9 +453,10 @@ function completeAnalysis(state: MockState, reading: MockSession, job: MockJob, 
       },
     );
   }
-  if (image.view === 'PA') {
+  if (image.view !== 'LAT') {
     boxes.push({
-      id: nextId(state), image_id: imageId, bbox_xyxy: [501.25, 542.5, 663.75, 685],
+      id: nextId(state), image_id: imageId,
+      bbox_xyxy: [501.25 * image.width / 800, 542.5 * image.height / 880, 663.75 * image.width / 800, 685 * image.height / 880],
       label: 'Left basilar region', note: null, source: 'ai', review_action: 'pending', revision: 1,
       deleted_at: null, ai_request_id: request.request_id,
     });

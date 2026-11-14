@@ -64,7 +64,7 @@ export function AnalysisPanel({ data, image, imageReady, actions, disabled, reas
   const failed = analysis?.error;
   return <div className="panel-content analysis-panel">
     <div className="section-heading"><Activity size={20} aria-hidden /><h2>AI analysis</h2></div>
-    <p className="muted">Analyze one image to open Expert Discussion with a preliminary AI report, findings and detected regions.</p>
+    <p className="muted">Analyze one image to open the clinical discussion with a preliminary AI report, findings and detected regions.</p>
     <div className="analysis-input"><span className="empty-icon"><ScanLine size={22} aria-hidden /></span><div><span className="muted">Selected image</span><strong>{image ? imageLabel(data.images, image.id) : 'No image available'}</strong></div></div>
     <div className="analysis-sources"><div><span>Earlier reports</span><strong>{data.history.length ? `${data.history.length} available` : 'None'}</strong></div><div><span>Image coverage</span><strong>Current image only</strong></div></div>
     {analysis && <AIStatus job={analysis} actions={actions} />}
@@ -148,7 +148,7 @@ export function ChatPanel({ data, image, actions, disabled, reason, attachment, 
     void actions.submit({ operation: 'ask', image_id: image.id, question: question.trim(), ...(attachment ? { box_id: attachment.id } : {}) }).catch(failure => { if (errorText(failure).includes('patient')) questionRef.current?.focus(); });
   }
   return <div className="panel-content chat-panel">
-    <div className="panel-heading"><div className="section-heading"><MessageSquare size={20} aria-hidden /><h2>Chat with AI</h2></div>{readOnly && <Badge tone="approved">Read-only</Badge>}</div>
+    <div className="panel-heading"><div className="section-heading"><MessageSquare size={20} aria-hidden /><h2>Discussion with AI</h2></div>{readOnly && <Badge tone="approved">Read-only</Badge>}</div>
     {data.preliminary_report ? <details className="preliminary-report" open>
       <summary>Preliminary AI report</summary>
       <Badge tone="pending">{aiSuggestion}</Badge> <Badge>{imageLabel(data.images, data.preliminary_report.image_id)}</Badge>
@@ -157,10 +157,10 @@ export function ChatPanel({ data, image, actions, disabled, reason, attachment, 
     </details> : analyzed && <p className="muted">Preliminary report unavailable for this saved reading.</p>}
     <p className="muted">Discuss this image or a saved region, then record any corrections in Findings.</p>
     {image && <Badge><ImageIcon size={14} aria-hidden />{imageLabel(data.images, image.id)}</Badge>}
-    <div ref={feed} className="message-feed" aria-label="Saved study chat" tabIndex={0}>
-      {next && <button className="button ghost" disabled={loading} onClick={() => void loadOlder()}>{loading ? 'Loading…' : 'Load earlier messages'}</button>}
+    <div ref={feed} className="message-feed" aria-label="Saved study discussion" tabIndex={0}>
+      {next && <button className="button ghost" disabled={loading} onClick={() => void loadOlder()}>{loading ? 'Loading…' : 'Load earlier entries'}</button>}
       {error && <Notice tone="error">{error}</Notice>}
-      {!messages.length && !liveQuestion && <EmptyState title="No saved messages">Ask a question about this X-ray or select a region.</EmptyState>}
+      {!messages.length && !liveQuestion && <EmptyState title="No discussion entries">Add an observation or question about this X-ray or a saved region.</EmptyState>}
       {messages.map(message => <article className={`message ${message.role === 'user' ? 'doctor' : 'assistant'}`} key={message.id}>
         <div className="message-meta"><strong>{message.role === 'user' ? 'Doctor' : 'AI assistant'}</strong><time dateTime={message.created_at}>{formatTime(message.created_at)}</time></div>
         {message.role === 'assistant' && <Badge tone="pending">{aiSuggestion}</Badge>}<p>{message.text}</p><Badge>{imageLabel(data.images, message.image_id)}</Badge>
@@ -174,9 +174,9 @@ export function ChatPanel({ data, image, actions, disabled, reason, attachment, 
     {currentJob && <AIStatus job={currentJob} actions={actions} />}
     {!readOnly && <form className="chat-form" onSubmit={event => { event.preventDefault(); send(); }}>
       {attachment && <div className="attachment"><Badge tone="info">Region {attachment.id} · {imageLabel(data.images, attachment.image_id)}</Badge><button className="icon-button" type="button" aria-label="Remove region attachment" onClick={clearAttachment}><X size={16} aria-hidden /></button></div>}
-      <label className="field">Doctor’s question<textarea ref={questionRef} rows={3} maxLength={2000} placeholder="Ask about the current image…" value={question} onChange={event => setQuestion(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); send(); } }} /></label>
-      <div className="chat-actions"><small className="mono muted">{question.length}/2000</small><button className="button primary" disabled={!canSend}><Send size={16} aria-hidden />Send</button></div>
-      <p className="muted dense">{!analyzed ? 'Analyze this study before asking questions.' : reason || 'Do not enter patient names or patient codes.'}</p>
+      <label className="field">Clinical observation or question<textarea ref={questionRef} rows={3} maxLength={2000} value={question} onChange={event => setQuestion(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); send(); } }} /></label>
+      <div className="chat-actions"><small className="mono muted">{question.length}/2000</small><button className="button primary" disabled={!canSend}><Send size={16} aria-hidden />Add to discussion</button></div>
+      <p className="muted dense">{!analyzed ? 'Analyze this study before starting the discussion.' : reason || 'Do not enter patient names or patient codes.'}</p>
     </form>}
   </div>;
 }

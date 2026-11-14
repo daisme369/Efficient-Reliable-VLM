@@ -16,7 +16,7 @@ import { useReading, useReadingActions } from './useReading';
 import './workspace.css';
 
 const discussionTabs = [
-  { id: 'chat', label: 'Chat', icon: MessageSquare },
+  { id: 'chat', label: 'Discussion', icon: MessageSquare },
   { id: 'findings', label: 'Findings', icon: ClipboardCheck },
 ] as const;
 export type Panel = 'analysis' | 'report' | typeof discussionTabs[number]['id'];
@@ -236,13 +236,13 @@ function Reading({ data, reload, onDenied }: { data: Workspace; reload: () => Pr
         </section>
         <section className="surface review" aria-label="Clinical review">
           {analyzed && <div className="discussion-header">
-            <h2>{panel === 'report' ? 'Report preparation' : 'Expert Discussion'}</h2>
+            <h2>{panel === 'report' ? 'Report preparation' : 'Clinical Discussion'}</h2>
             <button className="text-button" onClick={() => setPanel(panel === 'report' ? 'findings' : 'report')}>{panel === 'report' ? 'Back to findings' : 'Report'}</button>
           </div>}
-          {analyzed && panel !== 'report' && <div className="review-tabs" role="tablist" aria-label="Expert Discussion">{discussionTabs.map(({ id, label, icon: Icon }, index) => <button key={id} id={`tab-${id}`} role="tab" aria-selected={panel === id} aria-controls={`panel-${id}`} tabIndex={panel === id ? 0 : -1} onKeyDown={event => tabKey(event, index)} onClick={() => setPanel(id)}><Icon size={16} aria-hidden />{label}</button>)}</div>}
+          {analyzed && panel !== 'report' && <div className="review-tabs" role="tablist" aria-label="Clinical Discussion">{discussionTabs.map(({ id, label, icon: Icon }, index) => <button key={id} id={`tab-${id}`} role="tab" aria-selected={panel === id} aria-controls={`panel-${id}`} tabIndex={panel === id ? 0 : -1} onKeyDown={event => tabKey(event, index)} onClick={() => setPanel(id)}><Icon size={16} aria-hidden />{label}</button>)}</div>}
           <div className="review-scroll" key={reset}>
             {!analyzed && <AnalysisPanel data={data} image={image} imageReady={imageReady} actions={actions} disabled={blocked || dirty || readOnly} reason={blockingCopy ?? (dirty ? 'Save or discard your changes first.' : undefined)} />}
-            <div id="panel-chat" role="tabpanel" aria-labelledby="tab-chat" hidden={panel !== 'chat'}><ChatPanel data={data} image={image} actions={actions} disabled={blocked || Boolean(drafts.box) || !imageReady} reason={blockingCopy ?? (drafts.box ? 'Save or discard the region changes first.' : !imageReady ? 'Load the selected image before asking.' : undefined)} attachment={attachment} clearAttachment={() => setAttachment(null)} onDirty={setChatDirty} visible={panel === 'chat'} /></div>
+            <div id="panel-chat" role="tabpanel" aria-labelledby="tab-chat" hidden={panel !== 'chat'}><ChatPanel data={data} image={image} actions={actions} disabled={blocked || Boolean(drafts.box) || !imageReady} reason={blockingCopy ?? (drafts.box ? 'Save or discard the region changes first.' : !imageReady ? 'Load the selected image before adding to the discussion.' : undefined)} attachment={attachment} clearAttachment={() => setAttachment(null)} onDirty={setChatDirty} visible={panel === 'chat'} /></div>
             <div id="panel-findings" role="tabpanel" aria-labelledby="tab-findings" hidden={panel !== 'findings'}><FindingsPanel data={data} actions={actions} disabled={blocked} baseRevision={draftRevisions.current.findings} otherDirty={Boolean(drafts.box || drafts.report || drafts.chat)} onDirty={setFindingsDirty} onDraftText={setFindingsText} onPanel={setPanel} onBox={openBox} /></div>
             <div id="panel-report" hidden={panel !== 'report'}><ReportPanel data={data} actions={actions} disabled={blocked} baseRevision={draftRevisions.current.report} otherDirty={Boolean(drafts.box || drafts.findings || drafts.chat)} onDirty={setReportDirty} onDraftText={setReportText} onPanel={setPanel} onFinal={() => router.push(`${href}/report`)} /></div>
           </div>
@@ -279,7 +279,7 @@ function StudyContext({ data, pendingBoxes, pendingFindings, onPanel, audit, onA
   const approved = data.latest_findings?.status === 'approved';
   const final = data.session.status === 'final';
   const progress = [
-    { label: analyzed ? 'Expert Discussion' : 'Initial analysis', status: analyzed ? 'Preliminary report' : 'Ready to start', done: analyzed, tab: analyzed ? 'chat' : 'analysis' },
+    { label: analyzed ? 'Clinical Discussion' : 'Initial analysis', status: analyzed ? 'Preliminary report' : 'Ready to start', done: analyzed, tab: analyzed ? 'chat' : 'analysis' },
     { label: 'Findings review', status: approved ? 'Approved' : analyzed ? `${pendingFindings} ${pendingFindings === 1 ? 'finding' : 'findings'} · ${pendingBoxes} ${pendingBoxes === 1 ? 'region' : 'regions'} pending` : 'Awaiting analysis', done: approved, tab: 'findings' },
     { label: 'Final report', status: final ? 'Approved' : approved ? 'Ready for drafting' : 'Awaiting Gate 1', done: final, tab: 'report' },
   ] as const;

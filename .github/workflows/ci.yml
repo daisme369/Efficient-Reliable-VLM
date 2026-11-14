@@ -19,7 +19,7 @@ jobs:
   repository-quality:
     name: Repository quality and safety
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     env:
       PYTHONDONTWRITEBYTECODE: "1"
     steps:
@@ -44,5 +44,40 @@ jobs:
           python -m pip install --disable-pip-version-check --only-binary=:all:
           --constraint requirements.txt numpy pillow pydicom huggingface-hub pyyaml
 
+      # Without these, tests/api skip silently. FastAPI's own dependencies are not pinned yet.
+      - name: Install Thorax API dependencies
+        run: >-
+          python -m pip install --disable-pip-version-check --only-binary=:all:
+          --requirement requirements/api.txt
+
       - name: Run unit tests
         run: python -m unittest discover -s tests -p "test_*.py" -v
+
+  thorax-web:
+    name: Thorax web typecheck and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: src/thorax-web
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+
+      - name: Install dependencies from the lockfile
+        run: corepack pnpm@10.34.9 install --frozen-lockfile
+
+      - name: Typecheck
+        run: corepack pnpm@10.34.9 typecheck
+
+      - name: Build
+        run: corepack pnpm@10.34.9 build
