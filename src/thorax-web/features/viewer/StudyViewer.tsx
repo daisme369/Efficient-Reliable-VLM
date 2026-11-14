@@ -4,7 +4,7 @@ import { BoxSelect, Contrast, Eye, EyeOff, Hand, Maximize, Minus, MousePointer2,
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import type { BoxCoordinates, BoxDTO, BoxSnapshot, ImageDTO } from "../../lib/contracts";
 import { drawBounds, imageTransform, moveBounds, resizeBounds, toSource, validBounds, zoomAt, type Corner, type Point } from "./imageCoordinates";
-import RegionEditor, { draftBounds, makeRegionDraft, regionChanges, regionState, withBounds, type RegionChanges, type RegionDraft } from "./RegionEditor";
+import RegionEditor, { draftBounds, makeRegionDraft, regionChanges, regionName, regionState, withBounds, type RegionChanges, type RegionDraft } from "./RegionEditor";
 import styles from "./StudyViewer.module.css";
 
 export type { RegionChanges } from "./RegionEditor";
@@ -374,8 +374,8 @@ function SelectedImageViewer({ image, images, boxes, selectedBoxId, canAnnotate,
                 <rect {...rect} className={styles.boxBack} />
                 <rect {...rect} className={styles.boxOutline} />
                 <rect {...rect} className={styles.boxHit} data-box-id={box.id} />
-                <rect x={rect.x + 2} y={rect.y + 2} width={24} height={18} rx={2} className={styles.boxLabel} />
-                <text x={rect.x + 14} y={rect.y + 15} textAnchor="middle" className={styles.boxLabelText}>{String(index + 1).padStart(2, "0")}</text>
+                <rect x={rect.x + 2} y={rect.y + 2} width={30} height={18} rx={2} className={styles.boxLabel} />
+                <text x={rect.x + 17} y={rect.y + 15} textAnchor="middle" className={styles.boxLabelText}>R{index + 1}</text>
                 {isSelected && editable && tool === "select" && corners.map((corner) => {
                   const x = rect.x + (corner.endsWith("right") ? rect.width : 0);
                   const y = rect.y + (corner.startsWith("bottom") ? rect.height : 0);
@@ -416,21 +416,21 @@ function SelectedImageViewer({ image, images, boxes, selectedBoxId, canAnnotate,
           {activeBoxes.length ? <ul className={styles.regionList}>
             {activeBoxes.map((box, index) => <li key={box.id}>
               <button type="button" aria-pressed={box.id === selectedBoxId} disabled={busy} onClick={() => selectBox(box.id === selectedBoxId ? null : box.id)}>
-                <span className={styles.regionIndex} data-source={box.source}>{String(index + 1).padStart(2, "0")}</span>
-                <span><strong>{box.label || `Region #${box.id}`}</strong><span>{regionState(box)} · ID {box.id}</span><span>{box.bbox_xyxy.map((value) => value.toFixed(2)).join(", ")} px</span><span>{linkedFindings?.[box.id] || "No linked finding"}</span></span>
+                <span className={styles.regionIndex} data-source={box.source}>R{index + 1}</span>
+                <span><strong>{box.label || "Unlabelled region"}</strong><span>{regionState(box)}</span><span>{box.bbox_xyxy.map((value) => value.toFixed(2)).join(", ")} px</span><span>{linkedFindings?.[box.id] || "No linked finding"}</span></span>
               </button>
             </li>)}
           </ul> : <p className={styles.reason}>No saved regions on this image.</p>}
-          {!readOnly && <button type="button" className={styles.numericAdd} disabled={!editable || dirty} onClick={() => beginRegion([image.width * 0.25, image.height * 0.25, image.width * 0.75, image.height * 0.75])}><Plus size={16} aria-hidden="true" /> Enter region coordinates</button>}
-          {editor && canAnnotate && ready && !readOnly && <div ref={editorAnchor} tabIndex={-1} role="group" aria-label="Region coordinates and details"><RegionEditor image={image} draft={editor} box={selected} canAsk={canAskRegion} busy={busy} dirty={dirty} findingsApproved={findingsApproved}
+          {!readOnly && <button type="button" className={styles.numericAdd} disabled={!editable || dirty} onClick={() => beginRegion([image.width * 0.25, image.height * 0.25, image.width * 0.75, image.height * 0.75])}><Plus size={16} aria-hidden="true" /> Add region by coordinates</button>}
+          {editor && canAnnotate && ready && !readOnly && <div ref={editorAnchor} tabIndex={-1} role="group" aria-label="Region coordinates and details"><RegionEditor image={image} draft={editor} box={selected} name={selected ? regionName(boxes, selected) : undefined} canAsk={canAskRegion} busy={busy} dirty={dirty} findingsApproved={findingsApproved}
             onChange={setDraft} onCancel={cancelDraft}
             onSave={() => { if (validBounds(draftBounds(editor), image) && dirty) void mutate(() => onBoxSave(editor.id, regionChanges(editor, selected, image.id)), "Region saved."); }}
             onReview={(review_action) => { if (selected && !dirty) void mutate(() => onBoxSave(selected.id, { review_action }), review_action === "accepted" ? "Region accepted." : "Region rejected.", review_action === "rejected"); }}
             onDelete={() => { if (selected && !dirty) void mutate(() => onBoxDelete(selected.id), "Region removed.", true); }}
             onAsk={() => { if (selected && canAskRegion && !dirty) onAskRegion(selected); }} /></div>}
           {selected && (!canAnnotate || !ready || readOnly) && <div className={styles.readOnlyDetails}>
-            <strong>Region #{selected.id}</strong>
-            <p>{selected.source === "ai" && selected.review_action !== "pending" ? `AI suggestion — needs doctor review · ${regionState(selected)}` : regionState(selected)}</p>
+            <strong>{regionName(boxes, selected)}{selected.label ? ` · ${selected.label}` : ""}</strong><small className={styles.reason}>ID {selected.id}</small>
+            <p>{selected.source === "ai" && selected.review_action !== "pending" ? `AI suggestion · ${regionState(selected)}` : regionState(selected)}</p>
             {selected.note && <p>{selected.note}</p>}
           </div>}
         </div>}

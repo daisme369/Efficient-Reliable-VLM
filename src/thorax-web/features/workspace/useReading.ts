@@ -19,6 +19,7 @@ export function errorText(error: unknown) {
     case 'REPORT_STALE': return 'Findings changed after this draft was created. Approve them and generate a new report.';
     case 'FINAL_READ_ONLY': return 'This reading is final and read-only.';
     case 'PHI_IN_MODEL_INPUT': return 'Remove the patient name or patient code from the text before sending it to AI.';
+    case 'AI_PAUSED': return 'An administrator has paused AI. You can still review, edit and sign by hand.';
     case 'CONTEXT_CHANGED': return 'The original context changed. Review the current selection and submit again.';
     default: return error.status === 422 && error.details.length ? error.details.map(detail => detail.reason).join(' ') : error.status >= 500 ? 'The service could not complete this request. Try again.' : error.message;
   }
@@ -228,10 +229,11 @@ export function useReadingActions(data: Workspace, reload: () => Promise<Workspa
   }
 
   function resolveConflict() { setConflict(null); setError(''); }
+  const clearError = useCallback(() => setError(''), []);
 
   return {
     busy, offline, uncertain, error, conflict, job, live: liveId !== null,
-    pollError, checking, reconnect, resolveConflict, transact, submit, retry,
+    pollError, checking, reconnect, resolveConflict, clearError, transact, submit, retry,
     checkStatus: () => liveId === null ? Promise.resolve() : poll(liveId),
   };
 }

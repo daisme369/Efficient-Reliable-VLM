@@ -54,7 +54,13 @@ export function formatDate(value: string | null | undefined) {
 export function formatTime(value: string | null | undefined) {
   if (!value) return '—';
   const date = new Date(value);
-  return Number.isNaN(date.valueOf()) ? '—' : new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' }).format(date) + ' UTC';
+  // Viewer's own time zone, labelled (e.g. "GMT+7") so the zone is never ambiguous.
+  return Number.isNaN(date.valueOf()) ? '—' : new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZoneName: 'short' }).format(date);
+}
+
+export function formatClock(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.valueOf()) ? '—' : new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit' }).format(date);
 }
 
 export const aiSuggestion = 'AI suggestion — needs doctor review';

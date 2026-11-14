@@ -1,7 +1,7 @@
 import type {
   AdminDoctor, AdminPatient, AICommand, AIRequest, AIStatus, AuditEvent, AuthUser, BoxCreate,
   BoxPatch, ErrorDetail, FindingsEdit, FixtureStatus, MessageDTO, MutationReceipt, Page, PatientSummary,
-  ReportNarrative, StudyDetail, StudyDTO, Workspace,
+  AdminAi, AdminEvent, AdminLabeling, AdminOverview, AdminUser, AiPause, LabelBox, LabelQueue, LabelTask, LabelVocabulary, ReportNarrative, StudyDetail, StudyDTO, Workspace,
 } from './contracts';
 
 export class ApiError extends Error {
@@ -22,9 +22,24 @@ export const authLostEvent = 'thorax:auth-lost';
 let csrfToken: string | undefined;
 let authEpoch = 0;
 
+// Images are immutable, so one download per image serves the viewer and its thumbnail.
+// Held in page memory only and dropped with the login, never in browser storage.
+const imageCache = new Map<number, Promise<Blob>>();
+
 export function clearApiAuth() {
   csrfToken = undefined;
   authEpoch += 1;
+  imageCache.clear();
+}
+
+function abortable<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    signal.addEventListener('abort', abort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
+  });
 }
 
 export const actionKey = () => crypto.randomUUID();
@@ -39,7 +54,7 @@ export interface MutationOptions {
 }
 
 interface RequestOptions {
-  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   body?: object;
   revision?: number;
   key?: string;
@@ -129,10 +144,34 @@ export const api = {
     csrfToken = user.csrf_token;
     return user;
   },
+  changePassword: (currentPassword: string, newPassword: string) =>
+    json<void>('/auth/password', { method: 'POST', body: { current_password: currentPassword, new_password: newPassword } }),
   async logout() {
     await json<void>('/auth/logout', { method: 'POST' });
     clearApiAuth();
   },
+  // Admin console (real backend only).
+  adminOverview: (signal?: AbortSignal) => json<AdminOverview>('/admin/overview', { signal }),
+  adminUsers: (signal?: AbortSignal) => json<{ items: AdminUser[] }>('/admin/users', { signal }),
+  adminCreateUser: (body: { name: string; email: string; role: string; password: string }) => json<AdminUser>('/admin/users', { method: 'POST', body }),
+  adminUpdateUser: (id: number, body: { is_active?: boolean; password?: string }) => json<AdminUser>(`/admin/users/${id}`, { method: 'PATCH', body }),
+  adminSignOutUser: (id: number) => json<void>(`/admin/users/${id}/sign-out`, { method: 'POST' }),
+  adminAi: (signal?: AbortSignal) => json<AdminAi>('/admin/ai', { signal }),
+  adminSetAiPaused: (paused: boolean) => json<AiPause>('/admin/ai/pause', { method: 'PUT', body: { paused } }),
+  adminLabeling: (signal?: AbortSignal) => json<AdminLabeling>('/admin/labeling', { signal }),
+  adminExportLabels: () => json<{ manifest: Record<string, string | number>; labels_jsonl: string }>('/admin/labeling/export', { method: 'POST' }),
+  adminEvents: (signal?: AbortSignal) => json<{ items: AdminEvent[] }>('/admin/events', { signal }),
+  // Labeling (annotator role). Served by the real backend only; the local demo API has no labeling.
+  labelVocabulary: (signal?: AbortSignal) => json<LabelVocabulary>('/labeling/vocabulary', { signal }),
+  labelQueue: (signal?: AbortSignal) => json<LabelQueue>('/labeling/queue', { signal }),
+  labelNext: () => json<LabelTask>('/labeling/tasks/next', { method: 'POST' }),
+  labelTask: (id: number, signal?: AbortSignal) => json<LabelTask>(`/labeling/tasks/${id}`, { signal }),
+  saveLabelBoxes: (id: number, boxes: LabelBox[], revision: number) =>
+    json<LabelTask>(`/labeling/tasks/${id}/boxes`, { method: 'PUT', body: { boxes, revision } }),
+  submitLabelTask: (id: number, revision: number) =>
+    json<LabelTask>(`/labeling/tasks/${id}/submit`, { method: 'POST', body: { revision } }),
+  reviewLabelTask: (id: number, decision: 'approve' | 'return', comment: string, revision: number) =>
+    json<LabelTask>(`/labeling/tasks/${id}/review`, { method: 'POST', body: { decision, comment: comment || null, revision } }),
   patients: (search = '', cursor?: string, signal?: AbortSignal, activity = false) =>
     json<Page<PatientSummary>>(query('/patients', cursor, search), { activity, signal }),
   studies: (patientId: number, cursor?: string, signal?: AbortSignal, activity = false) =>
@@ -142,9 +181,15 @@ export const api = {
   openStudy: (studyId: number) =>
     json<Workspace>(`/studies/${studyId}/sessions`, { method: 'POST' }),
   workspace: (id: number, signal?: AbortSignal) => json<Workspace>(session(id), { signal }),
-  async image(imageId: number, signal?: AbortSignal) {
-    const response = await send(`/images/${imageId}/content`, { signal });
-    return response.blob();
+  image(imageId: number, signal?: AbortSignal) {
+    let blob = imageCache.get(imageId);
+    if (!blob) {
+      // Shared download: one caller aborting must not cancel it for the others.
+      blob = send(`/images/${imageId}/content`).then(response => response.blob());
+      imageCache.set(imageId, blob);
+      blob.catch(() => { if (imageCache.get(imageId) === blob) imageCache.delete(imageId); });
+    }
+    return abortable(blob, signal);
   },
   messages: (id: number, cursor?: string, signal?: AbortSignal) =>
     json<Page<MessageDTO>>(query(`${session(id)}/messages`, cursor), { signal }),

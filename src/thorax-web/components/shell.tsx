@@ -1,12 +1,12 @@
 'use client';
 
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ChevronRight, FlaskConical, LogOut, Monitor, ScanLine } from 'lucide-react';
+import { ArrowLeft, ChevronRight, FlaskConical, KeyRound, LogOut, Monitor, ScanLine } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { api, ApiError, authLostEvent, clearApiAuth } from '@/lib/api';
-import { Badge, EmptyState, Notice, Skeleton } from './ui';
+import { Badge, Confirm, EmptyState, Notice, Skeleton } from './ui';
 
 type AuthUser = Awaited<ReturnType<typeof api.me>>;
 const authKey = ['auth', 'me'] as const;
@@ -105,9 +105,9 @@ export function useAuth() {
   return auth;
 }
 
-export function homeFor(user: AuthUser) { return user.role === 'admin' ? '/admin' : '/worklist'; }
+export function homeFor(user: AuthUser) { return { admin: '/admin', annotator: '/labeling', doctor: '/worklist' }[user.role]; }
 
-export function RoleGate({ role, children }: { role: 'doctor' | 'admin'; children: (user: AuthUser) => ReactNode }) {
+export function RoleGate({ role, children }: { role: AuthUser['role']; children: (user: AuthUser) => ReactNode }) {
   const auth = useAuth();
   const router = useRouter();
   useEffect(() => {
@@ -130,6 +130,8 @@ export function AppShell({ children, workspace, onWorklist, onSignOut }: { child
   const [error, setError] = useState('');
   const [warning, setWarning] = useState(false);
   const [continuing, setContinuing] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [passwordChanged, setPasswordChanged] = useState(false);
   const pathname = usePathname();
   useEffect(() => {
     if (!user?.expires_at) return;
@@ -158,26 +160,62 @@ export function AppShell({ children, workspace, onWorklist, onSignOut }: { child
   return <div className={workspace ? 'app-shell app-shell-workspace' : 'app-shell'}>
     <a className="skip-link" href="#main-content">Skip to main content</a>
     <header className="app-header">
-      <Brand /><span className="app-descriptor">Chest X-ray Reading Assistant</span>
+      <Brand /><span className="app-descriptor">{user?.role === 'annotator' ? 'Labeling workspace' : 'Chest X-ray Reading Assistant'}</span>
       {user && <nav aria-label="Primary navigation" className="main-nav">
         {user.role === 'doctor' ? <Link prefetch={false} href="/worklist" aria-current={pathname === '/worklist' ? 'page' : undefined} onClick={onWorklist ? event => { if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); onWorklist(); } : undefined}>
           {pathname !== '/worklist' && <ArrowLeft size={16} aria-hidden />} Worklist
+        </Link> : user.role === 'annotator' ? <Link prefetch={false} href="/labeling" aria-current={pathname === '/labeling' ? 'page' : undefined}>
+          {pathname !== '/labeling' && <ArrowLeft size={16} aria-hidden />} Labeling queue
         </Link> : <Link prefetch={false} href="/admin" aria-current="page">Admin</Link>}
+        {user.role === 'annotator' && pathname.startsWith('/labeling/') && <><ChevronRight size={14} aria-hidden /><span>Label image</span></>}
         {user.role === 'doctor' && pathname.startsWith('/patients/') && <><ChevronRight size={14} aria-hidden /><span>{pathname.endsWith('/report') ? 'Final report' : 'Study workspace'}</span></>}
       </nav>}
       <div className="header-account">
-        {user && <><span className="avatar" aria-hidden>{initials}</span><span className="account-name"><strong>{user.name}</strong><span>{user.role === 'admin' ? 'Administrator' : 'Doctor'}</span></span></>}
+        {user && <><span className="avatar" aria-hidden>{initials}</span><span className="account-name"><strong>{user.name}</strong><span>{{ admin: 'Administrator', annotator: 'Annotator', doctor: 'Doctor' }[user.role]}</span></span></>}
+        {user && <button className="button ghost" onClick={() => setChangingPassword(true)}><KeyRound size={16} aria-hidden /> Change password</button>}
         {user && <button className="button ghost" onClick={() => void leave()} disabled={signingOut}><LogOut size={16} aria-hidden /> {signingOut ? 'Signing out…' : 'Sign out'}</button>}
       </div>
     </header>
     {warning && <div className="session-warning"><Notice tone="pending">Your session expires soon. Save your changes or continue your session.</Notice><button className="button" disabled={continuing} onClick={() => void keepWorking()}>{continuing ? 'Checking…' : 'Continue session'}</button><button className="button ghost" onClick={() => void leave()}>Sign out</button></div>}
     {error && <Notice tone="error">{error}</Notice>}
+    {passwordChanged && <div className="session-warning"><Notice tone="info">Your password was changed.</Notice><button className="button ghost" onClick={() => setPasswordChanged(false)}>Dismiss</button></div>}
+    {changingPassword && <ChangePassword onClose={changed => { setChangingPassword(false); setPasswordChanged(changed); }} />}
     {children}
   </div>;
 }
 
+function ChangePassword({ onClose }: { onClose: (changed: boolean) => void }) {
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [repeat, setRepeat] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState('');
+  async function save() {
+    const bytes = new TextEncoder().encode(next).length;
+    if (!current) return setProblem('Enter your current password.');
+    if (bytes < 12 || bytes > 72) return setProblem('Use a new password of 12–72 UTF-8 bytes.');
+    if (next !== repeat) return setProblem('The new passwords don’t match.');
+    setBusy(true); setProblem('');
+    try { await api.changePassword(current, next); onClose(true); }
+    catch (failure) {
+      setProblem(failure instanceof ApiError && failure.status === 404 ? 'Password changes need the Thorax backend; the local demo can’t change passwords.'
+        : failure instanceof ApiError ? failure.message : 'Could not reach the server. Try again.');
+      setBusy(false);
+    }
+  }
+  return <Confirm title="Change your password" action={busy ? 'Saving…' : 'Change password'} pending={busy} onCancel={() => onClose(false)} onConfirm={() => void save()}>
+    <div className="password-fields">
+      <label className="field">Current password<input type="password" autoComplete="current-password" value={current} onChange={event => setCurrent(event.target.value)} /></label>
+      <label className="field">New password<input type="password" autoComplete="new-password" value={next} onChange={event => setNext(event.target.value)} aria-describedby="password-help" /></label>
+      <label className="field">Repeat new password<input type="password" autoComplete="new-password" value={repeat} onChange={event => setRepeat(event.target.value)} /></label>
+      <p id="password-help" className="muted">Use 12–72 UTF-8 bytes. You stay signed in on this device.</p>
+      {problem && <p className="password-error" role="alert">{problem}</p>}
+    </div>
+  </Confirm>;
+}
+
 export function DemoBadge({ mode }: { mode?: 'mock' | 'real' }) {
-  return mode === 'real' ? <Badge><FlaskConical size={14} aria-hidden />Academic demonstration</Badge> : <Badge><FlaskConical size={14} aria-hidden />Academic demonstration — mock data</Badge>;
+  return <Badge tone="info"><FlaskConical size={14} aria-hidden />{mode === 'real' ? 'Academic demo · real AI' : 'Demo · mock AI'}</Badge>;
 }
 
 const desktopMedia = '(min-width: 1280px)';

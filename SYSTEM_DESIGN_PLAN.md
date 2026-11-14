@@ -1,8 +1,32 @@
 # Kế hoạch thiết kế hệ thống hỗ trợ diễn giải X-quang ngực
 
-Ngày: 14/10/2026. Trạng thái: bản thiết kế để team review, chưa triển khai.
+Ngày: 14/10/2026. Cập nhật: 14/11/2026. Trạng thái: web app và backend đã được xây dựng với AI giả lập; model thật, GPU và deployment chưa triển khai. Mục 0 ghi phần đã xây và các điểm khác bản thiết kế gốc; các mục 1–15 giữ nguyên nội dung ngày 14/10 để đối chiếu.
 
 Tài liệu thiết kế luồng end-to-end từ model đã fine-tune đến giao diện hỗ trợ bác sĩ và y tá hỏi đáp về ảnh chest X-ray. Đầu ra hiện tại là demo Capstone A cho supervisor. Kiến trúc lấy bối cảnh hỗ trợ quyết định lâm sàng, còn việc đưa vào bệnh viện thực tế cần một giai đoạn đánh giá và tích hợp riêng.
+
+## 0. Trạng thái triển khai (14/11/2026)
+
+Ứng dụng đã xây dựng khác bản thiết kế ở nhiều điểm, vì frontend Next.js (`src/thorax-web`) được làm trước và backend (`src/thorax_api`) đi theo hợp đồng API của frontend. Team cần review bảng dưới đây và chấp nhận hoặc yêu cầu sửa; khi có xung đột, code và `src/thorax_api/README.md` phản ánh hệ thống hiện tại.
+
+| Chủ đề | Thiết kế 14/10 | Đã xây dựng | Mục bị thay thế |
+|---|---|---|---|
+| Frontend | React + Vite, gọi API RunPod khác origin | Next.js 15 App Router + TanStack Query. Next rewrite `/api/v1` tới `THORAX_API_ORIGIN`, nên trình duyệt chỉ gọi cùng origin; không cần CORS | 3, 11.1, 11.3 |
+| Người dùng | Bác sĩ và y tá, cùng quyền | `doctor`, `admin`, `annotator`; không có y tá. Có admin UI | 2, 8.1 |
+| Đăng nhập | Username; bearer token giữ trong memory | Email; cookie HttpOnly `thorax_session` + header `X-CSRF-Token` + kiểm tra Origin. Idle 30 phút, tuyệt đối 2 giờ, một login active mỗi account, token hash trong RAM. Giới hạn 10 lần sai/15 phút mỗi account và 5 lần/phút mỗi địa chỉ. Người dùng tự đổi mật khẩu được | 8.1, 11.3 |
+| Hash mật khẩu | Argon2id (thêm dependency) | scrypt của thư viện chuẩn (N=2^17, r=8, p=1) | 8.1 |
+| Luồng chính | Upload một ảnh, hỏi đáp tạm thời | Worklist bệnh nhân được phân công → study → phiên đọc: Analyze → duyệt findings và vùng → Gate 1 duyệt findings → AI soạn report → Gate 2 ký report. Có Ask AI trong phiên đọc và audit log. Không có upload ảnh | 4, 5 |
+| Lưu trữ | Chỉ `users` trong SQLite; ảnh và hội thoại chỉ trong RAM | SQLite lưu accounts, patients, studies, images, phân công, phiên đọc, findings có version, vùng, tin nhắn, report, audit event, AI job, idempotency receipt, nhãn và nhật ký admin. File ảnh trên đĩa (`thorax-images/`), có interface để chuyển S3. Lý do: report được ký và audit nên phải lưu bền | 8.2 |
+| AI | GPU child process, FIFO trong RAM, polling job | `POST /sessions/{id}/ai-requests` với 3 thao tác `analyze`, `ask`, `draft_report`, frontend polling theo request ID, hạn 60 giây. Hiện trả câu trả lời giả lập cố định. Admin có thể tạm dừng AI (`503 AI_PAUSED`); bác sĩ vẫn sửa và ký tay được | 5, 7 |
+| Model service | Trong cùng Pod với API | Chưa xây. `THORAX_VLM_URL` hiện chỉ dùng để admin xem health của một service riêng | 3, 6.1 |
+| Gán nhãn | Không có | Annotator vẽ box vùng trên ảnh synthetic; người review phải khác người gán, được sửa box rồi duyệt; export JSONL + manifest. Dùng nhãn để train cần scope-change record theo `docs/agents/RESEARCH-SCOPE.md` | mới |
+| Error envelope | `code`, `message`, `retryable`, `request_id` | `{error: {code, message, request_id, details}}`, không có `retryable` | 9 |
+| Deployment | Vercel + một RunPod RTX 4090 | Chưa deploy. Hướng đang cân nhắc, chưa chốt: API + SQLite trên một EC2 có EBS, backup bằng Litestream lên S3; model chạy ở GPU thuê riêng. Chuyển PostgreSQL nếu cần nhiều server | 11 |
+
+Vẫn còn hiệu lực cho phần model sắp nối: hợp đồng bàn giao model (6), quản lý model trên GPU (6.1), hàng đợi, giới hạn và phục hồi (7), reliability nhiều lượt (10), và các yêu cầu grounding/score/abstention của SCRUM-14 (9.1, 12.2). Output giả lập hiện tại chưa được đối chiếu với schema 9.1 và không được tính là bằng chứng đạt SCRUM-14.
+
+Chưa làm: nối model thật, grounding do model tạo, score/threshold/abstention thật, deployment, test 5 người dùng và rehearsal. Toàn bộ dữ liệu demo là synthetic.
+
+Kiểm tra đã chạy: 40 test API (`python -m unittest discover -s tests/api -t .`), typecheck và build của web app, cùng chạy thử bằng trình duyệt cho cả ba vai trò với backend thật. CI chạy các kiểm tra này từ commit `85d769c`.
 
 ## 1. Hợp đồng công việc và nguồn yêu cầu
 

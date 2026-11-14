@@ -78,7 +78,7 @@ function PatientStudies({ actor, patientId }: { actor: number; patientId: number
   return <div className="study-list" id={`patient-studies-${patientId}`}>
     <div className="section-heading"><FolderOpen aria-hidden size={17} /><h3>Studies</h3></div>
     {result.isPending ? <Skeleton label="Loading studies" rows={2} /> : result.error ? <><Notice tone="error">Could not load this study list.</Notice><button className="button" onClick={() => void result.refetch()}>Retry</button></> : studies.length === 0 ? <p>No studies are available for this patient.</p> :
-      <table className="data-table nested-table"><thead><tr><th scope="col">Study date</th><th scope="col">Indication</th><th scope="col">Images</th><th scope="col">Study status</th><th scope="col">My reading</th><th scope="col"><span className="sr-only">Open</span></th></tr></thead>
+      <table className="data-table nested-table"><thead><tr><th scope="col">Study date</th><th scope="col">Indication</th><th scope="col">Images</th><th scope="col">Study status</th><th scope="col">Reading status</th><th scope="col"><span className="sr-only">Open</span></th></tr></thead>
         <tbody>{studies.map(study => {
           const href = `/patients/${patientId}/studies/${study.id}`;
           return <tr key={study.id}><th scope="row" className="mono">{formatDate(study.study_date)}</th><td>{study.indication || '—'}</td><td className="mono">{study.image_count}</td><td><Badge>{study.status === 'final' ? 'Final' : study.status === 'in_progress' ? 'In progress' : 'New'}</Badge></td>
