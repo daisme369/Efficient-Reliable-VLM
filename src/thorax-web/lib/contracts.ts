@@ -1,4 +1,4 @@
-export type UserRole = 'doctor' | 'admin';
+export type UserRole = 'doctor' | 'admin' | 'annotator';
 export type SessionStatus = 'active' | 'findings_approved' | 'final';
 export type StudyStatus = 'new' | 'in_progress' | 'final';
 export type View = 'PA' | 'AP' | 'LAT';
@@ -288,3 +288,61 @@ export interface ErrorDetail {
   reason: string;
   value?: unknown;
 }
+
+export type LabelState = 'positive' | 'negative' | 'uncertain';
+export type LabelTaskStatus = 'open' | 'in_progress' | 'submitted' | 'returned' | 'approved';
+
+export interface LabelBox {
+  region: string;
+  finding: string;
+  state: LabelState;
+  bbox_xyxy: BoxCoordinates;
+}
+
+export interface LabelTask {
+  id: number;
+  image_id: number;
+  status: LabelTaskStatus;
+  revision: number;
+  image: { id: number; view: View; width: number; height: number; content_url: string };
+  role: 'labeler' | 'reviewer';
+  can_edit: boolean;
+  can_review: boolean;
+  reviewer_edited: boolean;
+  review_comment: string | null;
+  boxes: LabelBox[];
+  updated_at: string;
+}
+
+export interface LabelQueueRow { id: number; image_id: number; status: LabelTaskStatus; updated_at: string; review_comment?: string | null }
+
+export interface LabelQueue {
+  my_tasks: LabelQueueRow[];
+  to_review: LabelQueueRow[];
+  counts: Record<LabelTaskStatus, number>;
+}
+
+export interface LabelVocabulary { version: string; status: string; regions: string[]; findings: string[]; states: LabelState[] }
+
+// Admin console (real backend only)
+export interface AdminUser extends UserDTO { created_at: string; last_sign_in_at: string | null; failed_sign_ins_24h: number; signed_in: boolean }
+export interface AiPause { paused: boolean; changed_at: string | null; changed_by: string | null }
+export interface ModelService { status: 'up' | 'down' | 'not_configured'; url: string | null }
+export interface AdminOverview {
+  users: Record<UserRole, { active: number; total: number }>;
+  signed_in: number;
+  catalog: { patients: number; studies: number; images: number };
+  labeling: Record<LabelTaskStatus, number>;
+  ai: AiPause & { requests: number; failed: number; model_service: ModelService };
+  backend: { status: string; started_at: string };
+}
+export interface AiRequestRow { id: number; operation: string; status: string; model_version: string | null; error_code: string | null; latency_ms: number | null; created_at: string; user_name: string }
+export interface AdminAi {
+  items: AiRequestRow[];
+  stats: { total: number; shown: number; failed: number; timed_out: number; average_ms: number | null; slowest_ms: number | null };
+  pause: AiPause;
+  model_service: ModelService;
+}
+export interface AnnotatorStats { id: number; name: string; is_active: boolean; in_progress: number; labeled: number; approved: number; times_returned: number; reviews: number; review_edits: number }
+export interface AdminLabeling { counts: Record<LabelTaskStatus, number>; annotators: AnnotatorStats[]; approved_with_reviewer_changes: number; vocabulary: { version: string; verified: boolean } }
+export interface AdminEvent { id: number; action: string; detail: string; created_at: string; admin_name: string }

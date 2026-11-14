@@ -305,3 +305,36 @@
 @media (prefers-reduced-motion: reduce) {
   .admin-tabs button { transition: none; }
 }
+
+/* Admin console (backend mode) */
+.admin-stack { display: grid; gap: 16px; }
+.admin-console-heading { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.admin-console-feedback, .admin-console-body { padding: 0 24px 16px; display: grid; gap: 12px; justify-items: start; }
+.admin-overview { padding: 0 24px 20px; display: grid; gap: 12px; }
+.admin-overview h3 { margin: 8px 0 0; font-size: 15px; color: var(--muted); font-weight: 650; }
+.admin-stats { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); border: 1px solid var(--line); border-radius: 8px; }
+.admin-panel > .admin-stats { margin: 0 24px 20px; }
+.admin-stats > div { padding: 14px 16px; display: grid; gap: 4px; align-content: start; border-left: 1px solid var(--line); }
+.admin-stats > div:first-child { border-left: 0; }
+.admin-stats dt { font-size: 14px; color: var(--muted); }
+.admin-stats dd { margin: 0; font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.admin-stats small { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.admin-footnote, .admin-sub { color: var(--muted); font-size: 13px; }
+.admin-table .admin-sub { display: block; font-weight: 400; }
+.admin-row-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+.admin-row-actions .button { min-height: 36px; padding: 0 10px; font-size: 13px; }
+.danger-text { color: var(--error-text); }
+.admin-inline-field { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); }
+.admin-inline-field select { min-height: 40px; }
+.admin-ai-control { padding: 0 24px 16px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
+.admin-ai-control > div { flex: 1 1 360px; display: grid; gap: 6px; }
+.admin-ai-state { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.admin-progress { margin: 0 24px 20px; height: 12px; display: flex; overflow: hidden; border-radius: 6px; background: var(--canvas); }
+.admin-progress span { min-width: 4px; }
+.admin-progress [data-status="approved"] { background: var(--approved); }
+.admin-progress [data-status="submitted"] { background: var(--primary); }
+.admin-progress [data-status="returned"] { background: #d97706; }
+.admin-progress [data-status="in_progress"] { background: #7dd3fc; }
+.admin-progress [data-status="open"] { background: #cbd5e1; }
+.admin-table .badge, .admin-table td:nth-child(2) { white-space: nowrap; }
+.admin-create-user { max-width: 560px; }
