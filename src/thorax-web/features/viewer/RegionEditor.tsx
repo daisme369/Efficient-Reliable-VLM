@@ -59,6 +59,12 @@ export function regionChanges(draft: RegionDraft, box: BoxDTO | null, imageId: n
   return changes;
 }
 
+/** Doctor-facing name: position among the image's active, non-rejected regions. */
+export function regionName(boxes: BoxDTO[], box: BoxDTO) {
+  const index = boxes.filter(other => other.image_id === box.image_id && !other.deleted_at && other.review_action !== "rejected").findIndex(other => other.id === box.id);
+  return index < 0 ? "Removed region" : `R${index + 1}`;
+}
+
 export function regionState(box: BoxDTO) {
   if (box.review_action === "edited") return "Doctor edited";
   if (box.review_action === "accepted") return "Doctor accepted";
@@ -78,6 +84,7 @@ interface RegionEditorProps {
   image: Size;
   draft: RegionDraft;
   box: BoxDTO | null;
+  name?: string;
   canAsk: boolean;
   busy: boolean;
   dirty: boolean;
@@ -90,7 +97,7 @@ interface RegionEditorProps {
   onAsk: () => void;
 }
 
-export default function RegionEditor({ image, draft, box, canAsk, busy, dirty, findingsApproved, onChange, onSave, onCancel, onReview, onDelete, onAsk }: RegionEditorProps) {
+export default function RegionEditor({ image, draft, box, name, canAsk, busy, dirty, findingsApproved, onChange, onSave, onCancel, onReview, onDelete, onAsk }: RegionEditorProps) {
   const id = useId();
   const confirmRemove = useRef<HTMLDialogElement>(null);
   const removeButton = useRef<HTMLButtonElement>(null);
@@ -138,11 +145,11 @@ export default function RegionEditor({ image, draft, box, canAsk, busy, dirty, f
       }
     }} noValidate>
       <div className={styles.editorTitle}>
-        <h4>{box ? `Region #${box.id}` : "New region"}</h4>
+        <h4>{box ? `${name ?? "Region"}${box.label ? ` · ${box.label}` : ""}` : "New region"}</h4>
         <span>{dirty ? "Unsaved changes" : "Saved"}</span>
       </div>
       {box && <p className={styles.regionProvenance}>
-        {box.source === "ai" && box.review_action !== "pending" ? `AI suggestion — needs doctor review · ${regionState(box)}` : regionState(box)}
+        {box.source === "ai" && box.review_action !== "pending" ? `AI suggestion · ${regionState(box)}` : regionState(box)}
       </p>}
       {findingsApproved && <p className={styles.regionWarning}>Saving this change creates a new findings version and makes any draft report stale.</p>}
       <fieldset disabled={busy}>
@@ -166,7 +173,7 @@ export default function RegionEditor({ image, draft, box, canAsk, busy, dirty, f
         {dirty && <><button type="submit" className={styles.primaryButton} disabled={!valid || busy}>{busy ? "Saving…" : "Save region"}</button><button type="button" disabled={busy} onClick={onCancel}>Cancel</button></>}
         {pending && !dirty && <><button type="button" className={styles.primaryButton} disabled={busy} onClick={() => onReview("accepted")}>Accept region</button><button type="button" disabled={busy} onClick={() => onReview("rejected")}>Reject</button></>}
         {box && !dirty && <>
-          <button type="button" disabled={!canAsk || busy} onClick={onAsk}><MessageSquare size={16} aria-hidden="true" /> Ask about this box</button>
+          <button type="button" disabled={!canAsk || busy} onClick={onAsk}><MessageSquare size={16} aria-hidden="true" /> Ask about this region</button>
           <button type="button" ref={removeButton} className={styles.lightIconButton} aria-label="Remove region" title="Remove region" disabled={busy} onClick={() => confirmRemove.current?.showModal()}><Trash2 size={16} aria-hidden="true" /></button>
         </>}
       </div>

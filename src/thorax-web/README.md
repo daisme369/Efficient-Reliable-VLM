@@ -17,6 +17,30 @@ Open `http://127.0.0.1:3000/login` at a browser width of at least 1280 CSS pixel
 
 The local demo keeps synthetic state under `.thorax-demo/state.json`. Set `THORAX_DEMO_STATE_PATH` to an unused absolute path to start an independent fixture. The demo uses a single local server process and deterministic mock AI responses. The radiograph PNGs are generated synthetic phantoms. The app does not use a restricted dataset, contact an external AI provider in mock mode, or retain clinical data in browser storage.
 
+## Run against the Thorax backend
+
+The local demo API above is an in-process mock. The real backend in `src/thorax_api` (FastAPI and SQLite) implements the same contract plus the annotator role, labeling, the full administrator console, self-service password changes and the AI pause switch. See `src/thorax_api/README.md`.
+
+```powershell
+# From the repository root: create accounts and synthetic data once, then start the API on port 8000.
+Get-Content src\thorax-web\.env.local | % { if ($_ -match '^(\w+)=(.+)$') { Set-Item "env:$($matches[1])" $matches[2] } }
+$env:PYTHONPATH='src'; python -m thorax_api.accounts seed-demo
+python scripts/serve_api.py
+# In src\thorax-web, in another terminal:
+$env:THORAX_API_ORIGIN='http://127.0.0.1:8000'; pnpm dev
+```
+
+Set `THORAX_DEMO_ANNOTATOR_PASSWORD` in `.env.local` to create `annotator@thorax.demo` and `annotator2@thorax.demo`. Run only one Next.js server per folder: two servers share `.next` and break each other.
+
+| Feature | Local demo API | Thorax backend |
+| --- | --- | --- |
+| Doctor reading workflow | Yes | Yes, stored in SQLite |
+| Labeling (annotator role) | No | Yes |
+| Admin: users of every role, AI monitoring and pause, labeling oversight, activity log | No | Yes |
+| Admin: mock fixtures | Yes | No |
+| Change your own password | No | Yes |
+| AI answers | Fixed demo answers | Fixed demo answers (the trained model is not connected yet) |
+
 ## Build and verify
 
 ```powershell

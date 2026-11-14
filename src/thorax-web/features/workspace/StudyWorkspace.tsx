@@ -1,14 +1,15 @@
 'use client';
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Activity, Archive, ChevronRight, ClipboardCheck, FileText, FlaskConical, History, LockKeyhole, MessageSquare, PanelLeft, ShieldCheck, UserRound } from 'lucide-react';
+import { Archive, Check, ChevronRight, FileText, FlaskConical, History, LockKeyhole, MessageSquare, PanelLeft, ShieldCheck, UserRound, X } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { AppShell, DemoBadge, DesktopNotice, RoleGate, useAuth, useDesktop } from '@/components/shell';
-import { Badge, Confirm, EmptyState, formatDate, formatTime, Notice, readingLabel, Skeleton } from '@/components/ui';
+import { Badge, Confirm, EmptyState, formatClock, formatDate, formatTime, Notice, readingLabel, Skeleton } from '@/components/ui';
 import { api, ApiError } from '@/lib/api';
-import type { BoxDTO, Workspace } from '@/lib/contracts';
+import type { AuditEvent, BoxDTO, Workspace } from '@/lib/contracts';
+import { regionName } from '@/features/viewer/RegionEditor';
 import StudyViewer, { type RegionChanges } from '@/features/viewer/StudyViewer';
 import { AnalysisPanel, ChatPanel } from './analysis-chat';
 import { FindingsPanel, ReportPanel, FinalReport } from './review-report';
@@ -16,12 +17,13 @@ import { useReading, useReadingActions } from './useReading';
 import './workspace.css';
 
 const tabs = [
-  { id: 'analysis', label: 'Analysis', icon: Activity },
-  { id: 'chat', label: 'Chat', icon: MessageSquare },
-  { id: 'findings', label: 'Findings', icon: ClipboardCheck },
-  { id: 'report', label: 'Report', icon: FileText },
+  { id: 'analysis', label: 'Analyze' },
+  { id: 'findings', label: 'Review' },
+  { id: 'report', label: 'Report' },
 ] as const;
-export type Panel = typeof tabs[number]['id'];
+type Step = typeof tabs[number]['id'];
+// 'chat' is not a step: it opens the chat drawer over the current step.
+export type Panel = Step | 'chat';
 type Draft = 'box' | 'findings' | 'report' | 'chat';
 const editableDrafts = ['box', 'findings', 'report'] as const;
 
@@ -72,15 +74,18 @@ function defaultImage(data: Workspace) {
 function initialSelection(data: Workspace) {
   const params = new URLSearchParams(window.location.search);
   const requestedImage = Number(params.get('image_id'));
-  const panel = tabs.find(tab => tab.id === params.get('panel'))?.id ?? 'analysis';
-  return { panel, image: data.images.some(item => item.id === requestedImage) ? requestedImage : defaultImage(data) };
+  const requested = params.get('panel');
+  const fallback: Step = data.session.status === 'final' || data.latest_findings?.status === 'approved' ? 'report' : data.latest_findings ? 'findings' : 'analysis';
+  const panel: Step = tabs.find(tab => tab.id === requested)?.id ?? fallback;
+  return { panel, chat: requested === 'chat', image: data.images.some(item => item.id === requestedImage) ? requestedImage : defaultImage(data) };
 }
 
 function Reading({ data, reload, onDenied }: { data: Workspace; reload: () => Promise<Workspace>; onDenied: () => void }) {
   const router = useRouter();
   const { signOut } = useAuth();
   const [selection, setSelection] = useState(() => initialSelection(data));
-  const { panel, image: imageId } = selection;
+  const { panel, chat: chatOpen, image: imageId } = selection;
+  const chatButton = useRef<HTMLButtonElement>(null);
   const [boxId, setBoxId] = useState<number | null>(null);
   const [attachment, setAttachment] = useState<BoxDTO | null>(null);
   const [imageReady, setImageReady] = useState(false);
@@ -101,7 +106,8 @@ function Reading({ data, reload, onDenied }: { data: Workspace; reload: () => Pr
   const ready = useRef(false);
   const pendingFocus = useRef<string | null>(null);
 
-  const setPanel = useCallback((next: Panel) => { setSelection(current => ({ ...current, panel: next })); }, []);
+  const setPanel = useCallback((next: Panel) => { setSelection(current => next === 'chat' ? { ...current, chat: true } : { ...current, panel: next, chat: false }); }, []);
+  const closeChat = useCallback(() => { setSelection(current => ({ ...current, chat: false })); chatButton.current?.focus(); }, []);
   const openFindings = useCallback(() => setPanel('findings'), [setPanel]);
   const localCommit = useCallback((from: number, to: number) => {
     for (const kind of editableDrafts) {
@@ -109,6 +115,17 @@ function Reading({ data, reload, onDenied }: { data: Workspace; reload: () => Pr
     }
   }, []);
   const actions = useReadingActions(data, reload, openFindings, onDenied, localCommit);
+  const { clearError } = actions;
+  // An error belongs to the action that caused it; don't carry it onto another panel.
+  useEffect(() => { clearError(); }, [panel, chatOpen, clearError]);
+  useEffect(() => {
+    if (!chatOpen) return;
+    // Page-level so Escape still works when focus left the drawer (e.g. Send disables itself while the answer runs).
+    function onKey(event: globalThis.KeyboardEvent) { if (event.key === 'Escape' && !event.defaultPrevented && !document.querySelector('dialog[open]')) closeChat(); }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [chatOpen, closeChat]);
+  useEffect(() => { if (chatOpen) (document.querySelector<HTMLElement>('#panel-chat textarea') ?? document.querySelector<HTMLElement>('#panel-chat .chat-close'))?.focus(); }, [chatOpen]);
   const dirty = Object.values(drafts).some(Boolean);
   const readOnly = data.session.status === 'final';
   const analyzed = Boolean(data.latest_findings);
@@ -134,14 +151,14 @@ function Reading({ data, reload, onDenied }: { data: Workspace; reload: () => Pr
   useEffect(() => {
     if (window.location.pathname !== mountedPath.current) return;
     const url = new URL(window.location.href);
-    url.searchParams.set('panel', panel);
+    url.searchParams.set('panel', chatOpen ? 'chat' : panel);
     if (imageId !== null) url.searchParams.set('image_id', String(imageId));
     if (window.location.href !== url.href) window.history.replaceState(window.history.state, '', url);
     previousUrl.current = url.href;
     nextState.current = window.history.state;
     if (pendingFocus.current) { document.getElementById(pendingFocus.current)?.focus(); pendingFocus.current = null; }
     ready.current = true;
-  }, [panel, imageId]);
+  }, [panel, chatOpen, imageId]);
 
   useEffect(() => {
     function warn(event: BeforeUnloadEvent) { if (dirty) event.preventDefault(); }
@@ -207,7 +224,14 @@ function Reading({ data, reload, onDenied }: { data: Workspace; reload: () => Pr
 
   const linkedFindings = Object.fromEntries((data.latest_findings?.items ?? []).flatMap(item => item.box_ids.map(id => [id, item.text])));
   const blockingCopy = actions.offline || actions.uncertain ? 'Reconnect before making changes.' : actions.live ? 'An AI request is running.' : actions.conflict ? 'Resolve the version conflict first.' : actions.busy ? 'Saving the current action…' : undefined;
-  const context = <StudyContext data={data} pendingBoxes={pendingBoxes.length} pendingFindings={pendingFindings} onPanel={setPanel} audit={audit} onAudit={() => setAudit(!audit)} />;
+  const context = <StudyContext data={data} audit={audit} onAudit={() => setAudit(!audit)} />;
+  const stepDone: Record<Step, boolean> = { analysis: analyzed, findings: data.latest_findings?.status === 'approved' || readOnly, report: readOnly };
+  const toReview = pendingFindings + pendingBoxes.length;
+  const stepNote: Record<Step, string> = {
+    analysis: analyzed ? 'Done' : 'Start here',
+    findings: stepDone.findings ? 'Done' : analyzed ? (toReview ? `${toReview} left` : 'Ready') : 'After analysis',
+    report: readOnly ? 'Final' : stepDone.findings ? 'Ready' : 'Locked',
+  };
 
   return <AppShell workspace onWorklist={() => go(() => router.push('/worklist'))} onSignOut={() => go(signout)}>
     <main id="main-content" className="workspace">
@@ -216,8 +240,8 @@ function Reading({ data, reload, onDenied }: { data: Workspace; reload: () => Pr
         <dl><div><dt>Patient</dt><dd className="patient-name">{data.patient.name}</dd></div><div><dt>Patient code</dt><dd className="mono">{data.patient.code}</dd></div>
           <div><dt>Birth year · Sex</dt><dd className="mono">{data.patient.birth_year ?? '—'} · {data.patient.sex ?? '—'}</dd></div>
           <div><dt>Study date · View</dt><dd className="mono">{formatDate(data.study.study_date)}{image && ` · ${image.view}`}</dd></div>
-          <div><dt>My reading</dt><dd><Badge tone={readOnly || data.session.status === 'findings_approved' ? 'approved' : 'info'}>{readOnly && <LockKeyhole size={14} aria-hidden />}{readingLabel(data.session.status)}</Badge></dd></div></dl>
-        <div className="identity-end"><Badge tone="info"><FlaskConical size={14} aria-hidden />{data.capabilities.provider_mode === 'mock' ? 'Mock AI' : 'Real AI'}</Badge><DemoBadge mode={data.capabilities.provider_mode} />
+          <div><dt>Reading status</dt><dd><Badge tone={readOnly || data.session.status === 'findings_approved' ? 'approved' : 'info'}>{readOnly && <LockKeyhole size={14} aria-hidden />}{readingLabel(data.session.status)}</Badge></dd></div></dl>
+        <div className="identity-end"><DemoBadge mode={data.capabilities.provider_mode} />
           <button ref={drawerButton} className="button context-toggle" aria-expanded={drawer} aria-controls="context-drawer" onClick={() => setDrawer(!drawer)}><PanelLeft size={17} aria-hidden />Study context</button></div>
       </div>
       {(actions.offline || actions.uncertain) && <div className="workspace-notice"><Notice tone="pending">{actions.uncertain ? 'The connection was interrupted. Check whether the action was saved.' : 'Offline. Already loaded content is available for review.'}</Notice><button className="button" disabled={actions.checking || actions.busy} onClick={() => void actions.reconnect()}>{actions.checking ? 'Checking…' : actions.uncertain ? 'Check saved status' : 'Reconnect'}</button></div>}
@@ -230,12 +254,19 @@ function Reading({ data, reload, onDenied }: { data: Workspace; reload: () => Pr
           <StudyViewer key={reset} images={data.images} imageId={imageId} boxes={data.boxes} selectedBoxId={boxId} canAnnotate={analyzed && !blocked} canAskRegion={analyzed && data.capabilities.can_ask_roi && !blocked} readOnly={readOnly} approvedSnapshot={data.latest_findings?.annotation_snapshot} findingsApproved={data.session.status === 'findings_approved'} blockedReason={blockingCopy} linkedFindings={linkedFindings} loadImage={api.image} onImageChange={changeImage} onBoxSelect={setBoxId} onBoxSave={saveBox} onBoxDelete={deleteBox} onAskRegion={askRegion} onDirtyChange={setBoxDirty} onImageStatus={setImageReady} />
         </section>
         <section className="surface review" aria-label="Clinical review">
-          <div className="review-tabs" role="tablist" aria-label="Reading panels">{tabs.map(({ id, label, icon: Icon }, index) => <button key={id} id={`tab-${id}`} role="tab" aria-selected={panel === id} aria-controls={`panel-${id}`} tabIndex={panel === id ? 0 : -1} onKeyDown={event => tabKey(event, index)} onClick={() => setPanel(id)}><Icon size={16} aria-hidden />{label}</button>)}</div>
+          <div className="review-head">
+            <div className="stepper" role="tablist" aria-label="Reading steps">{tabs.map(({ id, label }, index) => <button key={id} id={`tab-${id}`} role="tab" aria-selected={panel === id} aria-controls={`panel-${id}`} tabIndex={panel === id ? 0 : -1} data-done={stepDone[id]} onKeyDown={event => tabKey(event, index)} onClick={() => setPanel(id)}>
+              <span className="step-dot" aria-hidden>{stepDone[id] ? <Check size={13} strokeWidth={3} /> : index + 1}</span><span className="step-text"><strong>{label}</strong><small>{stepNote[id]}</small></span></button>)}</div>
+            <button ref={chatButton} className="button chat-toggle" aria-expanded={chatOpen} aria-controls="panel-chat" onClick={() => chatOpen ? closeChat() : setPanel('chat')}><MessageSquare size={16} aria-hidden />Ask AI{data.messages.items.length > 0 && <span className="count">{data.messages.items.length}</span>}</button>
+          </div>
           <div className="review-scroll" key={reset}>
             <div id="panel-analysis" role="tabpanel" aria-labelledby="tab-analysis" hidden={panel !== 'analysis'}><AnalysisPanel data={data} image={image} imageReady={imageReady} actions={actions} disabled={blocked || dirty || readOnly} reason={blockingCopy ?? (dirty ? 'Save or discard your changes first.' : undefined)} onPanel={setPanel} onBox={openBox} /></div>
-            <div id="panel-chat" role="tabpanel" aria-labelledby="tab-chat" hidden={panel !== 'chat'}><ChatPanel data={data} image={image} actions={actions} disabled={blocked || Boolean(drafts.box) || !imageReady} reason={blockingCopy ?? (drafts.box ? 'Save or discard the region changes first.' : !imageReady ? 'Load the selected image before asking.' : undefined)} attachment={attachment} clearAttachment={() => setAttachment(null)} onDirty={setChatDirty} visible={panel === 'chat'} /></div>
-            <div id="panel-findings" role="tabpanel" aria-labelledby="tab-findings" hidden={panel !== 'findings'}><FindingsPanel data={data} actions={actions} disabled={blocked} baseRevision={draftRevisions.current.findings} otherDirty={Boolean(drafts.box || drafts.report || drafts.chat)} onDirty={setFindingsDirty} onDraftText={setFindingsText} onPanel={setPanel} onBox={openBox} /></div>
+            <div id="panel-findings" role="tabpanel" aria-labelledby="tab-findings" hidden={panel !== 'findings'}><FindingsPanel data={data} actions={actions} disabled={blocked} baseRevision={draftRevisions.current.findings} otherDirty={Boolean(drafts.box || drafts.report || drafts.chat)} onDirty={setFindingsDirty} onDraftText={setFindingsText} onPanel={setPanel} onBox={openBox} onBoxReview={(id, review_action) => saveBox(id, { review_action })} /></div>
             <div id="panel-report" role="tabpanel" aria-labelledby="tab-report" hidden={panel !== 'report'}><ReportPanel data={data} actions={actions} disabled={blocked} baseRevision={draftRevisions.current.report} otherDirty={Boolean(drafts.box || drafts.findings || drafts.chat)} onDirty={setReportDirty} onDraftText={setReportText} onPanel={setPanel} onFinal={() => router.push(`${href}/report`)} /></div>
+          </div>
+          <div id="panel-chat" className="chat-drawer" role="dialog" aria-label="Ask AI about this study" hidden={!chatOpen}>
+            <button className="icon-button chat-close" aria-label="Close chat" onClick={closeChat}><X size={18} aria-hidden /></button>
+            <ChatPanel data={data} image={image} actions={actions} disabled={blocked || Boolean(drafts.box) || !imageReady} reason={blockingCopy ?? (drafts.box ? 'Save or discard the region changes first.' : !imageReady ? 'Load the selected image before asking.' : undefined)} attachment={attachment} clearAttachment={() => setAttachment(null)} onDirty={setChatDirty} visible={chatOpen} />
           </div>
         </section>
       </div>
@@ -265,20 +296,33 @@ function ConflictPreview({ data, draftText, boxId }: { data: Workspace; draftTex
   </>;
 }
 
-function StudyContext({ data, pendingBoxes, pendingFindings, onPanel, audit, onAudit }: { data: Workspace; pendingBoxes: number; pendingFindings: number; onPanel: (panel: Panel) => void; audit: boolean; onAudit: () => void }) {
-  const analyzed = Boolean(data.latest_findings);
-  const approved = data.latest_findings?.status === 'approved';
-  const final = data.session.status === 'final';
-  const progress = [
-    { label: 'Initial analysis', status: analyzed ? 'Complete' : 'Ready to start', done: analyzed, tab: 'analysis' },
-    { label: 'Findings review', status: approved ? 'Approved' : analyzed ? `${pendingFindings} ${pendingFindings === 1 ? 'finding' : 'findings'} · ${pendingBoxes} ${pendingBoxes === 1 ? 'region' : 'regions'} pending` : 'Awaiting analysis', done: approved, tab: 'findings' },
-    { label: 'Final report', status: final ? 'Approved' : approved ? 'Ready for drafting' : 'Awaiting Gate 1', done: final, tab: 'report' },
-  ] as const;
+/** The patient's other studies, so a doctor can open an earlier reading or its signed report for comparison. */
+function OtherStudies({ data }: { data: Workspace }) {
+  const studies = useQuery({
+    queryKey: ['actor', data.session.doctor_id, 'patient', data.patient.id, 'studies'],
+    queryFn: ({ signal }) => api.studies(data.patient.id, undefined, signal),
+  });
+  const others = studies.data?.items.filter(study => study.id !== data.study.id) ?? [];
+  if (studies.isPending || !others.length) return null;
+  return <section className="context-section"><div className="section-heading"><FileText size={17} aria-hidden /><h2>Other studies</h2></div>
+    <ul className="history-list other-studies">{others.map(study => {
+      const href = `/patients/${data.patient.id}/studies/${study.id}`;
+      const final = study.own_session_status === 'final';
+      return <li key={study.id}><Link prefetch={false} href={final ? `${href}/report` : href} target="_blank" rel="noopener">
+        <span><strong>{formatDate(study.study_date)}</strong><small>{study.indication || 'Chest X-ray'} · {final ? 'Signed report' : readingLabel(study.own_session_status)}</small></span>
+        <ChevronRight size={15} aria-hidden />
+      </Link></li>;
+    })}</ul>
+    <p className="muted dense">Opens in a new tab so this reading stays as it is.</p>
+  </section>;
+}
+
+function StudyContext({ data, audit, onAudit }: { data: Workspace; audit: boolean; onAudit: () => void }) {
   return <div className="context-content">
     <section className="context-section"><div className="section-heading"><Archive size={18} aria-hidden /><h2>Study context</h2></div>
       <dl className="context-details"><div><dt>Study date</dt><dd className="mono">{formatDate(data.study.study_date)}</dd></div><div><dt>Indication</dt><dd>{data.study.indication || '—'}</dd></div><div><dt>Images</dt><dd>{data.images.length} {data.images.length === 1 ? 'image' : 'images'}</dd></div></dl>
     </section>
-    <section className="context-section"><h2>Reading progress</h2><ol className="progress-list">{progress.map((step, index) => <li key={step.tab}><button onClick={() => onPanel(step.tab)}><span className={`step-index${step.done ? ' done' : ''}`}>{step.done ? <ShieldCheck size={15} aria-hidden /> : index + 1}</span><span><strong>{step.label}</strong><small>{step.status}</small></span><ChevronRight size={14} aria-hidden /></button></li>)}</ol></section>
+    <OtherStudies data={data} />
     <section className="context-section history-section"><div className="section-heading"><History size={17} aria-hidden /><h2>Prior reports</h2></div><p className="muted">Up to 5 earlier reports</p>
       {data.history.length ? <ul className="history-list">{data.history.map(report => <li key={report.id}><details><summary><FileText size={15} aria-hidden /><span><strong>{formatDate(report.report_date)}</strong><small>Source {report.id}</small></span><ChevronRight size={15} aria-hidden /></summary><p className="source-label">Historical report — not current-image evidence</p><p className="history-text">{report.text}</p></details></li>)}</ul> : <p className="muted">No earlier reports; analysis will use the current image.</p>}
     </section>
@@ -286,14 +330,64 @@ function StudyContext({ data, pendingBoxes, pendingFindings, onPanel, audit, onA
   </div>;
 }
 
+const operations: Record<string, [done: string, running: string, noun: string]> = {
+  analyze: ['Analysed the image', 'Analysing the image', 'Image analysis'],
+  ask: ['Answered a question', 'Answering a question', 'Question to AI'],
+  draft_report: ['Drafted the report', 'Drafting the report', 'Report draft'],
+};
+const failures: Record<string, string> = { failed: 'failed', timed_out: 'timed out', cancelled: 'was cancelled' };
+const num = (value: unknown) => typeof value === 'number' ? value : undefined;
+const sameBox = (a: unknown, b: unknown) => JSON.stringify((a as { bbox_xyxy?: unknown } | null)?.bbox_xyxy) === JSON.stringify((b as { bbox_xyxy?: unknown } | null)?.bbox_xyxy);
+
+type AuditLine = { id: number; actor: 'You' | 'AI'; text: string; at: string; tone?: 'error'; details: [string, string][] };
+
+/** Turns raw audit events into one readable line per action. An AI request logs "queued" and a final status; they become one line. */
+export function auditLines(events: AuditEvent[], data: Workspace): AuditLine[] {
+  const region = (id: unknown) => { const box = data.boxes.find(item => item.id === id); return !box || box.deleted_at ? 'a region' : box.review_action === 'rejected' ? (box.label ? `“${box.label}”` : 'a region') : regionName(data.boxes, box); };
+  const reviewed = { accepted: 'Accepted', rejected: 'Rejected', edited: 'Edited', added: 'Added' } as Record<string, string>;
+  const queuedAt = new Map(events.filter(event => event.type === 'ai_request_queued').map(event => [event.data.request_id, event.created_at]));
+  const finished = new Set(events.filter(event => event.type.startsWith('ai_request_') && event.type !== 'ai_request_queued').map(event => event.data.request_id));
+  const lines: AuditLine[] = [];
+  for (const event of events) {
+    const d = event.data;
+    const rev = num(d.findings_version);
+    const technical: [string, string][] = [['Event', event.type], ...(['request_id', 'model_version', 'provider_mode', 'report_id', 'box_id'] as const)
+      .filter(key => typeof d[key] === 'number' || typeof d[key] === 'string').map(key => [key.replace('_', ' '), String(d[key])] as [string, string])];
+    const line = (actor: AuditLine['actor'], text: string, tone?: 'error') => lines.push({ id: event.id, actor, text, at: event.created_at, tone, details: technical });
+    if (event.type.startsWith('ai_request_')) {
+      const status = event.type.slice('ai_request_'.length);
+      const [done, running, noun] = operations[String(d.operation)] ?? ['Finished a request', 'Working on a request', 'AI request'];
+      if (status === 'queued') { if (!finished.has(d.request_id)) line('AI', `${running}…`); continue; }
+      const started = queuedAt.get(d.request_id);
+      const seconds = started ? Math.max(0, Math.round((Date.parse(event.created_at) - Date.parse(started)) / 1000)) : null;
+      if (status === 'succeeded') line('AI', `${done}${seconds !== null ? ` · took ${seconds} s` : ''}`);
+      else line('AI', `${noun} ${failures[status] ?? status}${typeof d.error_code === 'string' ? ` (${d.error_code})` : ''}`, 'error');
+      continue;
+    }
+    switch (event.type) {
+      case 'session_opened': line('You', 'Opened the study'); break;
+      case 'box_created': line('You', `Drew region ${region(d.box_id)}`); break;
+      case 'box_deleted': line('You', 'Removed a region'); break;
+      case 'box_updated': line('You', typeof d.review_action === 'string' && reviewed[d.review_action] ? `${reviewed[d.review_action]} region ${region(d.box_id)}` : sameBox(d.before, d.after) ? `Updated region ${region(d.box_id)}` : `Moved or resized region ${region(d.box_id)}`); break;
+      case 'findings_saved': line('You', `Saved findings${rev ? ` (revision ${rev})` : ''}`); break;
+      case 'findings_reopened': line('You', `Changed approved findings${num(d.previous_version) ? ` (revision ${d.previous_version} withdrawn)` : ''}`); break;
+      case 'gate1_approved': line('You', `Approved findings${rev ? ` (revision ${rev})` : ''}`); break;
+      case 'report_saved': line('You', 'Edited the report draft'); break;
+      case 'gate2_approved': line('You', 'Signed the final report'); break;
+      default: line('You', event.type.replaceAll('_', ' '));
+    }
+  }
+  return lines;
+}
+
 function Audit({ data }: { data: Workspace }) {
   const events = useQuery({ queryKey: ['actor', data.session.doctor_id, 'patient', data.patient.id, 'study', data.study.id, 'session', data.session.id, 'events'], queryFn: ({ signal }) => api.events(data.session.id, undefined, signal) });
   if (events.isPending) return <Skeleton label="Loading reading audit" rows={2} />;
   if (events.error) return <><p>Could not load the reading audit.</p><button className="button" onClick={() => void events.refetch()}>Retry</button></>;
-  const labels = { request_id: 'Request', operation: 'Operation', provider_mode: 'Provider', model_version: 'Model version', findings_version: 'Findings version', report_id: 'Report' } as const;
-  return events.data.items.length ? <ul className="audit-list">{events.data.items.map(event => <li key={event.id}><strong>{event.type.replaceAll('_', ' ')}</strong><small>{formatTime(event.created_at)}</small>
-    {Object.keys(labels).some(key => typeof event.data[key] === 'number' || typeof event.data[key] === 'string') && <details className="source-details"><summary>Event details</summary><dl>{Object.entries(labels).map(([key, label]) => {
-      const value = event.data[key];
-      return typeof value === 'number' || typeof value === 'string' ? <div key={key}><dt>{label}</dt><dd>{value}</dd></div> : null;
-    })}</dl></details>}</li>)}</ul> : <p>No events are available for this reading.</p>;
+  const lines = auditLines(events.data.items, data);
+  return lines.length ? <ol className="audit-list">{lines.map(item => <li key={item.id} className={item.tone}>
+    <span className={`audit-actor ${item.actor === 'AI' ? 'ai' : ''}`}>{item.actor}</span>
+    <details className="audit-tech"><summary><span>{item.text}</span><time dateTime={item.at} title={formatTime(item.at)}>{formatClock(item.at)}</time></summary>
+      <dl><div><dt>Time</dt><dd>{formatTime(item.at)}</dd></div>{item.details.map(([label, value]) => <div key={label}><dt>{label}</dt><dd className="mono">{value}</dd></div>)}</dl></details>
+  </li>)}</ol> : <p>No events are available for this reading.</p>;
 }

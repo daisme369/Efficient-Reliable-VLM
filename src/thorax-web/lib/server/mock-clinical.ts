@@ -94,7 +94,7 @@ function gate2(reading: MockSession): Blocker[] {
   const report = reading.reports.find(({ status }) => status === 'draft');
   if (!report) return [blocker('gate2', 'DRAFT_REQUIRED', 'report', 'Generate a draft report.')];
   if (!report.content.findings.trim() || !report.content.impression.trim()) {
-    return [blocker('gate2', 'REQUIRED_FIELDS', 'report', 'Save a findings section and an impression before approval.', report.id)];
+    return [blocker('gate2', 'REQUIRED_FIELDS', 'report', 'Save a findings section and an impression before signing.', report.id)];
   }
   return [];
 }
@@ -213,7 +213,7 @@ export function editBox(state: MockState, reading: MockSession, id: number, body
   }
   box.revision++;
   invalidateApproval(state, reading);
-  recordEdit(state, reading, deleting ? 'box_deleted' : 'box_updated', { box_id: id, before, after: boxSnapshot(box) });
+  recordEdit(state, reading, deleting ? 'box_deleted' : 'box_updated', { box_id: id, before, after: boxSnapshot(box), ...('review_action' in body && !deleting ? { review_action: box.review_action } : {}) });
   return receipt(reading, 'box', id);
 }
 
@@ -265,7 +265,7 @@ export function approveFindings(state: MockState, reading: MockSession, body: Re
   fields(body, ['findings_version']);
   const version = integer(body.findings_version, 'findings version');
   const latest = latestFindings(reading);
-  if (latest?.version !== version) fail(409, 'FINDINGS_VERSION_MISMATCH', 'Review the latest findings version.');
+  if (latest?.version !== version) fail(409, 'FINDINGS_VERSION_MISMATCH', 'Review the latest findings revision.');
   if (latest.status === 'approved') return receipt(reading, 'findings', latest.id);
   if (gate1(reading).length) fail(409, 'UNRESOLVED_REVIEW', 'Resolve the outstanding findings and region review before approving.');
   latest.status = 'approved';
@@ -287,7 +287,7 @@ export function editReport(state: MockState, reading: MockSession, id: number, b
   }
   if (approving) {
     fields(body, ['findings_version']);
-    if (body.findings_version !== latest.version) fail(409, 'REPORT_STALE', 'Review the latest approved findings version.');
+    if (body.findings_version !== latest.version) fail(409, 'REPORT_STALE', 'Review the latest approved findings revision.');
     if (reading.session.status !== 'findings_approved') fail(409, 'GATE1_REQUIRED', 'Approve the latest findings first.');
     if (!report.content.findings.trim() || !report.content.impression.trim()) invalid('Findings and impression are required.');
     report.status = 'final';
@@ -438,24 +438,25 @@ function completeAnalysis(state: MockState, reading: MockSession, request: AIReq
   const image = currentImage(reading, imageId);
   const suggestions: FindingItem[] = [];
   const boxes: BoxDTO[] = [];
-  if (image.view !== 'LAT') {
-    suggestions.push(
-      {
-        id: `ai-${request.request_id}-1`, text: 'Possible mild left basilar opacity.',
-        location: 'Left lower zone', image_id: imageId, source: 'ai', action: 'pending', box_ids: [],
-      },
-      {
-        id: `ai-${request.request_id}-2`, text: 'Cardiomediastinal silhouette appears mildly prominent.',
-        location: 'Mediastinum', image_id: imageId, source: 'ai', action: 'pending', box_ids: [],
-      },
-    );
-  }
   if (image.view === 'PA') {
     boxes.push({
       id: nextId(state), image_id: imageId, bbox_xyxy: [501.25, 542.5, 663.75, 685],
       label: 'Left basilar region', note: null, source: 'ai', review_action: 'pending', revision: 1,
       deleted_at: null, ai_request_id: request.request_id,
     });
+  }
+  if (image.view !== 'LAT') {
+    suggestions.push(
+      {
+        // The basilar finding cites the basilar region when the detector produced one.
+        id: `ai-${request.request_id}-1`, text: 'Possible mild left basilar opacity.',
+        location: 'Left lower zone', image_id: imageId, source: 'ai', action: 'pending', box_ids: boxes.map(({ id }) => id),
+      },
+      {
+        id: `ai-${request.request_id}-2`, text: 'Cardiomediastinal silhouette appears mildly prominent.',
+        location: 'Mediastinum', image_id: imageId, source: 'ai', action: 'pending', box_ids: [],
+      },
+    );
   }
   const findings: FindingsDTO = {
     id: nextId(state), version: 1, status: 'ai_proposed', items: suggestions, ai_items: structuredClone(suggestions),

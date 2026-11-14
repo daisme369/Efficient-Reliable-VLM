@@ -252,3 +252,8 @@ __marimo__/
 /.claude/
 CLAUDE.md
 AGENTS.md
+
+# Thorax API account database (local)
+thorax.sqlite3
+thorax.sqlite3-journal
+thorax-images/
