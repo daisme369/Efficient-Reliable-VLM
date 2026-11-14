@@ -245,6 +245,7 @@ export interface Workspace {
   live_request_id: number | null;
   latest_ai_request: AIRequest | null;
   initial_analysis?: AIRequest | null;
+  preliminary_report: { image_id: number; text: string } | null;
   blockers: Blocker[];
   capabilities: Capabilities;
 }

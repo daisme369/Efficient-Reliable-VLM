@@ -3,7 +3,7 @@ import type {
   MutationReceipt, ReportDTO, ReportNarrative, ReviewAction, StudyDTO, Workspace,
 } from '../contracts';
 import { modelArtifacts, patients, studies, studyHistory, type FixtureStudy } from './fixtures';
-import { assigned, event, fail, hash, invalid, isoNow, missing, nextId, type MockSession, type MockState } from './mock-state';
+import { assigned, event, fail, hash, invalid, isoNow, missing, nextId, type MockJob, type MockSession, type MockState } from './mock-state';
 
 const activeJob = (reading: MockSession) => reading.jobs.find(({ request }) => request.status === 'queued' || request.status === 'running');
 const latestFindings = (reading: MockSession) => reading.findings.at(-1);
@@ -103,6 +103,7 @@ export function workspace(state: MockState, reading: MockSession, messagePage: W
   const { session } = reading;
   const study = studies.find(({ id }) => id === session.study_id)!;
   const live = activeJob(reading)?.request;
+  const initialAnalysis = reading.jobs.find(({ request }) => request.operation === 'analyze' && request.status === 'succeeded');
   return {
     session,
     patient: patients.find(({ id }) => id === session.patient_id)!,
@@ -115,7 +116,8 @@ export function workspace(state: MockState, reading: MockSession, messagePage: W
     messages: messagePage,
     live_request_id: live?.request_id ?? null,
     latest_ai_request: live ?? reading.jobs.at(-1)?.request ?? null,
-    initial_analysis: reading.jobs.find(({ request }) => request.operation === 'analyze' && request.status === 'succeeded')?.request ?? null,
+    initial_analysis: initialAnalysis?.request ?? null,
+    preliminary_report: initialAnalysis?.result?.preliminary_report ?? null,
     blockers: [...gate1(reading), ...gate2(reading)],
     capabilities: { provider_mode: 'mock', can_detect: true, can_ask_roi: true, model_artifacts: modelArtifacts },
   };
@@ -434,7 +436,8 @@ export function submit(state: MockState, reading: MockSession, body: Record<stri
   return request;
 }
 
-function completeAnalysis(state: MockState, reading: MockSession, request: AIRequest, imageId: number) {
+function completeAnalysis(state: MockState, reading: MockSession, job: MockJob, imageId: number) {
+  const { request } = job;
   const image = currentImage(reading, imageId);
   const suggestions: FindingItem[] = [];
   const boxes: BoxDTO[] = [];
@@ -456,7 +459,14 @@ function completeAnalysis(state: MockState, reading: MockSession, request: AIReq
       label: 'Left basilar region', note: null, source: 'ai', review_action: 'pending', revision: 1,
       deleted_at: null, ai_request_id: request.request_id,
     });
+    suggestions[0].box_ids = [boxes[0].id];
   }
+  job.result = { preliminary_report: {
+    image_id: imageId,
+    text: suggestions.length
+      ? suggestions.map(item => item.text).join('\n')
+      : 'The mock analysis returned no suggested findings for this image. Review the image and record your assessment.',
+  } };
   const findings: FindingsDTO = {
     id: nextId(state), version: 1, status: 'ai_proposed', items: suggestions, ai_items: structuredClone(suggestions),
     no_abnormality_confirmed: false, annotation_snapshot: null, approved_by: null, approved_at: null,
@@ -502,7 +512,7 @@ export function settleJobs(state: MockState) {
         request.status = 'failed';
         request.error = { code: 'AI_UNAVAILABLE', message: 'The mock detector did not finish. No suggestions were saved.', retryable: true };
       } else {
-        if (input.operation === 'analyze') request.output_refs = completeAnalysis(state, reading, request, input.image_id);
+        if (input.operation === 'analyze') request.output_refs = completeAnalysis(state, reading, job, input.image_id);
         if (input.operation === 'ask') request.output_refs = completeAnswer(state, reading, request, input);
         if (input.operation === 'draft_report') request.output_refs = { report_id: approvedDraft(state, reading) };
         request.status = 'succeeded';

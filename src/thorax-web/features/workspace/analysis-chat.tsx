@@ -1,16 +1,15 @@
 'use client';
 
-import { Activity, ArrowDown, ArrowRight, CheckCircle2, ImageIcon, Info, MessageSquare, ScanLine, Send, X } from 'lucide-react';
+import { Activity, ArrowDown, ImageIcon, Info, MessageSquare, ScanLine, Send, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { aiSuggestion, Badge, EmptyState, formatTime, Notice, Spinner } from '@/components/ui';
 import { api, isTerminal } from '@/lib/api';
 import type { AIProvenance, AIRequest, BoxDTO, ImageDTO, MessageDTO, Workspace } from '@/lib/contracts';
-import type { Panel } from './StudyWorkspace';
 import { errorText, type ReadingActions } from './useReading';
 
 type AnalysisProps = {
   data: Workspace; image?: ImageDTO; imageReady: boolean; actions: ReadingActions; disabled: boolean;
-  reason?: string; onPanel: (panel: Panel) => void; onBox: (id: number) => void;
+  reason?: string;
 };
 
 export function imageLabel(images: ImageDTO[], id: number | null | undefined) {
@@ -59,36 +58,18 @@ export function SourceDetails({ data, provenance, approval }: { data: Workspace;
   </details>;
 }
 
-export function AnalysisPanel({ data, image, imageReady, actions, disabled, reason, onPanel, onBox }: AnalysisProps) {
-  const findings = data.latest_findings;
-  const analysis = actions.job?.operation === 'analyze' ? actions.job : data.initial_analysis ?? undefined;
-  const submitted = analysis?.submitted_input;
-  const analyzedId = (submitted?.operation === 'analyze' && submitted.image_id) || findings?.ai_items[0]?.image_id || data.reports[0]?.content.study.analyzed_image_id || data.boxes.find(box => box.source === 'ai')?.image_id;
-  const detections = data.boxes.filter(box => !box.deleted_at && box.source === 'ai');
-  const linked = new Set(findings?.items.flatMap(item => item.box_ids));
-  const unlinked = detections.filter(box => !linked.has(box.id));
+export function AnalysisPanel({ data, image, imageReady, actions, disabled, reason }: AnalysisProps) {
+  const analysis = actions.job?.operation === 'analyze' ? actions.job : undefined;
   const active = analysis && !isTerminal(analysis.status);
   const failed = analysis?.error;
   return <div className="panel-content analysis-panel">
-    <div className="panel-heading"><div className="section-heading"><Activity size={20} aria-hidden /><h2>AI analysis</h2></div>{findings && <Badge tone="approved"><CheckCircle2 size={14} aria-hidden />Analyzed</Badge>}</div>
-    {!findings ? <>
-      <p className="muted">Run the initial analysis on one image from this study. Review the text suggestions and any AI regions before drafting a report.</p>
-      <div className="analysis-input"><span className="empty-icon"><ScanLine size={22} aria-hidden /></span><div><span className="muted">Selected image</span><strong>{image ? imageLabel(data.images, image.id) : 'No image available'}</strong></div></div>
-      <div className="analysis-sources"><div><span>Earlier reports</span><strong>{data.history.length ? `${data.history.length} available` : 'None'}</strong></div><div><span>Image coverage</span><strong>Current image only</strong></div></div>
-      {analysis && <AIStatus job={analysis} actions={actions} />}
-      {!active && !failed?.retryable && <button className="button primary full-action" disabled={disabled || !imageReady || !image || !data.capabilities.can_detect} onClick={() => image && void actions.submit({ operation: 'analyze', image_id: image.id }).catch(() => {})}><Activity size={17} aria-hidden />{actions.busy ? 'Submitting…' : 'Analyze selected image'}</button>}
-      {!active && (reason || !imageReady || !data.capabilities.can_detect) && <p className="muted dense">{reason || (!data.capabilities.can_detect ? 'The configured detector is unavailable.' : 'Wait for the selected image to load.')}</p>}
-    </> : <>
-      <p className="muted">{analyzedId ? `Initial AI analysis: ${imageLabel(data.images, analyzedId)} only` : 'Initial AI analysis covers one image.'}</p>
-      <div className="analysis-sources"><div><span>{analysis?.provenance.history_report_ids ? 'Earlier reports used' : 'Earlier reports available'}</span><strong>{analysis?.provenance.history_report_ids?.length ?? data.history.length}</strong></div><div><span>AI regions</span><strong>{detections.length}</strong></div></div>
-      <section className="panel-section"><h3>Original AI findings</h3>{findings.ai_items.length ? <ul className="analysis-results">{findings.ai_items.map(item => <li key={item.id}>
-        <Badge tone="pending">{aiSuggestion}</Badge><p>{item.text}</p>{item.location && <small>{item.location}</small>}
-        {item.box_ids.length ? <div className="row-actions">{item.box_ids.map(id => <button key={id} className="text-button" onClick={() => onBox(id)}>Region {id}</button>)}</div> : <small>No linked region</small>}
-      </li>)}</ul> : <p className="muted">The analysis returned no text suggestions. Review the image and record your findings.</p>}</section>
-      {!detections.length && <p className="muted">The detector returned zero regions.</p>}
-      {unlinked.length > 0 && <section className="panel-section"><h3>AI regions without a linked finding</h3>{unlinked.map(box => <div className="unlinked-box" key={box.id}><Badge tone="pending">{aiSuggestion}</Badge><button className="text-button" onClick={() => onBox(box.id)}>{box.label || `Region ${box.id}`}</button></div>)}</section>}
-      <button className="button" onClick={() => onPanel('findings')}>Review findings <ArrowRight size={16} aria-hidden /></button>
-    </>}
+    <div className="section-heading"><Activity size={20} aria-hidden /><h2>AI analysis</h2></div>
+    <p className="muted">Analyze one image to open Expert Discussion with a preliminary AI report, findings and detected regions.</p>
+    <div className="analysis-input"><span className="empty-icon"><ScanLine size={22} aria-hidden /></span><div><span className="muted">Selected image</span><strong>{image ? imageLabel(data.images, image.id) : 'No image available'}</strong></div></div>
+    <div className="analysis-sources"><div><span>Earlier reports</span><strong>{data.history.length ? `${data.history.length} available` : 'None'}</strong></div><div><span>Image coverage</span><strong>Current image only</strong></div></div>
+    {analysis && <AIStatus job={analysis} actions={actions} />}
+    {!active && !failed?.retryable && <button className="button primary full-action" disabled={disabled || !imageReady || !image || !data.capabilities.can_detect} onClick={() => image && void actions.submit({ operation: 'analyze', image_id: image.id }).catch(() => {})}><Activity size={17} aria-hidden />{actions.busy ? 'Submitting…' : 'Analyze selected image'}</button>}
+    {!active && (reason || !imageReady || !data.capabilities.can_detect) && <p className="muted dense">{reason || (!data.capabilities.can_detect ? 'The configured detector is unavailable.' : 'Wait for the selected image to load.')}</p>}
     <SourceDetails data={data} provenance={analysis?.provenance} />
     <div className="panel-note"><Info size={16} aria-hidden /><p>Review the original image and any AI suggestions before recording your assessment.</p></div>
   </div>;
@@ -168,7 +149,13 @@ export function ChatPanel({ data, image, actions, disabled, reason, attachment, 
   }
   return <div className="panel-content chat-panel">
     <div className="panel-heading"><div className="section-heading"><MessageSquare size={20} aria-hidden /><h2>Chat with AI</h2></div>{readOnly && <Badge tone="approved">Read-only</Badge>}</div>
-    <p className="muted">Questions concern this study only.</p>
+    {data.preliminary_report ? <details className="preliminary-report" open>
+      <summary>Preliminary AI report</summary>
+      <Badge tone="pending">{aiSuggestion}</Badge> <Badge>{imageLabel(data.images, data.preliminary_report.image_id)}</Badge>
+      <p>{data.preliminary_report.text}</p>
+      <SourceDetails data={data} provenance={data.initial_analysis?.provenance} />
+    </details> : analyzed && <p className="muted">Preliminary report unavailable for this saved reading.</p>}
+    <p className="muted">Discuss this image or a saved region, then record any corrections in Findings.</p>
     {image && <Badge><ImageIcon size={14} aria-hidden />{imageLabel(data.images, image.id)}</Badge>}
     <div ref={feed} className="message-feed" aria-label="Saved study chat" tabIndex={0}>
       {next && <button className="button ghost" disabled={loading} onClick={() => void loadOlder()}>{loading ? 'Loading…' : 'Load earlier messages'}</button>}
