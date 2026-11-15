@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import io
 import json
+from dataclasses import replace
 from pathlib import Path
 import shutil
 import sys
@@ -173,7 +174,8 @@ class B1PipelineTests(unittest.TestCase):
         with patch("cxr_research.data.catalog_adapter._git_identity", return_value=("a" * 40, False)):
             prepare_catalog(spec_path, self.repository)
         configured = self.root / "rental/b1-fixture"
-        result = setup_b1.configure(Path(spec["prepared_dir"]), configured, "a" * 40, repository=self.repository)
+        result = setup_b1.configure(Path(spec["prepared_dir"]), configured, "a" * 40,
+                                    jira_issue="TEST-1", repository=self.repository)
         self.assertFalse(result["training_ready"])
         self.assertEqual((result["train_qa"], result["validation_qa"]), (2, 1))
         local, remote = (load_config(configured / name) for name in ("b1-local.json", "b1.json"))
@@ -186,8 +188,9 @@ class B1PipelineTests(unittest.TestCase):
             protocol = json.loads((configured / name).read_text())
             self.assertEqual(protocol["status"], "draft")
             self.assertEqual(protocol["config_sha256"], config.fingerprint)
-            with self.assertRaises(ContractError):
-                check_protocol(config, protocol["manifest_sha256"], protocol["provenance_sha256"])
+            with self.assertRaisesRegex(ContractError, "research protocol decisions are unresolved"):
+                check_protocol(replace(config, protocol=str(configured / name)),
+                               protocol["manifest_sha256"], protocol["provenance_sha256"])
         with self.assertRaises(ContractError):
             setup_b1.configure(Path(spec["prepared_dir"]), configured, "a" * 40, repository=self.repository)
 

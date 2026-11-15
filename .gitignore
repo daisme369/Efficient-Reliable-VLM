@@ -226,6 +226,7 @@ __marimo__/
 # Docs
 /docs/*
 !/docs/agents/
+!/docs/VAST_GROUNDING_TRAINING.md
 
 # Data
 /data

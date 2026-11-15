@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import numpy as np
 import torch
 from PIL import Image
 from cxr_research.data.manifest import local_file
+from cxr_research.data.segmentation_images import read_pair
 from cxr_research.experiments.config import UNetConfig
 from cxr_research.preprocessing.segmentation import transform_pair
-from cxr_research.utils.errors import ContractError
 
 
 class SegmentationDataset(torch.utils.data.Dataset):
@@ -21,14 +20,7 @@ class SegmentationDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         sample = self.samples[index]
-        with Image.open(local_file(self.manifest.root, sample.image)) as raw:
-            if raw.mode not in {"L", "RGB"}:
-                raise ContractError("segmentation expects prepared 8-bit PNG/JPG images")
-            image = raw.convert("L")
-        with Image.open(local_file(self.manifest.root, sample.mask)) as raw:
-            mask = raw.convert("L")
-        if not set(np.unique(np.array(mask))).issubset({0, 1, 255}):
-            raise ContractError("expected a binary lung mask")
+        image, mask = read_pair(self.manifest.root, sample)
         values = transform_pair(image, mask, self.config, training=self.training,
                                 seed=self.seed + self.epoch * len(self.samples) + index)
         return values[:3]

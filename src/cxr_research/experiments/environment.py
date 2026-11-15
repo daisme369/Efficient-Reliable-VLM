@@ -36,6 +36,12 @@ def gpu_preflight(config: ExperimentConfig, operation: str, repository: Path) ->
     if operation not in {"train", "evaluate"}:
         raise ContractError("GPU preflight requires a train or evaluate operation")
     role = "train" if operation == "train" else "inference"
+    if operation == "train" and config.protocol:
+        protocol = json.loads(Path(config.protocol).read_text(encoding="utf-8"))
+        if protocol.get("hardware_profile") == "local-unet-rtx3060":
+            if (config.task, config.baseline) != ("unet", "S1") or protocol.get("status") != "approved":
+                raise ContractError("local RTX 3060 training exception requires an approved U-Net S1 protocol")
+            role = "train-unet-local"
     checker = repository / "scripts/ci/check_gpu_environment.py"
     result = subprocess.run([sys.executable, str(checker), "--profile", config.runtime_profile, "--role", role],
                             capture_output=True, text=True, check=False)

@@ -15,7 +15,12 @@ RTX PRO 6000 Blackwell supports both training and inference under HW-2026-10-29 
 
 The user approved a local RTX 3060 exception on 2026-10-17 for synthetic
 DALI/CUDA smoke tests only. Use `--role smoke` for that check. Real-data
-training/inference still rejects `sm86`; smoke results are not research benchmarks.
+The standard training/inference roles still reject `sm86`; smoke results are not research benchmarks.
+UNET-LOCAL-2026-10-30 adds a separate `train-unet-local` role for the user-requested
+local U-Net run. It requires the exact NVIDIA GeForce RTX 3060 identity, `sm86`,
+and an approved U-Net S1 protocol with `hardware_profile: local-unet-rtx3060`.
+The Linux image, driver and package checks still apply. This exception does not
+authorize MedGemma training or change inference permissions.
 
 See [the local I/O smoke results](IO_SMOKE_STATUS.md) for the tested image and
 remaining clean-build checks, and [the proposed rental flow](RENTED_GPU_FLOW.md)

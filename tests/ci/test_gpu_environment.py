@@ -67,6 +67,22 @@ class GpuEnvironmentTests(unittest.TestCase):
         for role in ("train", "inference"):
             self.assertTrue(any("sm86" in error for error in self.valid_profile(role, (8, 6))))
 
+    def test_local_unet_exception_requires_the_exact_3060(self) -> None:
+        self.assertEqual([], self.valid_profile("train-unet-local", (8, 6), "NVIDIA GeForce RTX 3060"))
+        for name in ("", "NVIDIA GeForce RTX 3070", "NVIDIA GeForce RTX 3060 Ti"):
+            self.assertTrue(self.valid_profile("train-unet-local", (8, 6), name))
+        self.assertTrue(self.valid_profile("train-unet-local", (8, 9), "NVIDIA GeForce RTX 3060"))
+
+    def test_local_unet_role_cannot_use_the_medgemma_cuda_profile(self) -> None:
+        errors = validate_profile(
+            role="train-unet-local", operating_system="Linux", cuda_available=True, cuda_version="12.8",
+            torch_version="2.11.0+cu128", torchvision_version="0.26.0+cu128",
+            bitsandbytes_version="not-installed", dali_version="not-installed",
+            capabilities=[(8, 6)], driver_majors=[570], driver_versions=["570.195.03"],
+            device_names=["NVIDIA GeForce RTX 3060"], profile="medgemma-bf16-cu128",
+        )
+        self.assertTrue(any("restricted to approved MedGemma" in error for error in errors))
+
     def test_rejects_missing_or_mismatched_dali(self) -> None:
         for installed in ("not-installed", "2.2.0"):
             errors = validate_profile(
