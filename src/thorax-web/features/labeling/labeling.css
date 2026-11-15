@@ -49,13 +49,16 @@
 .labeling-filters { display: flex; flex-wrap: wrap; gap: 16px; padding: 8px 12px; border-bottom: 1px solid #1e293b; font-size: 14px; }
 .labeling-filters label { display: flex; align-items: center; gap: 8px; }
 .labeling-filters output { min-width: 36px; font-variant-numeric: tabular-nums; }
-.labeling-stage { flex: 1; min-height: 0; overflow: auto; display: grid; place-items: center; padding: 16px; }
-.labeling-stage-message { color: #cbd5e1; }
-.labeling-surface { position: relative; touch-action: none; user-select: none; }
+.labeling-stage { position: relative; flex: 1; min-height: 0; overflow: clip; overscroll-behavior: contain; touch-action: none; user-select: none; }
+.labeling-stage:focus-visible { outline: 3px solid #67e8f9; outline-offset: -3px; }
+.labeling-stage[data-tool="pan"] { cursor: grab; }
+.labeling-stage[data-tool="pan"][data-dragging="true"] { cursor: grabbing; }
+.labeling-stage-message { position: absolute; inset: 0; display: grid; place-items: center; color: #cbd5e1; }
+.labeling-surface { position: absolute; }
 .labeling-surface[data-tool="draw"] { cursor: crosshair; }
 .labeling-surface img { width: 100%; height: 100%; display: block; pointer-events: none; }
 .label-box { position: absolute; padding: 0; border: 2px solid var(--region-label); background: transparent; border-radius: 1px; }
-.labeling-surface[data-tool="draw"] .label-box { pointer-events: none; }
+.labeling-surface:not([data-tool="select"]) .label-box { pointer-events: none; }
 .label-box[data-selected="true"] { border-width: 3px; outline: 1px solid #07111e; background: rgb(34 211 238 / 0.08); }
 .label-box > span { position: absolute; left: -2px; top: -21px; padding: 1px 6px; border-radius: 2px; font-size: 12px; font-weight: 700; background: var(--region-label); color: #07111e; }
 .label-box.drafting { border-style: dashed; }

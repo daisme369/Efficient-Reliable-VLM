@@ -125,7 +125,7 @@ export function Brand() {
   return <span className="brand"><span className="brand-mark"><ScanLine size={22} aria-hidden /></span><strong>Thorax AI</strong></span>;
 }
 
-export function AppShell({ children, workspace, onWorklist, onSignOut }: { children: ReactNode; workspace?: boolean; onWorklist?: () => void; onSignOut?: () => void }) {
+export function AppShell({ children, workspace, onWorklist, onLabelingQueue, onSignOut }: { children: ReactNode; workspace?: boolean; onWorklist?: () => void; onLabelingQueue?: () => void; onSignOut?: () => void }) {
   const { user, signOut, refresh, backendConnected } = useAuth();
   const [signingOut, setSigningOut] = useState(false);
   const [error, setError] = useState('');
@@ -165,7 +165,7 @@ export function AppShell({ children, workspace, onWorklist, onSignOut }: { child
       {user && <nav aria-label="Primary navigation" className="main-nav">
         {user.role === 'doctor' ? <Link prefetch={false} href="/worklist" aria-current={pathname === '/worklist' ? 'page' : undefined} onClick={onWorklist ? event => { if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); onWorklist(); } : undefined}>
           {pathname !== '/worklist' && <ArrowLeft size={16} aria-hidden />} Worklist
-        </Link> : user.role === 'annotator' ? <Link prefetch={false} href="/labeling" aria-current={pathname === '/labeling' ? 'page' : undefined}>
+        </Link> : user.role === 'annotator' ? <Link prefetch={false} href="/labeling" aria-current={pathname === '/labeling' ? 'page' : undefined} onClick={onLabelingQueue ? event => { if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); onLabelingQueue(); } : undefined}>
           {pathname !== '/labeling' && <ArrowLeft size={16} aria-hidden />} Labeling queue
         </Link> : <Link prefetch={false} href="/admin" aria-current="page">Admin</Link>}
         {user.role === 'annotator' && pathname.startsWith('/labeling/') && <><ChevronRight size={14} aria-hidden /><span>Label image</span></>}

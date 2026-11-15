@@ -184,10 +184,14 @@ export const api = {
     mutate<MutationReceipt>('PATCH', `${session(id)}/boxes/${boxId}`, body, options),
   deleteBox: (id: number, boxId: number, options: MutationOptions) =>
     mutate<MutationReceipt>('DELETE', `${session(id)}/boxes/${boxId}`, undefined, options),
+  startManualFindings: (id: number, options: MutationOptions) =>
+    mutate<MutationReceipt>('POST', `${session(id)}/findings`, {}, options),
   saveFindings: (id: number, body: FindingsEdit, options: MutationOptions) =>
     mutate<MutationReceipt>('PATCH', `${session(id)}/findings`, body, options),
   approveFindings: (id: number, findingsVersion: number, options: MutationOptions) =>
     mutate<MutationReceipt>('POST', `${session(id)}/findings/approve`, { findings_version: findingsVersion }, options),
+  createReport: (id: number, findingsVersion: number, options: MutationOptions) =>
+    mutate<MutationReceipt>('POST', `${session(id)}/reports`, { findings_version: findingsVersion }, options),
   saveReport: (id: number, reportId: number, body: Partial<ReportNarrative>, options: MutationOptions) =>
     mutate<MutationReceipt>('PATCH', `${session(id)}/reports/${reportId}`, body, options),
   approveReport: (id: number, reportId: number, findingsVersion: number, options: MutationOptions) =>

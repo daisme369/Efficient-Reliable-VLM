@@ -71,7 +71,8 @@ function initialSelection(data: Workspace): { panel: Panel; image: number | null
   const params = new URLSearchParams(window.location.search);
   const requestedImage = Number(params.get('image_id'));
   const requestedPanel = params.get('panel');
-  const panel = requestedPanel === 'report' || requestedPanel === 'findings' ? requestedPanel : 'chat';
+  const defaultPanel = data.analyzed_image_id === null ? 'findings' : 'chat';
+  const panel = requestedPanel === 'report' || requestedPanel === 'findings' ? requestedPanel : defaultPanel;
   return { panel: data.latest_findings ? panel : 'analysis', image: data.images.some(item => item.id === requestedImage) ? requestedImage : defaultImage(data) };
 }
 
@@ -79,8 +80,10 @@ function Reading({ data, reload, onDenied }: { data: Workspace; reload: () => Pr
   const router = useRouter();
   const { signOut } = useAuth();
   const [selection, setSelection] = useState(() => initialSelection(data));
-  const analyzed = Boolean(data.latest_findings);
-  const panel = analyzed ? selection.panel === 'analysis' ? 'chat' : selection.panel : 'analysis';
+  const started = Boolean(data.latest_findings);
+  const analyzed = data.analyzed_image_id === undefined ? started : data.analyzed_image_id !== null;
+  const reviewPanel = analyzed ? 'chat' : 'findings';
+  const panel = !started ? 'analysis' : selection.panel === 'analysis' ? reviewPanel : selection.panel;
   const imageId = selection.image;
   const [boxId, setBoxId] = useState<number | null>(null);
   const [attachment, setAttachment] = useState<BoxDTO | null>(null);
@@ -232,16 +235,16 @@ function Reading({ data, reload, onDenied }: { data: Workspace; reload: () => Pr
         <aside className="surface context-rail" aria-label="Study context">{context}</aside>
         {drawer && <aside className="surface context-drawer" id="context-drawer" aria-label="Study context" onKeyDown={event => { if (event.key === 'Escape') { setDrawer(false); drawerButton.current?.focus(); } }}>{context}</aside>}
         <section className="viewer-column" aria-label="Image review">
-          <StudyViewer key={reset} images={data.images} imageId={imageId} boxes={data.boxes} selectedBoxId={boxId} canAnnotate={analyzed && !blocked} canAskRegion={analyzed && data.capabilities.can_ask_roi && !blocked} readOnly={readOnly} approvedSnapshot={data.latest_findings?.annotation_snapshot} findingsApproved={data.session.status === 'findings_approved'} blockedReason={blockingCopy} linkedFindings={linkedFindings} loadImage={api.image} onImageChange={changeImage} onBoxSelect={setBoxId} onBoxSave={saveBox} onBoxDelete={deleteBox} onAskRegion={askRegion} onDirtyChange={setBoxDirty} onImageStatus={setImageReady} />
+          <StudyViewer key={reset} images={data.images} imageId={imageId} boxes={data.boxes} selectedBoxId={boxId} canAnnotate={started && !blocked} canAskRegion={analyzed && data.capabilities.can_ask_roi && !blocked} readOnly={readOnly} approvedSnapshot={data.latest_findings?.annotation_snapshot} findingsApproved={data.session.status === 'findings_approved'} blockedReason={blockingCopy} linkedFindings={linkedFindings} loadImage={api.image} onImageChange={changeImage} onBoxSelect={setBoxId} onBoxSave={saveBox} onBoxDelete={deleteBox} onAskRegion={askRegion} onDirtyChange={setBoxDirty} onImageStatus={setImageReady} />
         </section>
         <section className="surface review" aria-label="Clinical review">
-          {analyzed && <div className="discussion-header">
+          {started && <div className="discussion-header">
             <h2>{panel === 'report' ? 'Report preparation' : 'Clinical Discussion'}</h2>
             <button className="text-button" onClick={() => setPanel(panel === 'report' ? 'findings' : 'report')}>{panel === 'report' ? 'Back to findings' : 'Report'}</button>
           </div>}
-          {analyzed && panel !== 'report' && <div className="review-tabs" role="tablist" aria-label="Clinical Discussion">{discussionTabs.map(({ id, label, icon: Icon }, index) => <button key={id} id={`tab-${id}`} role="tab" aria-selected={panel === id} aria-controls={`panel-${id}`} tabIndex={panel === id ? 0 : -1} onKeyDown={event => tabKey(event, index)} onClick={() => setPanel(id)}><Icon size={16} aria-hidden />{label}</button>)}</div>}
+          {started && panel !== 'report' && <div className="review-tabs" role="tablist" aria-label="Clinical Discussion">{discussionTabs.map(({ id, label, icon: Icon }, index) => <button key={id} id={`tab-${id}`} role="tab" aria-selected={panel === id} aria-controls={`panel-${id}`} tabIndex={panel === id ? 0 : -1} onKeyDown={event => tabKey(event, index)} onClick={() => setPanel(id)}><Icon size={16} aria-hidden />{label}</button>)}</div>}
           <div className="review-scroll" key={reset}>
-            {!analyzed && <AnalysisPanel data={data} image={image} imageReady={imageReady} actions={actions} disabled={blocked || dirty || readOnly} reason={blockingCopy ?? (dirty ? 'Save or discard your changes first.' : undefined)} />}
+            {!started && <AnalysisPanel data={data} image={image} imageReady={imageReady} actions={actions} disabled={blocked || dirty || readOnly} reason={blockingCopy ?? (dirty ? 'Save or discard your changes first.' : undefined)} onManual={() => void actions.transact(options => api.startManualFindings(data.session.id, options), () => setPanel('findings')).catch(() => {})} />}
             <div id="panel-chat" role="tabpanel" aria-labelledby="tab-chat" hidden={panel !== 'chat'}><ChatPanel data={data} image={image} actions={actions} disabled={blocked || Boolean(drafts.box) || !imageReady} reason={blockingCopy ?? (drafts.box ? 'Save or discard the region changes first.' : !imageReady ? 'Load the selected image before adding to the discussion.' : undefined)} attachment={attachment} clearAttachment={() => setAttachment(null)} onDirty={setChatDirty} visible={panel === 'chat'} /></div>
             <div id="panel-findings" role="tabpanel" aria-labelledby="tab-findings" hidden={panel !== 'findings'}><FindingsPanel data={data} actions={actions} disabled={blocked} baseRevision={draftRevisions.current.findings} otherDirty={Boolean(drafts.box || drafts.report || drafts.chat)} onDirty={setFindingsDirty} onDraftText={setFindingsText} onPanel={setPanel} onBox={openBox} /></div>
             <div id="panel-report" hidden={panel !== 'report'}><ReportPanel data={data} actions={actions} disabled={blocked} baseRevision={draftRevisions.current.report} otherDirty={Boolean(drafts.box || drafts.findings || drafts.chat)} onDirty={setReportDirty} onDraftText={setReportText} onPanel={setPanel} onFinal={() => router.push(`${href}/report`)} /></div>
@@ -275,19 +278,20 @@ function ConflictPreview({ data, draftText, boxId }: { data: Workspace; draftTex
 }
 
 function StudyContext({ data, pendingBoxes, pendingFindings, onPanel, audit, onAudit }: { data: Workspace; pendingBoxes: number; pendingFindings: number; onPanel: (panel: Panel) => void; audit: boolean; onAudit: () => void }) {
-  const analyzed = Boolean(data.latest_findings);
+  const started = Boolean(data.latest_findings);
+  const analyzed = data.analyzed_image_id === undefined ? started : data.analyzed_image_id !== null;
   const approved = data.latest_findings?.status === 'approved';
   const final = data.session.status === 'final';
   const progress = [
-    { label: analyzed ? 'Clinical Discussion' : 'Initial analysis', status: analyzed ? 'Preliminary report' : 'Ready to start', done: analyzed, tab: analyzed ? 'chat' : 'analysis' },
-    { label: 'Findings review', status: approved ? 'Approved' : analyzed ? `${pendingFindings} ${pendingFindings === 1 ? 'finding' : 'findings'} · ${pendingBoxes} ${pendingBoxes === 1 ? 'region' : 'regions'} pending` : 'Awaiting analysis', done: approved, tab: 'findings' },
+    { label: started && !analyzed ? 'Manual review' : analyzed ? 'Clinical Discussion' : 'Initial analysis', status: started && !analyzed ? 'Review in progress' : analyzed ? 'Preliminary report' : 'Ready to start', done: started, tab: started && !analyzed ? 'findings' : analyzed ? 'chat' : 'analysis' },
+    { label: 'Findings review', status: approved ? 'Approved' : started ? `${pendingFindings} ${pendingFindings === 1 ? 'finding' : 'findings'} · ${pendingBoxes} ${pendingBoxes === 1 ? 'region' : 'regions'} pending` : 'Awaiting review', done: approved, tab: 'findings' },
     { label: 'Final report', status: final ? 'Approved' : approved ? 'Ready for drafting' : 'Awaiting Gate 1', done: final, tab: 'report' },
   ] as const;
   return <div className="context-content">
     <section className="context-section"><div className="section-heading"><Archive size={18} aria-hidden /><h2>Study context</h2></div>
       <dl className="context-details"><div><dt>Study date</dt><dd className="mono">{formatDate(data.study.study_date)}</dd></div><div><dt>Indication</dt><dd>{data.study.indication || '—'}</dd></div><div><dt>Images</dt><dd>{data.images.length} {data.images.length === 1 ? 'image' : 'images'}</dd></div></dl>
     </section>
-    <section className="context-section"><h2>Reading progress</h2><ol className="progress-list">{progress.map((step, index) => <li key={step.tab}><button disabled={!analyzed && step.tab !== 'analysis'} onClick={() => onPanel(step.tab)}><span className={`step-index${step.done ? ' done' : ''}`}>{step.done ? <ShieldCheck size={15} aria-hidden /> : index + 1}</span><span><strong>{step.label}</strong><small>{step.status}</small></span><ChevronRight size={14} aria-hidden /></button></li>)}</ol></section>
+    <section className="context-section"><h2>Reading progress</h2><ol className="progress-list">{progress.map((step, index) => <li key={index}><button disabled={!started && step.tab !== 'analysis'} onClick={() => onPanel(step.tab)}><span className={`step-index${step.done ? ' done' : ''}`}>{step.done ? <ShieldCheck size={15} aria-hidden /> : index + 1}</span><span><strong>{step.label}</strong><small>{step.status}</small></span><ChevronRight size={14} aria-hidden /></button></li>)}</ol></section>
     <section className="context-section history-section"><div className="section-heading"><History size={17} aria-hidden /><h2>Prior reports</h2></div><p className="muted">Up to 5 earlier reports</p>
       {data.history.length ? <ul className="history-list">{data.history.map(report => <li key={report.id}><details><summary><FileText size={15} aria-hidden /><span><strong>{formatDate(report.report_date)}</strong><small>Source {report.id}</small></span><ChevronRight size={15} aria-hidden /></summary><p className="source-label">Historical report — not current-image evidence</p><p className="history-text">{report.text}</p></details></li>)}</ul> : <p className="muted">No earlier reports; analysis will use the current image.</p>}
     </section>

@@ -9,7 +9,7 @@ import { errorText, type ReadingActions } from './useReading';
 
 type AnalysisProps = {
   data: Workspace; image?: ImageDTO; imageReady: boolean; actions: ReadingActions; disabled: boolean;
-  reason?: string;
+  reason?: string; onManual: () => void;
 };
 
 export function imageLabel(images: ImageDTO[], id: number | null | undefined) {
@@ -58,7 +58,7 @@ export function SourceDetails({ data, provenance, approval }: { data: Workspace;
   </details>;
 }
 
-export function AnalysisPanel({ data, image, imageReady, actions, disabled, reason }: AnalysisProps) {
+export function AnalysisPanel({ data, image, imageReady, actions, disabled, reason, onManual }: AnalysisProps) {
   const analysis = actions.job?.operation === 'analyze' ? actions.job : undefined;
   const active = analysis && !isTerminal(analysis.status);
   const failed = analysis?.error;
@@ -70,6 +70,7 @@ export function AnalysisPanel({ data, image, imageReady, actions, disabled, reas
     {analysis && <AIStatus job={analysis} actions={actions} />}
     {!active && !failed?.retryable && <button className="button primary full-action" disabled={disabled || !imageReady || !image || !data.capabilities.can_detect} onClick={() => image && void actions.submit({ operation: 'analyze', image_id: image.id }).catch(() => {})}><Activity size={17} aria-hidden />{actions.busy ? 'Submitting…' : 'Analyze selected image'}</button>}
     {!active && (reason || !imageReady || !data.capabilities.can_detect) && <p className="muted dense">{reason || (!data.capabilities.can_detect ? 'The configured detector is unavailable.' : 'Wait for the selected image to load.')}</p>}
+    <button className="button full-action" disabled={disabled || !imageReady || !image} onClick={onManual}>Start manual review</button>
     <SourceDetails data={data} provenance={analysis?.provenance} />
     <div className="panel-note"><Info size={16} aria-hidden /><p>Review the original image and any AI suggestions before recording your assessment.</p></div>
   </div>;
@@ -98,7 +99,7 @@ export function ChatPanel({ data, image, actions, disabled, reason, attachment, 
   const submitted = currentJob?.submitted_input?.operation === 'ask' ? currentJob.submitted_input : null;
   const liveQuestion = currentJob && !isTerminal(currentJob.status) ? submitted : null;
   const readOnly = data.session.status === 'final';
-  const analyzed = Boolean(data.latest_findings);
+  const analyzed = data.analyzed_image_id === undefined ? Boolean(data.latest_findings) : data.analyzed_image_id !== null;
   const messages = [...older.filter(item => !data.messages.items.some(message => message.id === item.id)), ...data.messages.items];
   const next = cursor === undefined ? data.messages.next_cursor : cursor;
   const canSend = analyzed && !readOnly && !disabled && Boolean(image) && Boolean(question.trim()) && question.trim().length <= 2000;
@@ -147,6 +148,7 @@ export function ChatPanel({ data, image, actions, disabled, reason, attachment, 
     setError('');
     void actions.submit({ operation: 'ask', image_id: image.id, question: question.trim(), ...(attachment ? { box_id: attachment.id } : {}) }).catch(failure => { if (errorText(failure).includes('patient')) questionRef.current?.focus(); });
   }
+  if (!analyzed && data.latest_findings) return <div className="panel-content"><EmptyState title="Manual review">Record your assessment in Findings, then prepare and approve the report.</EmptyState></div>;
   return <div className="panel-content chat-panel">
     <div className="panel-heading"><div className="section-heading"><MessageSquare size={20} aria-hidden /><h2>Discussion with AI</h2></div>{readOnly && <Badge tone="approved">Read-only</Badge>}</div>
     {data.preliminary_report ? <details className="preliminary-report" open>

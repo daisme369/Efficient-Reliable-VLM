@@ -3,8 +3,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AuthUser, MutationReceipt, Page, View } from '../../../../lib/contracts';
 import {
-  approveFindings, checkWrite, createBox, editBox, editReport, fields, integer, openStudy,
-  saveFindings, settleJobs, string, studyDto, submit, workspace,
+  approveFindings, checkWrite, createBox, createReport, editBox, editReport, fields, integer, openStudy,
+  saveFindings, settleJobs, startManualFindings, string, studyDto, submit, workspace,
 } from '../../../../lib/server/mock-clinical';
 import {
   assigned, fail, hash, hashPassword, idleMs, idempotent, invalid, keyedHash, missing, MockError, nextId,
@@ -340,18 +340,22 @@ function clinical(state: MockState, actor: MockUser, request: Request, segments:
   const addsBox = part === 'boxes' && method === 'POST' && !child;
   const changesBox = part === 'boxes' && (method === 'PATCH' || method === 'DELETE') && child && !action;
   const changesFindings = part === 'findings' && method === 'PATCH' && !child;
+  const startsManual = part === 'findings' && method === 'POST' && !child;
   const approvesFindings = part === 'findings' && method === 'POST' && child === 'approve' && !action;
   const changesReport = part === 'reports' && method === 'PATCH' && child && !action;
+  const createsReport = part === 'reports' && method === 'POST' && !child;
   const approvesReport = part === 'reports' && method === 'POST' && child && action === 'approve';
-  if (!startsAI && !addsBox && !changesBox && !changesFindings && !approvesFindings && !changesReport && !approvesReport) return missing();
+  if (!startsAI && !startsManual && !addsBox && !changesBox && !changesFindings && !approvesFindings && !createsReport && !changesReport && !approvesReport) return missing();
 
-  const result = idempotent(state, request, actor, body, Boolean(startsAI || addsBox || approvesFindings || approvesReport), () => {
+  const result = idempotent(state, request, actor, body, Boolean(startsAI || startsManual || addsBox || approvesFindings || createsReport || approvesReport), () => {
     checkWrite(request, reading, Boolean(addsBox || changesBox || changesFindings || approvesFindings));
     if (startsAI) return { data: submit(state, reading, body), status: 202 };
+    if (startsManual) return { data: startManualFindings(state, reading, body), status: 201 };
     if (addsBox) return { data: createBox(state, reading, body), status: 201 };
     if (changesBox) return { data: editBox(state, reading, id(child), body, method === 'DELETE'), status: 200 };
     if (changesFindings) return { data: saveFindings(state, reading, body), status: 200 };
     if (approvesFindings) return { data: approveFindings(state, reading, body), status: 200 };
+    if (createsReport) return { data: createReport(state, reading, body), status: 201 };
     return { data: editReport(state, reading, id(child), body, Boolean(approvesReport)), status: 200 };
   });
   return json(result.data, result.status, { ETag: `"${result.data.session_revision}"` });

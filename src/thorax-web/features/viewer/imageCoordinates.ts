@@ -34,17 +34,36 @@ export function toSource(point: Point, transform: ReturnType<typeof imageTransfo
   };
 }
 
+export function clampView(image: Size, viewport: Size, view: ViewTransform): ViewTransform {
+  const { scale } = imageTransform(image, viewport, view);
+  const maxX = Math.max(0, (image.width * scale - viewport.width) / 2);
+  const maxY = Math.max(0, (image.height * scale - viewport.height) / 2);
+  return { zoom: view.zoom, pan: { x: clamp(view.pan.x, -maxX, maxX), y: clamp(view.pan.y, -maxY, maxY) } };
+}
+
 export function zoomAt(image: Size, viewport: Size, view: ViewTransform, anchor: Point, factor: number): ViewTransform {
+  if (!viewport.width || !viewport.height) return view;
   const zoom = clamp(view.zoom * factor, 0.25, 8);
   const source = toSource(anchor, imageTransform(image, viewport, view));
   const centered = imageTransform(image, viewport, { zoom, pan: { x: 0, y: 0 } });
-  return {
+  return clampView(image, viewport, {
     zoom,
     pan: {
       x: anchor.x - centered.x - source.x * centered.scale,
       y: anchor.y - centered.y - source.y * centered.scale,
     },
-  };
+  });
+}
+
+export function wheelView(image: Size, viewport: Size, view: ViewTransform, anchor: Point,
+  event: Pick<WheelEvent, "deltaX" | "deltaY" | "deltaMode" | "ctrlKey" | "metaKey" | "shiftKey">): ViewTransform {
+  const unitX = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? viewport.width : 1;
+  const unitY = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? viewport.height : 1;
+  if (event.ctrlKey || event.metaKey) return zoomAt(image, viewport, view, anchor, Math.exp(-event.deltaY * unitY / 500));
+  // Shift-wheel may arrive as deltaX instead of deltaY on desktop browsers.
+  const dx = event.shiftKey ? (event.deltaX || event.deltaY) * unitX : event.deltaX * unitX;
+  const dy = event.shiftKey ? 0 : event.deltaY * unitY;
+  return clampView(image, viewport, { ...view, pan: { x: view.pan.x - dx, y: view.pan.y - dy } });
 }
 
 function clamp(value: number, min: number, max: number) {

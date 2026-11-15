@@ -211,6 +211,176 @@ class ReadingTests(unittest.TestCase):
         ws = self.doctor.get(f"/api/v1/sessions/{sid}").json()
         self.assertEqual(ws["latest_ai_request"]["status"], "succeeded")  # access was back before the job settled
 
+    def test_late_poll_keeps_completed_mock_analysis_and_injected_failures(self):
+        for study, fault, expected in ((2431, "", "succeeded"), (2411, "timeout", "timed_out"), (2421, "detector", "failed")):
+            with self.subTest(fault=fault), patch.dict(os.environ, {"THORAX_DEMO_AI_FAULT": fault}):
+                ws = self.open(study)
+                sid = ws["session"]["id"]
+                response = self.write("post", f"/api/v1/sessions/{sid}/ai-requests",
+                                      {"operation": "analyze", "image_id": ws["images"][0]["id"]}, revision=ws["session"]["revision"])
+                self.assertEqual(response.status_code, 202, response.text)
+                self.now += 61
+                resumed = self.open(study)
+                self.assertEqual(resumed["latest_ai_request"]["status"], expected)
+                self.assertEqual(bool(resumed["latest_findings"]), expected == "succeeded")
+                self.assertEqual(bool(resumed["preliminary_report"]), expected == "succeeded")
+                again = self.doctor.get(f"/api/v1/sessions/{sid}").json()
+                self.assertEqual(again, resumed)
+
+    def test_manual_reading_reaches_final_while_ai_is_paused(self):
+        self.app.state.admin.set_ai_paused(True, 3)
+        ws = self.open()
+        sid, revision = ws["session"]["id"], ws["session"]["revision"]
+        url = f"/api/v1/sessions/{sid}"
+        early = self.write("post", url + "/reports", {"findings_version": 1}, revision=revision)
+        self.assertEqual(early.json()["error"]["code"], "GATE1_REQUIRED")
+        started = self.write("post", url + "/findings", {}, revision=revision)
+        self.assertEqual(started.status_code, 201, started.text)
+        revision = started.json()["session_revision"]
+        empty = self.write("post", url + "/findings/approve", {"findings_version": 1}, revision=revision)
+        self.assertEqual(empty.json()["error"]["code"], "UNRESOLVED_REVIEW")
+        added = self.write("post", url + "/boxes", {"image_id": 24110, "bbox_xyxy": [20, 30, 80, 100]}, revision=revision)
+        self.assertEqual(added.status_code, 201, added.text)
+        item = {"id": "doctor-1", "text": "Synthetic physician observation.", "location": "Left base", "image_id": 24110,
+                "source": "doctor", "action": "added", "box_ids": [added.json()["resource_id"]]}
+        saved = self.write("patch", url + "/findings", {"items": [item], "no_abnormality_confirmed": False},
+                           revision=added.json()["session_revision"], key=False)
+        self.assertEqual(saved.status_code, 200, saved.text)
+        approved = self.write("post", url + "/findings/approve", {"findings_version": 1}, revision=saved.json()["session_revision"])
+        self.assertEqual(approved.status_code, 200, approved.text)
+        created = self.write("post", url + "/reports", {"findings_version": 1}, revision=approved.json()["session_revision"])
+        self.assertEqual(created.status_code, 201, created.text)
+        report_id = created.json()["resource_id"]
+        edited = self.write("patch", f"{url}/reports/{report_id}", {"impression": "Synthetic signed assessment."},
+                            revision=created.json()["session_revision"], key=False)
+        self.assertEqual(edited.status_code, 200, edited.text)
+        final = self.write("post", f"{url}/reports/{report_id}/approve", {"findings_version": 1}, revision=edited.json()["session_revision"])
+        self.assertEqual(final.status_code, 200, final.text)
+        doctor = self.client("doctor@example.test", self.make_app())
+        restored = doctor.get(url).json()
+        self.assertEqual(restored["session"]["status"], "final")
+        self.assertEqual(restored["reports"][0]["source"], "doctor")
+        self.assertIsNone(restored["reports"][0]["content"]["study"]["analyzed_image_id"])
+        for field in ("analyzed_image_id", "initial_analysis", "preliminary_report", "latest_ai_request"):
+            self.assertIsNone(restored[field])
+        self.assertEqual(self.app.state.admin.ai_requests()["items"], [])
+        late = self.write("patch", url + "/findings", {"items": [], "no_abnormality_confirmed": True},
+                          revision=restored["session"]["revision"], key=False, who=doctor)
+        self.assertEqual(late.json()["error"]["code"], "FINAL_READ_ONLY")
+
+    def test_late_job_cancellation_keeps_analysis_artifacts_empty(self):
+        ws = self.open()
+        url = f"/api/v1/sessions/{ws['session']['id']}"
+        submitted = self.write("post", url + "/ai-requests", {"operation": "analyze", "image_id": 24110}, revision=ws["session"]["revision"])
+        self.assertEqual(submitted.status_code, 202, submitted.text)
+        self.now += 61
+        with patch.object(self.app.state.readings, "is_allowed", return_value=False):
+            resumed = self.doctor.get(url).json()
+        self.assertEqual(resumed["latest_ai_request"]["status"], "cancelled")
+        self.assertEqual(resumed["latest_ai_request"]["error"]["code"], "AUTHORIZATION_REVOKED")
+        self.assertIsNone(resumed["preliminary_report"])
+        self.assertIsNone(resumed["latest_findings"])
+        self.assertEqual(resumed["boxes"], [])
+
+    def test_manual_start_and_report_creation_keep_action_keys_and_revisions(self):
+        ws = self.open()
+        url = f"/api/v1/sessions/{ws['session']['id']}"
+        revision = ws["session"]["revision"]
+        missing_key = self.write("post", url + "/findings", {}, revision=revision, key=False)
+        self.assertEqual(missing_key.status_code, 422)
+        stale = self.write("post", url + "/findings", {}, revision=revision + 1)
+        self.assertEqual(stale.status_code, 412)
+        headers = {"If-Match": f'"{revision}"', "Idempotency-Key": uuid.uuid4().hex}
+        once = self.doctor.post(url + "/findings", json={}, headers=headers)
+        replay = self.doctor.post(url + "/findings", json={}, headers=headers)
+        self.assertEqual((once.status_code, replay.json()), (201, once.json()))
+        revision = once.json()["session_revision"]
+        duplicate = self.write("post", url + "/findings", {}, revision=revision)
+        self.assertEqual(duplicate.json()["error"]["code"], "FINDINGS_ALREADY_EXIST")
+        analyze = self.write("post", url + "/ai-requests", {"operation": "analyze", "image_id": 24110}, revision=revision)
+        self.assertEqual(analyze.json()["error"]["code"], "FINDINGS_ALREADY_EXIST")
+        ask = self.write("post", url + "/ai-requests", {"operation": "ask", "image_id": 24110, "question": "Any observation?"}, revision=revision)
+        self.assertEqual(ask.json()["error"]["code"], "ANALYSIS_REQUIRED")
+        normal = self.write("patch", url + "/findings", {"items": [], "no_abnormality_confirmed": True}, revision=revision, key=False)
+        approved = self.write("post", url + "/findings/approve", {"findings_version": 1}, revision=normal.json()["session_revision"])
+        self.assertEqual(approved.status_code, 200, approved.text)
+        version_mismatch = self.write("post", url + "/reports", {"findings_version": 2}, revision=approved.json()["session_revision"])
+        self.assertEqual(version_mismatch.json()["error"]["code"], "GATE1_REQUIRED")
+        headers = {"If-Match": f'"{approved.json()["session_revision"]}"', "Idempotency-Key": uuid.uuid4().hex}
+        once = self.doctor.post(url + "/reports", json={"findings_version": 1}, headers=headers)
+        replay = self.doctor.post(url + "/reports", json={"findings_version": 1}, headers=headers)
+        self.assertEqual((once.status_code, replay.json()), (201, once.json()))
+        before = self.doctor.get(url).json()
+        changed = self.write("patch", url + "/findings", {"items": [], "no_abnormality_confirmed": True},
+                             revision=before["session"]["revision"], key=False)
+        self.assertEqual(changed.status_code, 200, changed.text)
+        after = self.doctor.get(url).json()
+        self.assertEqual((after["latest_findings"]["version"], after["latest_findings"]["status"], after["reports"][0]["status"]),
+                         (2, "in_review", "stale"))
+
+    def test_analyzed_reading_can_create_a_manual_report_during_pause(self):
+        ws = self.analyze(self.open(2411))
+        url = f"/api/v1/sessions/{ws['session']['id']}"
+        decision = self.write("patch", f"{url}/boxes/{ws['boxes'][0]['id']}", {"review_action": "accepted"}, revision=ws["session"]["revision"], key=False)
+        items = [{**item, "action": "accepted"} for item in ws["latest_findings"]["items"]]
+        saved = self.write("patch", url + "/findings", {"items": items, "no_abnormality_confirmed": False}, revision=decision.json()["session_revision"], key=False)
+        approved = self.write("post", url + "/findings/approve", {"findings_version": 1}, revision=saved.json()["session_revision"])
+        ai = self.write("post", url + "/ai-requests", {"operation": "draft_report", "findings_version": 1}, revision=approved.json()["session_revision"])
+        self.assertEqual(ai.status_code, 202, ai.text)
+        self.now += 61
+        ws = self.doctor.get(url).json()
+        self.assertEqual(ws["reports"][0]["source"], "ai")
+        self.app.state.admin.set_ai_paused(True, 3)
+        manual = self.write("post", url + "/reports", {"findings_version": 1}, revision=ws["session"]["revision"])
+        self.assertEqual(manual.status_code, 201, manual.text)
+        ws = self.doctor.get(url).json()
+        self.assertEqual([(r["status"], r["source"]) for r in ws["reports"]], [("stale", "ai"), ("draft", "doctor")])
+        self.assertEqual(ws["analyzed_image_id"], 24110)
+
+    def test_transaction_guard_checks_access_before_receipt_replay(self):
+        from thorax_api.reading import ReadingError
+
+        ws = self.open()
+        sid = ws["session"]["id"]
+        key = uuid.uuid4().hex
+        options = {"if_match": f'"{ws["session"]["revision"]}"', "idempotency_key": key,
+                   "path": f"/api/v1/sessions/{sid}/findings", "method": "POST"}
+        store = self.app.state.readings
+        receipt = store.mutate(sid, 1, "start_manual", {}, **options)
+        self.app.state.catalog.set_assignment(1, 1, False)
+        for call in (lambda: store.mutate(sid, 1, "start_manual", {}, **options), lambda: store.open_reading(2411, 1, (None, None)),
+                     lambda: store.read(sid, 1, "workspace", None, None)):
+            with self.assertRaises(ReadingError) as failure:
+                call()
+            self.assertEqual(failure.exception.status, 404)
+        self.app.state.catalog.set_assignment(1, 1, True)
+        self.app.state.accounts.set_active("doctor@example.test", False)
+        with self.assertRaises(ReadingError):
+            store.mutate(sid, 1, "start_manual", {}, **options)
+        self.app.state.accounts.set_active("doctor@example.test", True)
+        self.assertEqual(store.mutate(sid, 1, "start_manual", {}, **options), receipt)
+
+    def test_transaction_guard_rechecks_current_login_before_open_or_replay(self):
+        from thorax_api.reading import ReadingError
+
+        store = self.app.state.readings
+        ws = self.open()
+        options = {"if_match": f'"{ws["session"]["revision"]}"', "idempotency_key": uuid.uuid4().hex,
+                   "path": f"/api/v1/sessions/{ws['session']['id']}/findings", "method": "POST"}
+        store.mutate(ws["session"]["id"], 1, "start_manual", {}, **options)
+        guard = store._authorize
+        def checked_guard(db, actor_id, patient_id, authorize):
+            self.assertTrue(db.in_transaction)
+            return guard(db, actor_id, patient_id, authorize)
+        def expired():
+            raise ReadingError(401, "UNAUTHENTICATED", "The login expired.")
+        with patch.object(store, "_authorize", side_effect=checked_guard) as checked:
+            with self.assertRaises(ReadingError):
+                store.mutate(ws["session"]["id"], 1, "start_manual", {}, authorize=expired, **options)
+            with self.assertRaises(ReadingError):
+                store.open_reading(2421, 1, (None, None), authorize=expired)
+            self.assertEqual(checked.call_count, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

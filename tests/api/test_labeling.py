@@ -141,6 +141,69 @@ class LabelingTests(unittest.TestCase):
         counts = self.ana.get("/api/v1/labeling/queue").json()["counts"]
         self.assertEqual(counts, {"open": 0, "in_progress": 0, "submitted": 2, "returned": 0, "approved": 0})
 
+    def test_reclaim_keeps_boxes_and_prevents_every_labeler_from_reviewing(self):
+        from fastapi.testclient import TestClient
+        from thorax_api.db import connect
+
+        task = self.ana.post("/api/v1/labeling/tasks/next").json()
+        url = f"/api/v1/labeling/tasks/{task['id']}"
+        task = self.ana.put(url + "/boxes", json={"boxes": [BOX], "revision": task["revision"]}).json()
+        self.app.state.accounts.set_active("ana@example.test", False)
+        self.assertEqual(self.ben.get("/api/v1/labeling/queue").json()["claimable_count"], 2)
+        reclaimed = self.ben.post("/api/v1/labeling/tasks/next").json()
+        self.assertEqual((reclaimed["id"], reclaimed["revision"], reclaimed["boxes"]),
+                         (task["id"], task["revision"] + 1, task["boxes"]))
+        self.assertEqual((reclaimed["role"], reclaimed["can_edit"], reclaimed["can_review"]), ("labeler", True, False))
+        with connect(self.db) as db:
+            events = db.execute("SELECT user_id, action FROM label_events WHERE task_id = ? ORDER BY id", (task["id"],)).fetchall()
+        self.assertEqual([tuple(event) for event in events], [(4, "claimed"), (4, "saved"), (4, "released"), (5, "reclaimed")])
+        submitted = self.ben.post(url + "/submit", json={"revision": reclaimed["revision"]}).json()
+        self.app.state.accounts.set_active("ana@example.test", True)
+        former = self.ana.get(url).json()
+        self.assertEqual((former["role"], former["can_edit"], former["can_review"]), ("labeler", False, False))
+        self.assertEqual(self.ana.get("/api/v1/images/24110/content").status_code, 200)
+        self.assertEqual(self.ana.get("/api/v1/labeling/queue").json()["to_review"], [])
+        blocked = self.ana.put(url + "/boxes", json={"boxes": [], "revision": submitted["revision"]})
+        self.assertEqual(blocked.json()["error"]["code"], "TASK_LOCKED")
+        for client in (self.ana, self.ben):
+            decision = client.post(url + "/review", json={"decision": "approve", "revision": submitted["revision"]})
+            self.assertEqual(decision.json()["error"]["code"], "SELF_REVIEW")
+
+        self.app.state.accounts.create("cara@example.test", "Cara", "annotator", PASSWORD)
+        cara = TestClient(self.app, headers={"Origin": WEB})
+        auth = cara.post("/api/v1/auth/login", json={"email": "cara@example.test", "password": PASSWORD}).json()
+        cara.headers["X-CSRF-Token"] = auth["csrf_token"]
+        self.assertEqual([row["id"] for row in cara.get("/api/v1/labeling/queue").json()["to_review"]], [task["id"]])
+        approved = cara.post(url + "/review", json={"decision": "approve", "revision": submitted["revision"]}).json()
+        self.assertEqual((approved["status"], approved["boxes"]), ("approved", task["boxes"]))
+
+    def test_task_returned_after_owner_is_disabled_can_be_reclaimed(self):
+        from thorax_api.db import connect
+
+        task = self.label_and_submit()
+        url = f"/api/v1/labeling/tasks/{task['id']}"
+        self.app.state.accounts.set_active("ana@example.test", False)
+        before = self.ben.get("/api/v1/labeling/queue").json()
+        self.assertEqual(before["claimable_count"], 1)  # submitted labels still await independent review
+        returned = self.ben.post(url + "/review", json={"decision": "return", "comment": "Tighten the box.",
+                                                       "revision": task["revision"]}).json()
+        self.assertEqual(self.ben.get("/api/v1/labeling/queue").json()["claimable_count"], 2)
+        reclaimed = self.ben.post("/api/v1/labeling/tasks/next").json()
+        self.assertEqual((reclaimed["id"], reclaimed["status"], reclaimed["review_comment"], reclaimed["boxes"]),
+                         (task["id"], "returned", "Tighten the box.", task["boxes"]))
+        self.assertEqual(reclaimed["revision"], returned["revision"] + 1)
+        with connect(self.db) as db:
+            self.assertIsNone(db.execute("SELECT reviewer_id FROM label_tasks WHERE id = ?", (task["id"],)).fetchone()[0])
+
+    def test_next_keeps_active_owners_work_and_resumes_own_work(self):
+        ana_task = self.ana.post("/api/v1/labeling/tasks/next").json()
+        ben_task = self.ben.post("/api/v1/labeling/tasks/next").json()
+        self.assertNotEqual(ana_task["id"], ben_task["id"])
+        self.assertEqual(self.ben.get("/api/v1/labeling/queue").json()["claimable_count"], 0)
+        self.app.state.accounts.set_active("ana@example.test", False)
+        resumed = self.ben.post("/api/v1/labeling/tasks/next").json()
+        self.assertEqual((resumed["id"], resumed["revision"]), (ben_task["id"], ben_task["revision"]))
+
 
 @unittest.skipUnless(HAS_API_DEPS, "requires requirements/api.txt (fastapi, httpx)")
 class RoleMigrationTests(unittest.TestCase):

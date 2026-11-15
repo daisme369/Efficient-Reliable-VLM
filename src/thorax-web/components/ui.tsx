@@ -58,11 +58,6 @@ export function formatTime(value: string | null | undefined) {
   return Number.isNaN(date.valueOf()) ? '—' : new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZoneName: 'short' }).format(date);
 }
 
-export function formatClock(value: string) {
-  const date = new Date(value);
-  return Number.isNaN(date.valueOf()) ? '—' : new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit' }).format(date);
-}
-
 export const aiSuggestion = 'AI suggestion — needs doctor review';
 
 export function readingLabel(status: string | null | undefined) {
