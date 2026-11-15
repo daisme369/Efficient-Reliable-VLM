@@ -3,7 +3,7 @@ import type {
   MutationReceipt, ReportDTO, ReportNarrative, ReviewAction, StudyDTO, Workspace,
 } from '../contracts';
 import { modelArtifacts, patients, studies, studyHistory, type FixtureStudy } from './fixtures';
-import { assigned, event, fail, hash, invalid, isoNow, missing, nextId, type MockSession, type MockState } from './mock-state';
+import { assigned, event, fail, hash, invalid, isoNow, missing, nextId, type MockJob, type MockSession, type MockState } from './mock-state';
 
 const activeJob = (reading: MockSession) => reading.jobs.find(({ request }) => request.status === 'queued' || request.status === 'running');
 const latestFindings = (reading: MockSession) => reading.findings.at(-1);
@@ -67,7 +67,7 @@ function gate1(reading: MockSession): Blocker[] {
   const findings = latestFindings(reading);
   if (findings?.status === 'approved') return [];
   const pending: Blocker[] = [];
-  if (!findings) return [blocker('gate1', 'ANALYSIS_REQUIRED', 'findings', 'Run the initial analysis.')];
+  if (!findings) return [blocker('gate1', 'ANALYSIS_REQUIRED', 'findings', 'Analyze the image or start a manual review.')];
   if (findings.status !== 'in_review') pending.push(blocker('gate1', 'SAVE_REQUIRED', 'findings', 'Save findings before approval.'));
   for (const item of findings.items) {
     if (item.action === 'pending') pending.push(blocker('gate1', 'UNRESOLVED_REVIEW', 'finding', 'Review this AI finding.', item.id));
@@ -92,7 +92,7 @@ function gate2(reading: MockSession): Blocker[] {
     return [blocker('gate2', 'GATE1_REQUIRED', 'findings', 'Approve the latest findings before drafting a report.')];
   }
   const report = reading.reports.find(({ status }) => status === 'draft');
-  if (!report) return [blocker('gate2', 'DRAFT_REQUIRED', 'report', 'Generate a draft report.')];
+  if (!report) return [blocker('gate2', 'DRAFT_REQUIRED', 'report', 'Create a draft report.')];
   if (!report.content.findings.trim() || !report.content.impression.trim()) {
     return [blocker('gate2', 'REQUIRED_FIELDS', 'report', 'Save a findings section and an impression before approval.', report.id)];
   }
@@ -103,19 +103,25 @@ export function workspace(state: MockState, reading: MockSession, messagePage: W
   const { session } = reading;
   const study = studies.find(({ id }) => id === session.study_id)!;
   const live = activeJob(reading)?.request;
+  const initialAnalysis = reading.jobs.find(({ request }) => request.operation === 'analyze' && request.status === 'succeeded');
   return {
     session,
+    analyzed_image_id: reading.analyzedImageId,
     patient: patients.find(({ id }) => id === session.patient_id)!,
     study: studyDto(state, study, session.doctor_id),
     images: study.images,
     history: studyHistory(study),
     latest_findings: latestFindings(reading) ?? null,
-    reports: reading.reports,
+    reports: reading.reports.map(report => ({
+      ...report,
+      source: reading.jobs.some(({ request }) => request.operation === 'draft_report' && request.status === 'succeeded' && request.output_refs.report_id === report.id) ? 'ai' : 'doctor',
+    })),
     boxes: reading.boxes,
     messages: messagePage,
     live_request_id: live?.request_id ?? null,
     latest_ai_request: live ?? reading.jobs.at(-1)?.request ?? null,
-    initial_analysis: reading.jobs.find(({ request }) => request.operation === 'analyze' && request.status === 'succeeded')?.request ?? null,
+    initial_analysis: initialAnalysis?.request ?? null,
+    preliminary_report: initialAnalysis?.result?.preliminary_report ?? null,
     blockers: [...gate1(reading), ...gate2(reading)],
     capabilities: { provider_mode: 'mock', can_detect: true, can_ask_roi: true, model_artifacts: modelArtifacts },
   };
@@ -129,8 +135,8 @@ export function checkWrite(request: Request, reading: MockSession, requiresAnaly
   }
   if (reading.session.status === 'final') fail(409, 'FINAL_READ_ONLY', 'This final reading is read-only.');
   if (activeJob(reading)) fail(409, 'AI_BUSY', 'Wait for the current AI request before making changes.');
-  if (requiresAnalysis && reading.analyzedImageId === null) {
-    fail(409, 'ANALYSIS_REQUIRED', 'Run the initial analysis before making this change.');
+  if (requiresAnalysis && !latestFindings(reading)) {
+    fail(409, 'ANALYSIS_REQUIRED', 'Analyze the image or start a manual review before making this change.');
   }
 }
 
@@ -215,6 +221,18 @@ export function editBox(state: MockState, reading: MockSession, id: number, body
   invalidateApproval(state, reading);
   recordEdit(state, reading, deleting ? 'box_deleted' : 'box_updated', { box_id: id, before, after: boxSnapshot(box) });
   return receipt(reading, 'box', id);
+}
+
+export function startManualFindings(state: MockState, reading: MockSession, body: Record<string, unknown>) {
+  fields(body, []);
+  if (latestFindings(reading)) fail(409, 'FINDINGS_ALREADY_EXIST', 'Review the existing findings for this reading.');
+  const findings: FindingsDTO = {
+    id: nextId(state), version: 1, status: 'in_review', items: [], ai_items: [],
+    no_abnormality_confirmed: false, annotation_snapshot: null, approved_by: null, approved_at: null,
+  };
+  reading.findings.push(findings);
+  recordEdit(state, reading, 'manual_review_started', { findings_version: findings.version });
+  return receipt(reading, 'findings', findings.id);
 }
 
 export function saveFindings(state: MockState, reading: MockSession, body: Record<string, unknown>) {
@@ -325,7 +343,7 @@ function approvedDraft(state: MockState, reading: MockSession) {
       patient: patients.find(({ id }) => id === study.patient_id)!,
       study: {
         id: study.id, study_date: study.study_date, indication: study.indication,
-        image_ids: study.images.map(({ id }) => id), analyzed_image_id: reading.analyzedImageId!,
+        image_ids: study.images.map(({ id }) => id), analyzed_image_id: reading.analyzedImageId,
       },
       source_item_ids: items.map(({ id }) => id),
     },
@@ -333,6 +351,18 @@ function approvedDraft(state: MockState, reading: MockSession) {
   for (const previous of reading.reports) if (previous.status === 'draft') previous.status = 'stale';
   reading.reports.push(report);
   return report.id;
+}
+
+export function createReport(state: MockState, reading: MockSession, body: Record<string, unknown>) {
+  fields(body, ['findings_version']);
+  const version = integer(body.findings_version, 'findings version');
+  const findings = latestFindings(reading);
+  if (findings?.status !== 'approved' || findings.version !== version || reading.session.status !== 'findings_approved') {
+    fail(409, 'GATE1_REQUIRED', 'Approve the latest findings before drafting a report.');
+  }
+  const id = approvedDraft(state, reading);
+  recordEdit(state, reading, 'manual_report_created', { report_id: id, findings_version: version });
+  return receipt(reading, 'report', id);
 }
 
 function command(body: Record<string, unknown>): AICommand {
@@ -366,6 +396,9 @@ export function submit(state: MockState, reading: MockSession, body: Record<stri
 
   if (input.operation === 'analyze' && reading.analyzedImageId !== null) {
     fail(409, 'ALREADY_ANALYZED', 'Initial analysis already succeeded for this reading.');
+  }
+  if (input.operation === 'analyze' && latestFindings(reading)) {
+    fail(409, 'FINDINGS_ALREADY_EXIST', 'Review the existing findings for this reading.');
   }
   if (input.operation === 'ask') {
     if (reading.analyzedImageId === null) fail(409, 'ANALYSIS_REQUIRED', 'Run the initial analysis before asking a question.');
@@ -434,7 +467,8 @@ export function submit(state: MockState, reading: MockSession, body: Record<stri
   return request;
 }
 
-function completeAnalysis(state: MockState, reading: MockSession, request: AIRequest, imageId: number) {
+function completeAnalysis(state: MockState, reading: MockSession, job: MockJob, imageId: number) {
+  const { request } = job;
   const image = currentImage(reading, imageId);
   const suggestions: FindingItem[] = [];
   const boxes: BoxDTO[] = [];
@@ -449,14 +483,20 @@ function completeAnalysis(state: MockState, reading: MockSession, request: AIReq
         location: 'Mediastinum', image_id: imageId, source: 'ai', action: 'pending', box_ids: [],
       },
     );
-  }
-  if (image.view === 'PA') {
     boxes.push({
-      id: nextId(state), image_id: imageId, bbox_xyxy: [501.25, 542.5, 663.75, 685],
+      id: nextId(state), image_id: imageId,
+      bbox_xyxy: [501.25 * image.width / 800, 542.5 * image.height / 880, 663.75 * image.width / 800, 685 * image.height / 880],
       label: 'Left basilar region', note: null, source: 'ai', review_action: 'pending', revision: 1,
       deleted_at: null, ai_request_id: request.request_id,
     });
+    suggestions[0].box_ids = [boxes[0].id];
   }
+  job.result = { preliminary_report: {
+    image_id: imageId,
+    text: suggestions.length
+      ? suggestions.map(item => item.text).join('\n')
+      : 'The mock analysis returned no suggested findings for this image. Review the image and record your assessment.',
+  } };
   const findings: FindingsDTO = {
     id: nextId(state), version: 1, status: 'ai_proposed', items: suggestions, ai_items: structuredClone(suggestions),
     no_abnormality_confirmed: false, annotation_snapshot: null, approved_by: null, approved_at: null,
@@ -494,19 +534,19 @@ export function settleJobs(state: MockState) {
     if (!allowed) {
       request.status = 'cancelled';
       request.error = { code: 'AUTHORIZATION_REVOKED', message: 'Access to this study was revoked.', retryable: false };
-    } else if (now >= Date.parse(request.deadline_at)) {
-      request.status = 'timed_out';
-      request.error = { code: 'AI_DEADLINE_EXCEEDED', message: 'The AI request reached its time limit.', retryable: true };
     } else if (job.failure !== 'timeout' && now - submittedAt >= 1400) {
       if (job.failure === 'detector') {
         request.status = 'failed';
         request.error = { code: 'AI_UNAVAILABLE', message: 'The mock detector did not finish. No suggestions were saved.', retryable: true };
       } else {
-        if (input.operation === 'analyze') request.output_refs = completeAnalysis(state, reading, request, input.image_id);
+        if (input.operation === 'analyze') request.output_refs = completeAnalysis(state, reading, job, input.image_id);
         if (input.operation === 'ask') request.output_refs = completeAnswer(state, reading, request, input);
         if (input.operation === 'draft_report') request.output_refs = { report_id: approvedDraft(state, reading) };
         request.status = 'succeeded';
       }
+    } else if (now >= Date.parse(request.deadline_at)) {
+      request.status = 'timed_out';
+      request.error = { code: 'AI_DEADLINE_EXCEEDED', message: 'The AI request reached its time limit.', retryable: true };
     } else {
       if (now - submittedAt >= 250) {
         request.status = 'running';

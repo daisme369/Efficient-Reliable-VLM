@@ -159,6 +159,11 @@ export function ReportPanel({ data, actions, disabled, baseRevision, otherDirty,
     setSelected(null);
     void actions.submit({ operation: 'draft_report', findings_version: approved.version }).catch(() => {});
   }
+  function createManually() {
+    if (!approved || disabled || otherDirty || dirty || readOnly) return;
+    setSelected(null);
+    void actions.transact(options => api.createReport(data.session.id, approved.version, options)).catch(() => {});
+  }
   function save() {
     if (!report || !copy || !draft || !dirty || disabled) return;
     void actions.transact(options => api.saveReport(data.session.id, report.id, copy, options), () => { setEdited(null); setSaved('Report saved.'); onDirty(false); }, baseRevision).catch(() => {});
@@ -179,7 +184,7 @@ export function ReportPanel({ data, actions, disabled, baseRevision, otherDirty,
       {draft && <Badge tone="pending">Draft — awaiting final approval</Badge>}
       {readOnly && report.status === 'final' && <Link className="button primary" href={href} prefetch={false}>View final report <ArrowRight size={16} aria-hidden /></Link>}
       <ReportSource data={data} report={report} />
-      {draft && <Badge tone="pending">{aiSuggestion}</Badge>}
+      {draft && <Badge tone="pending">{report.source === 'doctor' ? 'Prepared manually from approved findings' : aiSuggestion}</Badge>}
       {fields.map(([field, label]) => draft && !readOnly ? <div className="field" key={field}><label htmlFor={`report-${field}`}>{label}</label><textarea id={`report-${field}`} maxLength={8000} rows={field === 'findings' || field === 'impression' ? 4 : 2} readOnly={disabled} value={copy[field]} onChange={event => { setSaved(''); setEdited({ id: report.id, value: { ...copy, [field]: event.target.value } }); }} /></div> : <section className="report-section" key={field}><h3>{label}</h3><p>{report.content[field] || '—'}</p></section>)}
       {draft && !readOnly && <div className="panel-footer"><p className="dense muted" role="status">{dirty ? 'Unsaved changes' : saved || 'Draft saved'} · <button className="text-button" onClick={() => onPanel('findings')}>Return to findings</button></p>
         <div className="row-actions"><button className="button" disabled={!dirty || disabled} onClick={save}>{actions.busy ? <Spinner /> : <Save size={16} aria-hidden />}Save report</button>{dirty && <button className="button ghost" disabled={disabled} onClick={() => setEdited(null)}>Discard changes</button>}</div>
@@ -187,7 +192,7 @@ export function ReportPanel({ data, actions, disabled, baseRevision, otherDirty,
         <button className="button primary full-action" disabled={!canApprove} onClick={() => setConfirm(true)}><FileCheck size={17} aria-hidden />Approve final report (Gate 2)</button>
       </div>}
     </>}
-    {approved && !draft && !readOnly && <><button className="button primary full-action" disabled={disabled || otherDirty || dirty} onClick={generate}><FileText size={17} aria-hidden />{report ? 'Generate new report' : 'Generate report'}</button>{(otherDirty || dirty) && <p className="muted dense">Save or discard your changes before drafting.</p>}</>}
+    {approved && !draft && !readOnly && <><button className="button primary full-action" disabled={disabled || otherDirty || dirty} onClick={generate}><FileText size={17} aria-hidden />{report ? 'Generate new report' : 'Generate report'}</button><button className="button full-action" disabled={disabled || otherDirty || dirty} onClick={createManually}><FileText size={17} aria-hidden />Create report manually</button>{(otherDirty || dirty) && <p className="muted dense">Save or discard your changes before drafting.</p>}</>}
     {confirm && report && <Confirm title="Approve final report (Gate 2)" action="Approve final report" cancel="Continue editing" pending={actions.busy} onCancel={() => setConfirm(false)} onConfirm={approve}><p>This makes the report and this reading session read-only.</p><p><strong>{data.patient.name}</strong> · {formatDate(data.study.study_date)} · Findings v{report.findings_version}</p></Confirm>}
   </div>;
 }
@@ -197,7 +202,7 @@ function ReportSource({ data, report }: { data: Workspace; report: ReportDTO }) 
     <div><dt>Patient</dt><dd>{report.content.patient.name} · {report.content.patient.code}</dd></div>
     <div><dt>Study</dt><dd>{formatDate(report.content.study.study_date)} · {report.content.study.indication || 'Chest X-ray'}</dd></div>
     <div><dt>Source</dt><dd>Approved findings v{report.findings_version}</dd></div>
-    <div><dt>Initial AI analysis image</dt><dd>{imageLabel(data.images, report.content.study.analyzed_image_id)}</dd></div>
+    <div><dt>{report.content.study.analyzed_image_id === null ? 'Image review' : 'Initial AI analysis image'}</dt><dd>{report.content.study.analyzed_image_id === null ? 'Manual review of current study' : imageLabel(data.images, report.content.study.analyzed_image_id)}</dd></div>
   </dl>;
 }
 
@@ -227,7 +232,7 @@ export function FinalReport({ data, reload, onDenied }: { data: Workspace; reloa
         <ReportSource data={data} report={report} />
         {fields.map(([field, label]) => <section className="report-section" key={field}><h2>{label}</h2><p>{report.content[field] || '—'}</p></section>)}
         <footer className="report-signature"><ShieldCheck size={22} aria-hidden /><div><strong>Approved by {report.approved_by === user?.id ? user?.name : `doctor ${report.approved_by ?? '—'}`}</strong><p>{formatTime(report.approved_at)}</p></div></footer>
-        <SourceDetails data={data} provenance={data.latest_ai_request?.operation === 'draft_report' ? data.latest_ai_request.provenance : undefined} approval={report.approved_by === user?.id ? user?.name : undefined} />
+        {report.source === 'doctor' ? <p className="muted">Prepared manually from approved findings.</p> : <SourceDetails data={data} provenance={data.latest_ai_request?.operation === 'draft_report' ? data.latest_ai_request.provenance : undefined} approval={report.approved_by === user?.id ? user?.name : undefined} />}
       </article>}
   </main></AppShell>;
 }

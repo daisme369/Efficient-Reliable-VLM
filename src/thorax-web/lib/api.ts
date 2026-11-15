@@ -1,7 +1,7 @@
 import type {
   AdminDoctor, AdminPatient, AICommand, AIRequest, AIStatus, AuditEvent, AuthUser, BoxCreate,
   BoxPatch, ErrorDetail, FindingsEdit, FixtureStatus, MessageDTO, MutationReceipt, Page, PatientSummary,
-  ReportNarrative, StudyDetail, StudyDTO, Workspace,
+  AdminAi, AdminEvent, AdminLabeling, AdminOverview, AdminUser, AiPause, LabelBox, LabelQueue, LabelTask, LabelVocabulary, ReportNarrative, StudyDetail, StudyDTO, Workspace,
 } from './contracts';
 
 export class ApiError extends Error {
@@ -39,7 +39,7 @@ export interface MutationOptions {
 }
 
 interface RequestOptions {
-  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   body?: object;
   revision?: number;
   key?: string;
@@ -129,10 +129,34 @@ export const api = {
     csrfToken = user.csrf_token;
     return user;
   },
+  changePassword: (currentPassword: string, newPassword: string) =>
+    json<void>('/auth/password', { method: 'POST', body: { current_password: currentPassword, new_password: newPassword } }),
   async logout() {
     await json<void>('/auth/logout', { method: 'POST' });
     clearApiAuth();
   },
+  // Admin console (real backend only).
+  adminOverview: (signal?: AbortSignal) => json<AdminOverview>('/admin/overview', { signal }),
+  adminUsers: (signal?: AbortSignal) => json<{ items: AdminUser[] }>('/admin/users', { signal }),
+  adminCreateUser: (body: { name: string; email: string; role: string; password: string }) => json<AdminUser>('/admin/users', { method: 'POST', body }),
+  adminUpdateUser: (id: number, body: { is_active?: boolean; password?: string }) => json<AdminUser>(`/admin/users/${id}`, { method: 'PATCH', body }),
+  adminSignOutUser: (id: number) => json<void>(`/admin/users/${id}/sign-out`, { method: 'POST' }),
+  adminAi: (signal?: AbortSignal) => json<AdminAi>('/admin/ai', { signal }),
+  adminSetAiPaused: (paused: boolean) => json<AiPause>('/admin/ai/pause', { method: 'PUT', body: { paused } }),
+  adminLabeling: (signal?: AbortSignal) => json<AdminLabeling>('/admin/labeling', { signal }),
+  adminExportLabels: () => json<{ manifest: Record<string, string | number>; labels_jsonl: string }>('/admin/labeling/export', { method: 'POST' }),
+  adminEvents: (signal?: AbortSignal) => json<{ items: AdminEvent[] }>('/admin/events', { signal }),
+  // Labeling (annotator role). Served by the real backend only; the local demo API has no labeling.
+  labelVocabulary: (signal?: AbortSignal) => json<LabelVocabulary>('/labeling/vocabulary', { signal }),
+  labelQueue: (signal?: AbortSignal) => json<LabelQueue>('/labeling/queue', { signal }),
+  labelNext: () => json<LabelTask>('/labeling/tasks/next', { method: 'POST' }),
+  labelTask: (id: number, signal?: AbortSignal) => json<LabelTask>(`/labeling/tasks/${id}`, { signal }),
+  saveLabelBoxes: (id: number, boxes: LabelBox[], revision: number) =>
+    json<LabelTask>(`/labeling/tasks/${id}/boxes`, { method: 'PUT', body: { boxes, revision } }),
+  submitLabelTask: (id: number, revision: number) =>
+    json<LabelTask>(`/labeling/tasks/${id}/submit`, { method: 'POST', body: { revision } }),
+  reviewLabelTask: (id: number, decision: 'approve' | 'return', comment: string, revision: number) =>
+    json<LabelTask>(`/labeling/tasks/${id}/review`, { method: 'POST', body: { decision, comment: comment || null, revision } }),
   patients: (search = '', cursor?: string, signal?: AbortSignal, activity = false) =>
     json<Page<PatientSummary>>(query('/patients', cursor, search), { activity, signal }),
   studies: (patientId: number, cursor?: string, signal?: AbortSignal, activity = false) =>
@@ -160,10 +184,14 @@ export const api = {
     mutate<MutationReceipt>('PATCH', `${session(id)}/boxes/${boxId}`, body, options),
   deleteBox: (id: number, boxId: number, options: MutationOptions) =>
     mutate<MutationReceipt>('DELETE', `${session(id)}/boxes/${boxId}`, undefined, options),
+  startManualFindings: (id: number, options: MutationOptions) =>
+    mutate<MutationReceipt>('POST', `${session(id)}/findings`, {}, options),
   saveFindings: (id: number, body: FindingsEdit, options: MutationOptions) =>
     mutate<MutationReceipt>('PATCH', `${session(id)}/findings`, body, options),
   approveFindings: (id: number, findingsVersion: number, options: MutationOptions) =>
     mutate<MutationReceipt>('POST', `${session(id)}/findings/approve`, { findings_version: findingsVersion }, options),
+  createReport: (id: number, findingsVersion: number, options: MutationOptions) =>
+    mutate<MutationReceipt>('POST', `${session(id)}/reports`, { findings_version: findingsVersion }, options),
   saveReport: (id: number, reportId: number, body: Partial<ReportNarrative>, options: MutationOptions) =>
     mutate<MutationReceipt>('PATCH', `${session(id)}/reports/${reportId}`, body, options),
   approveReport: (id: number, reportId: number, findingsVersion: number, options: MutationOptions) =>

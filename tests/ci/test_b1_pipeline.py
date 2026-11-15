@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import contextlib
 import argparse
+from dataclasses import replace
 import hashlib
 import io
 import json
-from dataclasses import replace
 from pathlib import Path
 import shutil
 import sys
@@ -188,7 +188,9 @@ class B1PipelineTests(unittest.TestCase):
             protocol = json.loads((configured / name).read_text())
             self.assertEqual(protocol["status"], "draft")
             self.assertEqual(protocol["config_sha256"], config.fingerprint)
-            with self.assertRaisesRegex(ContractError, "research protocol decisions are unresolved"):
+            # The remote config names a deployment-only path; inspect its emitted draft locally.
+            with self.subTest(protocol=name), self.assertRaisesRegex(
+                    ContractError, "research protocol decisions are unresolved"):
                 check_protocol(replace(config, protocol=str(configured / name)),
                                protocol["manifest_sha256"], protocol["provenance_sha256"])
         with self.assertRaises(ContractError):
