@@ -8,12 +8,12 @@ import { AppShell, DemoBadge, DesktopNotice, RoleGate, useAuth, useDesktop } fro
 import { Badge, EmptyState, formatDate, Notice, readingLabel, Skeleton } from '@/components/ui';
 import { api, ApiError } from '@/lib/api';
 
-export function Worklist({ localDemo }: { localDemo: boolean }) {
+export function Worklist() {
   const desktop = useDesktop();
-  return <RoleGate role="doctor">{user => <AppShell>{desktop ? <AssignedPatients key={user.id} actor={user.id} localDemo={localDemo} /> : <DesktopNotice />}</AppShell>}</RoleGate>;
+  return <RoleGate role="doctor">{user => <AppShell>{desktop ? <AssignedPatients key={user.id} actor={user.id} /> : <DesktopNotice />}</AppShell>}</RoleGate>;
 }
 
-function AssignedPatients({ actor, localDemo }: { actor: number; localDemo: boolean }) {
+function AssignedPatients({ actor }: { actor: number }) {
   const { expire, refresh } = useAuth();
   const [input, setInput] = useState('');
   const [search, setSearch] = useState('');
@@ -37,7 +37,7 @@ function AssignedPatients({ actor, localDemo }: { actor: number; localDemo: bool
   function touch() { void refresh(true).catch(() => {}); }
   function searchFor(value: string) { setInput(value); setSearch(value.trim()); setExpanded(null); touch(); }
   return <main className="page-wrap worklist" id="main-content">
-    <div className="page-heading"><div><h1>Assigned patients</h1><p>Open a chest X-ray study to start or continue your reading.</p></div><DemoBadge mode={localDemo ? 'mock' : 'real'} /></div>
+    <div className="page-heading"><div><h1>Assigned patients</h1><p>Open a chest X-ray study to start or continue your reading.</p></div><DemoBadge mode="mock" /></div>
     <section className="surface worklist-table" aria-label="Patient worklist">
       <div className="worklist-toolbar">
         <div className="section-heading"><ClipboardList size={20} aria-hidden /><h2>Patient worklist</h2></div>
@@ -78,7 +78,7 @@ function PatientStudies({ actor, patientId }: { actor: number; patientId: number
   return <div className="study-list" id={`patient-studies-${patientId}`}>
     <div className="section-heading"><FolderOpen aria-hidden size={17} /><h3>Studies</h3></div>
     {result.isPending ? <Skeleton label="Loading studies" rows={2} /> : result.error ? <><Notice tone="error">Could not load this study list.</Notice><button className="button" onClick={() => void result.refetch()}>Retry</button></> : studies.length === 0 ? <p>No studies are available for this patient.</p> :
-      <table className="data-table nested-table"><thead><tr><th scope="col">Study date</th><th scope="col">Indication</th><th scope="col">Images</th><th scope="col">Study status</th><th scope="col">My reading</th><th scope="col"><span className="sr-only">Open</span></th></tr></thead>
+      <table className="data-table nested-table"><thead><tr><th scope="col">Study date</th><th scope="col">Indication</th><th scope="col">Images</th><th scope="col">Study status</th><th scope="col">Reading status</th><th scope="col"><span className="sr-only">Open</span></th></tr></thead>
         <tbody>{studies.map(study => {
           const href = `/patients/${patientId}/studies/${study.id}`;
           return <tr key={study.id}><th scope="row" className="mono">{formatDate(study.study_date)}</th><td>{study.indication || '—'}</td><td className="mono">{study.image_count}</td><td><Badge>{study.status === 'final' ? 'Final' : study.status === 'in_progress' ? 'In progress' : 'New'}</Badge></td>

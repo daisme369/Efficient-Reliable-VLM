@@ -3,7 +3,7 @@
 import { BoxSelect, Contrast, Eye, EyeOff, Hand, Maximize, Minus, MousePointer2, Plus, SlidersHorizontal, Sun } from "lucide-react";
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import type { BoxCoordinates, BoxDTO, BoxSnapshot, ImageDTO } from "../../lib/contracts";
-import { drawBounds, imageTransform, moveBounds, resizeBounds, toSource, validBounds, zoomAt, type Corner, type Point } from "./imageCoordinates";
+import { clampView, drawBounds, imageTransform, moveBounds, resizeBounds, toSource, validBounds, wheelView, zoomAt, type Corner, type Point } from "./imageCoordinates";
 import RegionEditor, { draftBounds, makeRegionDraft, regionChanges, regionState, withBounds, type RegionChanges, type RegionDraft } from "./RegionEditor";
 import styles from "./StudyViewer.module.css";
 
@@ -113,6 +113,21 @@ function SelectedImageViewer({ image, images, boxes, selectedBoxId, canAnnotate,
   const editor = currentDraft ?? (selected ? makeRegionDraft(selected, selected.bbox_xyxy) : null);
   const dirty = Boolean(currentDraft && Object.keys(regionChanges(currentDraft, selected, image.id)).length);
 
+  useEffect(() => { setView(current => clampView(image, viewport, current)); }, [image, viewport]);
+
+  useEffect(() => {
+    function tools(event: globalThis.KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      if (!ready || event.ctrlKey || event.metaKey || event.altKey || event.isComposing || gesture.current || target?.closest('input, textarea, select, [contenteditable="true"]') || document.querySelector('dialog[open]')) return;
+      const key = event.key.toLowerCase();
+      if (key === "c") { setTool("pan"); event.preventDefault(); }
+      if (key === "v") { setTool("select"); event.preventDefault(); }
+      if (key === "b" && editable && !dirty) { setTool("draw"); setShowOverlays(true); event.preventDefault(); }
+    }
+    window.addEventListener("keydown", tools);
+    return () => window.removeEventListener("keydown", tools);
+  }, [ready, editable, dirty]);
+
   useEffect(() => {
     const controller = new AbortController();
     let bitmap: ImageBitmap | undefined;
@@ -173,11 +188,11 @@ function SelectedImageViewer({ image, images, boxes, selectedBoxId, canAnnotate,
     const element = stage.current;
     if (!element || !ready || !viewport.width || !viewport.height) return;
     function wheel(event: WheelEvent) {
-      if (event.ctrlKey || event.metaKey || !event.deltaY || gesture.current) return;
       event.preventDefault();
+      if (gesture.current) return;
       const rect = element!.getBoundingClientRect();
       const anchor = { x: event.clientX - rect.left, y: event.clientY - rect.top };
-      setView((current) => zoomAt(image, viewport, current, anchor, event.deltaY < 0 ? 1.2 : 1 / 1.2));
+      setView((current) => wheelView(image, viewport, current, anchor, event));
     }
     element.addEventListener("wheel", wheel, { passive: false });
     return () => element.removeEventListener("wheel", wheel);
@@ -259,7 +274,7 @@ function SelectedImageViewer({ image, images, boxes, selectedBoxId, canAnnotate,
     const dx = current.x - active.origin.x;
     const dy = current.y - active.origin.y;
     if (active.kind === "pan") {
-      setView((previous) => ({ ...previous, pan: { x: active.pan.x + dx, y: active.pan.y + dy } }));
+      setView((previous) => clampView(image, viewport, { ...previous, pan: { x: active.pan.x + dx, y: active.pan.y + dy } }));
     } else if (editable && (active.kind === "draw" || Math.hypot(dx, dy) >= 2)) {
       setPreview(gestureBounds(active, current));
     } else {
@@ -295,13 +310,13 @@ function SelectedImageViewer({ image, images, boxes, selectedBoxId, canAnnotate,
   }
 
   function stageKeys(event: KeyboardEvent<HTMLDivElement>) {
-    if (!ready || event.target !== event.currentTarget) return;
+    if (!ready || event.target !== event.currentTarget || event.ctrlKey || event.metaKey || event.altKey) return;
     if (event.key === "Escape") { if (!busy) cancelDraft(); return; }
     const direction = panKeys[event.key];
     if (!direction || gesture.current) return;
     event.preventDefault();
     const distance = event.shiftKey ? 50 : 10;
-    setView((previous) => ({ ...previous, pan: { x: previous.pan.x + direction.x * distance, y: previous.pan.y + direction.y * distance } }));
+    setView((previous) => clampView(image, viewport, { ...previous, pan: { x: previous.pan.x + direction.x * distance, y: previous.pan.y + direction.y * distance } }));
   }
 
   async function mutate(action: () => Promise<void>, message: string, clearSelection = false) {
@@ -341,9 +356,9 @@ function SelectedImageViewer({ image, images, boxes, selectedBoxId, canAnnotate,
         </header>
         <div className={styles.toolbar} role="group" aria-label="Image viewer tools">
           <div className={styles.toolGroup}>
-            <ToolButton label="Select" Icon={MousePointer2} pressed={tool === "select"} disabled={!ready} onClick={() => setTool("select")} />
-            <ToolButton label="Pan" Icon={Hand} pressed={tool === "pan"} disabled={!ready} onClick={() => setTool("pan")} />
-            {!readOnly && <ToolButton label="Draw region" Icon={BoxSelect} pressed={tool === "draw"} disabled={!editable || dirty} onClick={() => { setTool("draw"); setShowOverlays(true); }} />}
+            <ToolButton label="Select (V)" Icon={MousePointer2} pressed={tool === "select"} disabled={!ready} onClick={() => setTool("select")} />
+            <ToolButton label="Pan (C)" Icon={Hand} pressed={tool === "pan"} disabled={!ready} onClick={() => setTool("pan")} />
+            {!readOnly && <ToolButton label="Draw region (B)" Icon={BoxSelect} pressed={tool === "draw"} disabled={!editable || dirty} onClick={() => { setTool("draw"); setShowOverlays(true); }} />}
           </div>
           <div className={styles.toolGroup}>
             <ToolButton label="Zoom out" Icon={Minus} disabled={!ready || view.zoom <= 0.25} onClick={() => zoom(1 / 1.2)} />
@@ -360,7 +375,7 @@ function SelectedImageViewer({ image, images, boxes, selectedBoxId, canAnnotate,
           <label><Sun size={16} aria-hidden="true" /><span>Brightness</span><input type="range" min={0.5} max={2} step={0.05} value={brightness} onChange={(event) => setBrightness(event.target.valueAsNumber)} /><output>{brightness.toFixed(2)}</output></label>
           <label><Contrast size={16} aria-hidden="true" /><span>Contrast</span><input type="range" min={0.5} max={2} step={0.05} value={contrast} onChange={(event) => setContrast(event.target.valueAsNumber)} /><output>{contrast.toFixed(2)}</output></label>
         </div>}
-        <div ref={stage} className={styles.stage} role="region" aria-label="Image viewport. Use the arrow keys to pan." tabIndex={0} data-tool={tool === "draw" && !editable ? "select" : tool} data-dragging={dragging} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={endGesture} onLostPointerCapture={endGesture} onKeyDown={stageKeys}>
+        <div ref={stage} className={styles.stage} role="region" aria-label="Image viewport. Ctrl + wheel to zoom; wheel to move vertically; Shift + wheel to move horizontally. C selects Pan; arrow keys pan." tabIndex={0} data-tool={tool === "draw" && !editable ? "select" : tool} data-dragging={dragging} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={endGesture} onLostPointerCapture={endGesture} onKeyDown={stageKeys}>
           <canvas ref={canvas} className={styles.canvas} hidden={!ready} role="img" aria-label={`Chest X-ray, ${image.view}, ${image.width} by ${image.height} pixels`} style={{ filter: `brightness(${brightness}) contrast(${contrast})` }} />
           {ready && showOverlays && <svg className={styles.overlays} aria-hidden="true">
             {activeBoxes.map((box, index) => {
@@ -393,6 +408,7 @@ function SelectedImageViewer({ image, images, boxes, selectedBoxId, canAnnotate,
           </div>}
         </div>
         <div className={styles.imageFooter}><span>{image.width} × {image.height} px · {image.media_type === "image/png" ? "PNG" : "JPEG"}</span><span>{showOverlays ? "Overlays visible" : "Overlays hidden"}</span></div>
+        <details className={styles.shortcuts}><summary>Viewer shortcuts</summary><p>Ctrl + wheel: zoom · Wheel: move up/down · Shift + wheel: move left/right · C: Pan · V: Select · B: Draw region · Arrows: pan (Shift: larger step)</p></details>
       </div>
       {images.length > 1 && <div className={styles.imageStrip} aria-label="Study images" role="group">
         {images.map((candidate, index) => <button type="button" key={candidate.id} aria-pressed={candidate.id === image.id} disabled={busy} onClick={() => onImageChange(candidate.id)}>

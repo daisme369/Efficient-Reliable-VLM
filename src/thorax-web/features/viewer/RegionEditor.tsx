@@ -166,7 +166,7 @@ export default function RegionEditor({ image, draft, box, canAsk, busy, dirty, f
         {dirty && <><button type="submit" className={styles.primaryButton} disabled={!valid || busy}>{busy ? "Saving…" : "Save region"}</button><button type="button" disabled={busy} onClick={onCancel}>Cancel</button></>}
         {pending && !dirty && <><button type="button" className={styles.primaryButton} disabled={busy} onClick={() => onReview("accepted")}>Accept region</button><button type="button" disabled={busy} onClick={() => onReview("rejected")}>Reject</button></>}
         {box && !dirty && <>
-          <button type="button" disabled={!canAsk || busy} onClick={onAsk}><MessageSquare size={16} aria-hidden="true" /> Ask about this box</button>
+          <button type="button" disabled={!canAsk || busy} onClick={onAsk}><MessageSquare size={16} aria-hidden="true" /> Discuss this region</button>
           <button type="button" ref={removeButton} className={styles.lightIconButton} aria-label="Remove region" title="Remove region" disabled={busy} onClick={() => confirmRemove.current?.showModal()}><Trash2 size={16} aria-hidden="true" /></button>
         </>}
       </div>

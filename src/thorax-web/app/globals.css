@@ -152,3 +152,5 @@ input, textarea, select { min-width: 0; }
 }
 @media (max-width: 440px) { .header-account .avatar { display: none; } .login-card { padding: 24px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; } }
+.password-fields { display: grid; gap: 12px; min-width: min(360px, 80vw); }
+.password-error { color: var(--error-text); font-size: 14px; }

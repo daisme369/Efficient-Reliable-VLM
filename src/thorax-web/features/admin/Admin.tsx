@@ -1,21 +1,31 @@
 "use client";
 
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Database, KeyRound, UserPlus, Users } from "lucide-react";
+import { Activity, Bot, Check, Database, Gauge, KeyRound, ScrollText, Tags, UserPlus, Users } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { useAuth } from "@/components/shell";
 import { Confirm } from "@/components/ui";
 import { actionKey, api, ApiError } from "@/lib/api";
 import type { AdminDoctor, AdminPatient, AuthUser } from "@/lib/contracts";
+import { ActivityLog, AiMonitor, LabelingOversight, Overview, UsersAccess } from "./AdminConsole";
 import "./admin.css";
 
-const tabs = [
+// The local demo API serves the first set; the Thorax backend serves the full console.
+const demoTabs = [
   { id: "doctors", label: "Doctors", icon: Users },
   { id: "assignments", label: "Assignments", icon: KeyRound },
   { id: "fixtures", label: "Mock fixtures", icon: Database },
 ] as const;
+const backendTabs = [
+  { id: "overview", label: "Overview", icon: Gauge },
+  { id: "users", label: "Users & access", icon: Users },
+  { id: "assignments", label: "Assignments", icon: KeyRound },
+  { id: "ai", label: "AI", icon: Bot },
+  { id: "labeling", label: "Labeling", icon: Tags },
+  { id: "activity", label: "Activity log", icon: ScrollText },
+] as const;
 const fixtureKeys = ["thorax-demo-v1"];
-type Tab = (typeof tabs)[number]["id"];
+type Tab = (typeof demoTabs)[number]["id"] | (typeof backendTabs)[number]["id"];
 
 function useActivity() {
   const { refresh } = useAuth();
@@ -445,11 +455,12 @@ function Fixtures({ actor, active, refresh }: { actor: number; active: boolean; 
   );
 }
 
-export default function Admin({ user }: { user: AuthUser }) {
+export default function Admin({ user, localDemo }: { user: AuthUser; localDemo: boolean }) {
+  const tabs: readonly { id: Tab; label: string; icon: typeof Activity }[] = localDemo ? demoTabs : backendTabs;
   const queryClient = useQueryClient();
   const { refresh: refreshSession } = useAuth();
   const touch = useActivity();
-  const [selected, setSelected] = useState<Tab>("doctors");
+  const [selected, setSelected] = useState<Tab>(localDemo ? "doctors" : "overview");
   const tabButtons = useRef<(HTMLButtonElement | null)[]>([]);
   useEffect(touch, [touch]);
 
@@ -481,7 +492,7 @@ export default function Admin({ user }: { user: AuthUser }) {
     <main className="admin-workspace" id="main-content" tabIndex={-1}>
       <header className="admin-page-heading">
         <h1>Administration</h1>
-        <p>Manage doctor accounts, patient assignments, and mock fixtures.</p>
+        <p>{localDemo ? "Manage doctor accounts, patient assignments, and mock fixtures. The full console (AI control, labeling, all roles) needs the Thorax backend." : "Monitor the app and AI, manage every account and patient access, and oversee labeling."}</p>
       </header>
       <div className="admin-tabs" role="tablist" aria-label="Administration sections">
         {tabs.map(({ id, label, icon: Icon }, index) => (
@@ -492,15 +503,21 @@ export default function Admin({ user }: { user: AuthUser }) {
           </button>
         ))}
       </div>
-      <div role="tabpanel" id="admin-panel-doctors" aria-labelledby="admin-tab-doctors" hidden={selected !== "doctors"} tabIndex={0}>
+      {localDemo ? <div role="tabpanel" id="admin-panel-doctors" aria-labelledby="admin-tab-doctors" hidden={selected !== "doctors"} tabIndex={0}>
         <Doctors actor={user.id} active={selected === "doctors"} refresh={refresh} />
-      </div>
+      </div> : <>
+        <div role="tabpanel" id="admin-panel-overview" aria-labelledby="admin-tab-overview" hidden={selected !== "overview"} tabIndex={0}><Overview actor={user.id} active={selected === "overview"} /></div>
+        <div role="tabpanel" id="admin-panel-users" aria-labelledby="admin-tab-users" hidden={selected !== "users"} tabIndex={0}><UsersAccess actor={user.id} active={selected === "users"} me={user} /></div>
+        <div role="tabpanel" id="admin-panel-ai" aria-labelledby="admin-tab-ai" hidden={selected !== "ai"} tabIndex={0}><AiMonitor actor={user.id} active={selected === "ai"} /></div>
+        <div role="tabpanel" id="admin-panel-labeling" aria-labelledby="admin-tab-labeling" hidden={selected !== "labeling"} tabIndex={0}><LabelingOversight actor={user.id} active={selected === "labeling"} /></div>
+        <div role="tabpanel" id="admin-panel-activity" aria-labelledby="admin-tab-activity" hidden={selected !== "activity"} tabIndex={0}><ActivityLog actor={user.id} active={selected === "activity"} /></div>
+      </>}
       <div role="tabpanel" id="admin-panel-assignments" aria-labelledby="admin-tab-assignments" hidden={selected !== "assignments"} tabIndex={0}>
         <Assignments actor={user.id} active={selected === "assignments"} refresh={refresh} />
       </div>
-      <div role="tabpanel" id="admin-panel-fixtures" aria-labelledby="admin-tab-fixtures" hidden={selected !== "fixtures"} tabIndex={0}>
+      {localDemo && <div role="tabpanel" id="admin-panel-fixtures" aria-labelledby="admin-tab-fixtures" hidden={selected !== "fixtures"} tabIndex={0}>
         <Fixtures actor={user.id} active={selected === "fixtures"} refresh={refresh} />
-      </div>
+      </div>}
     </main>
   );
 }

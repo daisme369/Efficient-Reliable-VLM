@@ -11,5 +11,5 @@ export const metadata: Metadata = {
 export const dynamic = 'force-dynamic';
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en"><body><Providers>{children}</Providers></body></html>;
+  return <html lang="en"><body><Providers backendConnected={Boolean(process.env.THORAX_API_ORIGIN)}>{children}</Providers></body></html>;
 }
