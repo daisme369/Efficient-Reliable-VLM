@@ -81,3 +81,43 @@ jobs:
 
       - name: Build
         run: corepack pnpm@10.34.9 build
+
+  thorax-e2e:
+    name: Thorax end-to-end (browser + backend)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: src/thorax-web
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+
+      - name: Install Thorax API dependencies
+        run: >-
+          python -m pip install --disable-pip-version-check --only-binary=:all:
+          --requirement ../../requirements/api.txt
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+
+      - name: Install dependencies from the lockfile
+        run: corepack pnpm@10.34.9 install --frozen-lockfile
+
+      - name: Install the Playwright browser
+        run: corepack pnpm@10.34.9 exec playwright install --with-deps chromium
+
+      - name: Run end-to-end tests
+        run: corepack pnpm@10.34.9 e2e

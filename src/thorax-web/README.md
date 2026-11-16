@@ -45,6 +45,10 @@ Set `THORAX_DEMO_ANNOTATOR_PASSWORD` in `.env.local` to create `annotator@thorax
 | Create patients (admin), add studies with uploaded images (admin, assigned doctors) | No | Yes |
 | AI answers | Fixed demo answers | Fixed demo answers (the trained model is not connected yet) |
 
+## End-to-end tests
+
+`pnpm e2e` builds the app into `.next-build` (a running `pnpm dev` is not disturbed), starts it on port 3300 with the backend on port 8300 and a fresh synthetic database, then signs in as each role in Chromium: a doctor reads a study and manages an upload, an admin creates a patient and checks the activity log, and an annotator labels an image. Run `pnpm exec playwright install chromium` once first. Python with `requirements/api.txt` must be on the path (or set `PYTHON`).
+
 ## Build and verify
 
 ```powershell
