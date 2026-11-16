@@ -32,6 +32,7 @@ Other commands: `python -m thorax_api.accounts create|disable|enable|reset-passw
 | `reading.py` | Doctor readings: findings (with revisions), regions, chat, reports, audit events, AI jobs, idempotency |
 | `labeling.py` | Annotator tasks, labeler → reviewer flow, reviewer fixes, approved-label export |
 | `admin.py` | Overview, user and access control, AI monitoring and pause switch, labeling oversight, admin activity log |
+| `sessions.py` | Sign-in sessions (token hashes only) and the signing secret, stored in SQLite |
 | `storage.py` | Image storage interface (local folder; S3 later) |
 | `db.py` | Shared SQLite connection; portable SQL for a later move to PostgreSQL |
 
@@ -40,7 +41,8 @@ Tests: `python -m unittest discover -s tests/api -t .` (they skip when FastAPI i
 ## Limits
 
 - AI answers are the same fixed demo answers as the web mock. The trained model is not connected yet; its inference service is not built.
-- Sign-in sessions live in memory: a restart signs everyone out, and only one worker may run.
+- Sign-in sessions are stored in SQLite, so a restart keeps users signed in. Sign-in rate-limit counters are in memory and reset on restart, so run one worker.
+- Each request logs one line: method, route template, status, time and request ID. Errors return the same request ID. Raw URLs, search text and bodies are never logged.
 - SQLite allows one writer. Deploy on one server with its own disk (for example EC2 with EBS, backed up to S3 with Litestream); move to PostgreSQL for several servers.
 - The labeling vocabulary (`configs/labeling_vocabulary.json`) is unverified. Training on exported labels needs an approved scope-change record (`docs/agents/RESEARCH-SCOPE.md`).
 

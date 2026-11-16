@@ -287,16 +287,7 @@ def register_admin(app: FastAPI, *, accounts: AccountStore, catalog: Catalog, la
     return store
 
 
-def sessions_view(state, revoke, clock) -> SimpleNamespace:
-    """Adapter over the in-memory auth state, so admin code never touches tokens."""
-    def signed_in() -> set[int]:
-        with state.lock:
-            return {user_id for user_id, token_hash in state.active_login.items() if state.logins[token_hash].expires() > clock()}
-
-    def revoke_user(user_id: int) -> None:
-        with state.lock:
-            token_hash = state.active_login.get(user_id)
-            if token_hash:
-                revoke(token_hash)
-    return SimpleNamespace(signed_in=signed_in, revoke=revoke_user)
+def sessions_view(sessions, clock) -> SimpleNamespace:
+    """Adapter over the session store, so admin code never touches tokens."""
+    return SimpleNamespace(signed_in=lambda: sessions.signed_in(clock()), revoke=sessions.revoke_user)
 

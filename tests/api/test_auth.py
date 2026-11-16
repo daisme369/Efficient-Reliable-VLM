@@ -99,6 +99,24 @@ class AuthTests(unittest.TestCase):
         self.assertEqual(first.get("/api/v1/auth/me").status_code, 401)
         self.assertEqual(self.client.get("/api/v1/auth/me").status_code, 200)
 
+    def test_login_survives_a_server_restart(self):
+        from fastapi.testclient import TestClient
+        from thorax_api.app import create_app
+
+        csrf = self.login().json()["csrf_token"]
+        restarted = TestClient(create_app(self.app.state.accounts.path, [WEB], clock=lambda: self.now), headers={"Origin": WEB})
+        restarted.cookies = self.client.cookies
+        self.assertEqual(restarted.get("/api/v1/auth/me").json()["csrf_token"], csrf)
+        self.assertEqual(restarted.post("/api/v1/auth/logout", headers={"X-CSRF-Token": csrf}).status_code, 204)
+        self.assertEqual(self.client.get("/api/v1/auth/me").status_code, 401)
+
+    def test_errors_carry_the_logged_request_id_without_request_content(self):
+        with self.assertLogs("thorax_api", "INFO") as logs:
+            response = self.client.get("/api/v1/patients?search=Secret+Name")
+        rid = response.headers["x-request-id"]
+        self.assertEqual(response.json()["error"]["request_id"], rid)
+        self.assertEqual(logs.output, [f"INFO:thorax_api:GET /api/v1/patients 401 {logs.records[0].args[3]:.0f}ms id={rid}"])
+
     def test_idle_expiry_and_activity_extension(self):
         self.login()
         self.now += 29 * 60

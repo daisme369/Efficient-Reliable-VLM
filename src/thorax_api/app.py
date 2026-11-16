@@ -3,13 +3,12 @@
 Implements the contract the web app already speaks (src/thorax-web/app/api/v1/[...path]/route.ts):
 an opaque 256-bit session token in an HttpOnly cookie, a CSRF token derived from it for
 every non-GET request, an Origin check, generic login errors and login rate limits.
-From SYSTEM_DESIGN_PLAN.md it adds: SQLite accounts, token hashes held only in RAM,
-a 2-hour absolute login lifetime, one active login per account, and an account
-re-check against the database on every request.
+From SYSTEM_DESIGN_PLAN.md it adds: SQLite accounts, token hashes stored in SQLite (sessions.py)
+so a restart keeps users signed in, a 2-hour absolute login lifetime, one active login per
+account, and an account re-check against the database on every request.
 
-Run:  THORAX_DB_PATH=thorax.sqlite3 THORAX_WEB_ORIGINS=http://127.0.0.1:3000 \
-      uvicorn --app-dir src --factory thorax_api.app:create_app --host 127.0.0.1 --port 8000 --workers 1
-(One worker: login state lives in this process's memory.)
+Run:  python scripts/serve_api.py
+(One worker: sign-in rate-limit counters live in this process's memory.)
 """
 
 from __future__ import annotations
@@ -18,6 +17,7 @@ import hashlib
 import hmac
 import ipaddress
 import json
+import logging
 import os
 import secrets
 import threading
@@ -35,10 +35,12 @@ from .accounts import ROLES, AccountStore, User, password_matches, valid_passwor
 from .admin import register_admin, sessions_view
 from .catalog import Catalog
 from .reading import ReadingStore, register_reading
+from .sessions import Login, SessionStore
 from .db import utc_now
 from .labeling import LabelError, LabelStore
 from .storage import LocalImageStore
 
+log = logging.getLogger("thorax_api")
 COOKIE = "thorax_session"
 GENERIC_LOGIN_ERROR = "Email or password is incorrect."
 UNAVAILABLE = "This resource is unavailable."
@@ -56,21 +58,9 @@ def invalid(message: str) -> ApiError:
 
 
 @dataclass
-class Login:
-    user_id: int
-    idle_expires: float
-    absolute_expires: float
-
-    def expires(self) -> float:
-        return min(self.idle_expires, self.absolute_expires)
-
-
-@dataclass
 class AuthState:
-    secret: bytes = field(default_factory=lambda: secrets.token_bytes(32))
-    logins: dict[str, Login] = field(default_factory=dict)  # sha256(token) -> login; tokens themselves are never stored
-    active_login: dict[int, str] = field(default_factory=dict)  # user id -> token hash
-    attempts: dict[str, list[float]] = field(default_factory=dict)
+    secret: bytes
+    attempts: dict[str, list[float]] = field(default_factory=dict)  # rate-limit counters; reset on restart
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
@@ -103,7 +93,8 @@ def create_app(
     catalog = Catalog(db_path, LocalImageStore(image_root or os.environ.get("THORAX_IMAGE_ROOT", "thorax-images")))
     labels = LabelStore(db_path)
     origins = web_origins if web_origins is not None else [o.strip().rstrip("/") for o in os.environ.get("THORAX_WEB_ORIGINS", "http://127.0.0.1:3000,http://localhost:3000").split(",") if o.strip()]
-    state = AuthState()
+    sessions = SessionStore(db_path)
+    state = AuthState(sessions.secret())
     app = FastAPI(title="Thorax AI API", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.auth = state
     app.state.accounts = store
@@ -136,27 +127,20 @@ def create_app(
         # Trust X-Forwarded-For only from a proxy on this machine (the Next.js server).
         return forwarded if forwarded and _is_loopback(peer) else peer or "unknown"
 
-    def revoke(token_hash: str) -> None:
-        login = state.logins.pop(token_hash, None)
-        if login and state.active_login.get(login.user_id) == token_hash:
-            del state.active_login[login.user_id]
-
     def authenticate(request: Request) -> tuple[User, Login, str, str] | None:
         token = request.cookies.get(COOKIE, "")
         if len(token) != 64 or any(c not in "0123456789abcdef" for c in token):
             return None
         token_hash = _token_hash(token)
-        with state.lock:
-            login = state.logins.get(token_hash)
-            if login is None:
-                return None
-            if login.expires() <= clock():
-                revoke(token_hash)
-                return None
+        login = sessions.get(token_hash)
+        if login is None:
+            return None
+        if login.expires() <= clock():
+            sessions.revoke(token_hash)
+            return None
         user = store.by_id(login.user_id)  # re-read so a disabled account loses access immediately
         if user is None or not user.is_active:
-            with state.lock:
-                revoke(token_hash)
+            sessions.revoke(token_hash)
             return None
         return user, login, token, token_hash
 
@@ -176,16 +160,37 @@ def create_app(
         response.headers["Cache-Control"] = "no-store"
         return response
 
+    def request_id(request: Request) -> str:
+        if not hasattr(request.state, "request_id"):
+            request.state.request_id = secrets.token_hex(8)
+        return request.state.request_id
+
+    @app.middleware("http")
+    async def request_log(request: Request, call_next):
+        """One line per request with the route template, never the raw path, query, body or user."""
+        started = time.perf_counter()
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id(request)
+        route = getattr(request.scope.get("route"), "path", "unmatched")
+        log.info("%s %s %s %.0fms id=%s", request.method, route, response.status_code, (time.perf_counter() - started) * 1000, request_id(request))
+        return response
+
     @app.exception_handler(ApiError)
-    async def api_error(_request: Request, error: ApiError):
+    async def api_error(request: Request, error: ApiError):
         headers = {"Retry-After": str(error.retry_after)} if error.retry_after else None
-        body = {"error": {"code": error.code, "message": error.message, "request_id": secrets.token_hex(8), "details": []}}
+        body = {"error": {"code": error.code, "message": error.message, "request_id": request_id(request), "details": []}}
         return no_store(JSONResponse(body, status_code=error.status, headers=headers))
 
     @app.exception_handler(Exception)
-    async def internal_error(_request: Request, _error: Exception):
-        body = {"error": {"code": "INTERNAL_ERROR", "message": "The request could not be completed. Try again.", "request_id": secrets.token_hex(8), "details": []}}
-        return no_store(JSONResponse(body, status_code=500))
+    async def internal_error(request: Request, error: Exception):
+        # Type and location only: the traceback's local values could hold request content.
+        frame = error.__traceback__
+        while frame and frame.tb_next:
+            frame = frame.tb_next
+        where = f"{frame.tb_frame.f_code.co_filename.rsplit(os.sep, 1)[-1]}:{frame.tb_lineno}" if frame else "unknown"
+        log.error("unhandled %s at %s id=%s", type(error).__name__, where, request_id(request))
+        body = {"error": {"code": "INTERNAL_ERROR", "message": "The request could not be completed. Try again.", "request_id": request_id(request), "details": []}}
+        return no_store(JSONResponse(body, status_code=500, headers={"X-Request-ID": request_id(request)}))
 
     @app.get("/api/v1/health")
     async def health():
@@ -229,15 +234,9 @@ def create_app(
                     state.attempts[key].append(now)
             if not ok or user is None:
                 raise ApiError(401, "UNAUTHENTICATED", GENERIC_LOGIN_ERROR)
-            # One active login per account: a new sign-in revokes the previous one.
-            previous = state.active_login.get(user.id)
-            if previous:
-                revoke(previous)
-            token = secrets.token_hex(32)
-            token_hash = _token_hash(token)
-            session = Login(user.id, now + idle_seconds, now + absolute_seconds)
-            state.logins[token_hash] = session
-            state.active_login[user.id] = token_hash
+        token = secrets.token_hex(32)
+        session = Login(user.id, now + idle_seconds, now + absolute_seconds)
+        sessions.start(_token_hash(token), session, now)  # replaces this account's previous sign-in
         response = JSONResponse(payload(user, token, session))
         response.headers["Set-Cookie"] = cookie_header(origin, token)
         return no_store(response)
@@ -247,9 +246,10 @@ def create_app(
         auth = authenticate(request)
         if auth is None:
             raise ApiError(401, "UNAUTHENTICATED", UNAVAILABLE)
-        user, session, token, _ = auth
+        user, session, token, token_hash = auth
         if request.headers.get("x-user-activity") == "1":  # polling and background checks do not extend the login
             session.idle_expires = clock() + idle_seconds
+            sessions.touch(token_hash, session.idle_expires)
         return no_store(JSONResponse(payload(user, token, session)))
 
     @app.post("/api/v1/auth/logout")
@@ -265,8 +265,7 @@ def create_app(
             raise ApiError(403, "CSRF_INVALID", CSRF_MESSAGE)
         if await read_body(request):
             raise invalid("Unexpected request field.")
-        with state.lock:
-            revoke(token_hash)
+        sessions.revoke(token_hash)
         response = Response(status_code=204)
         response.headers["Set-Cookie"] = cookie_header(origin, clear=True)
         return no_store(response)
@@ -378,7 +377,7 @@ def create_app(
 
     app.state.admin = register_admin(
         app, accounts=store, catalog=catalog, labels=labels, started_at=utc_now(), actor=actor, page=page, read_body=read_body,
-        no_store=no_store, invalid=invalid, error=ApiError, path_id=path_id, sessions=sessions_view(state, revoke, clock))
+        no_store=no_store, invalid=invalid, error=ApiError, path_id=path_id, sessions=sessions_view(sessions, clock))
 
     def doctor_still_allowed(doctor_id: int, patient_id: int) -> bool:
         user = store.by_id(doctor_id)
