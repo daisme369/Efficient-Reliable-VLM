@@ -118,5 +118,42 @@ class UploadTests(unittest.TestCase):
         self.assertEqual((locked.status_code, locked.json()["error"]["code"]), (409, "STUDY_IN_READING"))
 
 
+    def test_uploaded_studies_can_be_edited_and_deleted_until_a_reading_starts(self):
+        study = self.new_study(self.doctor, 4, synthetic_image("PNG", size=(33, 44))).json()  # unique bytes: files are shared by content
+        self.assertTrue(study["editable"])
+        url = f"/api/v1/studies/{study['id']}"
+        edited = self.doctor.patch(url, json={"study_date": "2026-10-30", "indication": "  Corrected indication "})
+        self.assertEqual((edited.status_code, edited.json()["study_date"], edited.json()["indication"]), (200, "2026-10-30", "Corrected indication"))
+        self.assertEqual(self.doctor.patch(url, json={"study_date": "2999-01-01", "indication": "x"}).status_code, 422)
+
+        second = self.doctor.post(f"{url}/images", params={"view": "LAT", "permitted": "yes"}, content=synthetic_image("PNG", size=(30, 40)),
+                                  headers={"Content-Type": "image/png"}).json()["images"]
+        first_id, second_id = second[0]["id"], second[1]["id"]
+        self.assertEqual(self.doctor.delete(f"{url}/images/{second_id}").json()["image_count"], 1)
+        last = self.doctor.delete(f"{url}/images/{first_id}")
+        self.assertEqual((last.status_code, last.json()["error"]["code"]), (409, "LAST_IMAGE"))
+        self.assertEqual(self.doctor2.delete(url).status_code, 404)  # not assigned to patient 4
+
+        # The admin sees the patient's studies too, and can delete the study; its file goes with it.
+        self.assertIn(study["id"], [s["id"] for s in self.admin.get("/api/v1/patients/4/studies").json()["items"]])
+        key = self.app.state.catalog.image(first_id)["storage_key"]
+        self.assertEqual(self.admin.delete(url).status_code, 204)
+        self.assertEqual(self.doctor.get(url).status_code, 404)
+        with self.assertRaises(OSError):
+            self.app.state.catalog.images.get(key)
+        actions = [event["action"] for event in self.admin.get("/api/v1/admin/events").json()["items"]]
+        self.assertTrue({"study_edited", "image_deleted", "study_deleted"} <= set(actions))
+
+    def test_demo_and_read_studies_are_locked(self):
+        demo = self.doctor.get("/api/v1/studies/2411").json()
+        self.assertFalse(demo["editable"])
+        self.assertEqual(self.doctor.delete("/api/v1/studies/2411").json()["error"]["code"], "STUDY_LOCKED")
+        study = self.new_study(self.doctor, 5, synthetic_image("PNG")).json()
+        self.assertEqual(self.doctor.post(f"/api/v1/studies/{study['id']}/sessions").status_code, 201)
+        self.assertFalse(self.doctor.get(f"/api/v1/studies/{study['id']}").json()["editable"])
+        self.assertEqual(self.doctor.patch(f"/api/v1/studies/{study['id']}", json={"study_date": "2026-11-01", "indication": "x"}).status_code, 409)
+        self.assertEqual(self.admin.delete(f"/api/v1/studies/{study['id']}").status_code, 409)
+
+
 if __name__ == "__main__":
     unittest.main()

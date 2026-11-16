@@ -9,6 +9,7 @@ from typing import Protocol
 class ImageStore(Protocol):
     def put(self, key: str, data: bytes) -> None: ...
     def get(self, key: str) -> bytes: ...
+    def delete(self, key: str) -> None: ...
 
 
 class LocalImageStore:
@@ -30,5 +31,8 @@ class LocalImageStore:
     def get(self, key: str) -> bytes:
         return self._path(key).read_bytes()
 
-# ponytail: add an S3ImageStore (boto3 get_object/put_object, private bucket) when deploying to AWS;
-# the API only depends on put/get.
+    def delete(self, key: str) -> None:
+        self._path(key).unlink(missing_ok=True)
+
+# ponytail: add an S3ImageStore (boto3 get_object/put_object/delete_object, private bucket) when deploying
+# to AWS; the API only depends on put/get/delete.

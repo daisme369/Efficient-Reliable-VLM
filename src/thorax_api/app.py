@@ -347,18 +347,18 @@ def create_app(
 
     @app.get("/api/v1/patients/{patient_id}/studies")
     async def patient_studies(request: Request, patient_id: str):
-        user = doctor(request)
+        user = actor(request, "doctor", "admin")  # admins see studies to manage uploads
         pid = path_id(patient_id)
-        if not catalog.is_assigned(user.id, pid):  # unassigned and nonexistent look the same
-            raise missing()
+        may_upload(user, pid)  # a doctor sees only assigned patients; unassigned and nonexistent look the same
         return page(request, user, catalog.studies_for_patient(pid, user.id))
 
     @app.get("/api/v1/studies/{study_id}")
     async def study(request: Request, study_id: str):
-        user = doctor(request)
+        user = actor(request, "doctor", "admin")
         found = catalog.study(path_id(study_id), user.id)
-        if found is None or not catalog.is_assigned(user.id, found["patient_id"]):
+        if found is None:
             raise missing()
+        may_upload(user, found["patient_id"])
         return no_store(JSONResponse(found))
 
     @app.get("/api/v1/images/{image_id}/content")
@@ -383,6 +383,30 @@ def create_app(
     def may_upload(user: User, patient_id: int) -> None:
         if not catalog.patient_exists(patient_id) or (user.role == "doctor" and not catalog.is_assigned(user.id, patient_id)):
             raise missing()  # unassigned and nonexistent look the same
+
+    def study_fields(study_date, indication) -> tuple[str, str]:
+        if not isinstance(study_date, str) or not isinstance(indication, str):
+            raise invalid("Enter the study date and indication.")
+        try:
+            day = datetime.strptime(study_date, "%Y-%m-%d").date()
+        except ValueError:
+            raise invalid("Enter the study date as YYYY-MM-DD.") from None
+        if not datetime(1900, 1, 1).date() <= day <= datetime.fromtimestamp(clock(), timezone.utc).date():
+            raise invalid("The study date cannot be in the future.")
+        if not 1 <= len(indication.strip()) <= 200:
+            raise invalid("Enter the indication (1–200 characters).")
+        return study_date, indication.strip()
+
+    def managed_study(request: Request, study_id: str) -> tuple[User, dict]:
+        """Admin, or a doctor assigned to the study's patient."""
+        user = actor(request, "doctor", "admin")
+        found = catalog.study(path_id(study_id))
+        if found is None:
+            raise missing()
+        may_upload(user, found["patient_id"])
+        return user, found
+
+    locked = ApiError(409, "STUDY_LOCKED", "This study can no longer be changed: a reading or labeling has started, or it is part of the demo set.")
 
     async def upload(request: Request) -> tuple[str, tuple[bytes, int, int]]:
         """Checks the attestation and view, then reads and normalizes the raw image body (no multipart)."""
@@ -413,15 +437,7 @@ def create_app(
         user = actor(request, "doctor", "admin")
         pid = path_id(patient_id)
         may_upload(user, pid)
-        study_date, indication = request.query_params.get("study_date", ""), request.query_params.get("indication", "").strip()
-        try:
-            day = datetime.strptime(study_date, "%Y-%m-%d").date()
-        except ValueError:
-            raise invalid("Enter the study date as YYYY-MM-DD.") from None
-        if not datetime(1900, 1, 1).date() <= day <= datetime.fromtimestamp(clock(), timezone.utc).date():
-            raise invalid("The study date cannot be in the future.")
-        if not 1 <= len(indication) <= 200:
-            raise invalid("Enter the indication (1–200 characters).")
+        study_date, indication = study_fields(request.query_params.get("study_date"), request.query_params.get("indication"))
         view, image = await upload(request)
         sid = await run_in_threadpool(catalog.create_study, pid, study_date, indication, view, image, user.id)
         app.state.admin.log(user.id, "study_uploaded", f"{dict(catalog.patient_codes())[pid]} study {sid} ({view}), confirmed permitted")
@@ -429,17 +445,46 @@ def create_app(
 
     @app.post("/api/v1/studies/{study_id}/images")
     async def add_study_image(request: Request, study_id: str):
-        user = actor(request, "doctor", "admin")
-        found = catalog.study(path_id(study_id))
-        if found is None:
-            raise missing()
-        may_upload(user, found["patient_id"])
+        user, found = managed_study(request, study_id)
         view, image = await upload(request)
         image_id = await run_in_threadpool(catalog.add_image, found["id"], view, image, user.id)
         if image_id is None:
             raise ApiError(409, "STUDY_IN_READING", "This study already has a reading, so its images are fixed. Add a new study instead.")
         app.state.admin.log(user.id, "image_uploaded", f"study {found['id']} image {image_id} ({view}), confirmed permitted")
         return no_store(JSONResponse(catalog.study(found["id"], user.id), status_code=201))
+
+    @app.patch("/api/v1/studies/{study_id}")
+    async def edit_study(request: Request, study_id: str):
+        user, found = managed_study(request, study_id)
+        body = await read_body(request)
+        if set(body) - {"study_date", "indication"}:
+            raise invalid("Unexpected request field.")
+        study_date, indication = study_fields(body.get("study_date"), body.get("indication"))
+        if not catalog.update_study(found["id"], study_date, indication):
+            raise locked
+        app.state.admin.log(user.id, "study_edited", f"study {found['id']}")
+        return no_store(JSONResponse(catalog.study(found["id"], user.id)))
+
+    @app.delete("/api/v1/studies/{study_id}")
+    async def delete_study(request: Request, study_id: str):
+        user, found = managed_study(request, study_id)
+        if not await run_in_threadpool(catalog.delete_study, found["id"]):
+            raise locked
+        app.state.admin.log(user.id, "study_deleted", f"{dict(catalog.patient_codes())[found['patient_id']]} study {found['id']} ({found['image_count']} images)")
+        return no_store(Response(status_code=204))
+
+    @app.delete("/api/v1/studies/{study_id}/images/{image_id}")
+    async def delete_study_image(request: Request, study_id: str, image_id: str):
+        user, found = managed_study(request, study_id)
+        outcome = await run_in_threadpool(catalog.delete_image, found["id"], path_id(image_id))
+        if outcome == "missing":
+            raise missing()
+        if outcome == "locked":
+            raise locked
+        if outcome == "last":
+            raise ApiError(409, "LAST_IMAGE", "A study needs at least one image. Delete the study instead.")
+        app.state.admin.log(user.id, "image_deleted", f"study {found['id']} image {image_id}")
+        return no_store(JSONResponse(catalog.study(found["id"], user.id)))
 
     def doctor_still_allowed(doctor_id: int, patient_id: int) -> bool:
         user = store.by_id(doctor_id)

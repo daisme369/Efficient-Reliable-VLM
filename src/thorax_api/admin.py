@@ -62,7 +62,7 @@ class AdminStore:
 
     def events(self, limit: int = 100) -> list[dict]:
         with connect(self.path) as db:
-            rows = db.execute("""SELECT e.id, e.action, e.detail, e.created_at, u.name AS admin_name FROM admin_events e
+            rows = db.execute("""SELECT e.id, e.action, e.detail, e.created_at, u.name AS actor_name, u.role AS actor_role FROM admin_events e
                                  JOIN users u ON u.id = e.admin_id ORDER BY e.id DESC LIMIT ?""", (limit,)).fetchall()
         return [dict(row) for row in rows]
 

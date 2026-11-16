@@ -160,3 +160,8 @@ input, textarea, select { min-width: 0; }
 .upload-permit { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; line-height: 1.45; }
 .upload-permit input { width: 18px; height: 18px; margin-top: 2px; flex: none; }
 .study-list-heading .button { margin-left: auto; }
+.upload-images { display: grid; gap: 6px; list-style: none; padding: 0; margin: 0; font-weight: 400; }
+.upload-images li { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.upload-delete { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 14px; }
+.study-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.danger-text { color: var(--error-text); }

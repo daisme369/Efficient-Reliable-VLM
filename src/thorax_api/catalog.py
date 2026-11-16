@@ -48,6 +48,14 @@ SCHEMA = (
 )
 
 
+# A study can be edited or deleted only while it is made of uploaded images (never the seeded
+# synthetic set) and nothing depends on it yet: no reading by any doctor and no labeling task.
+EDITABLE = """(EXISTS (SELECT 1 FROM images i WHERE i.study_id = s.id)
+    AND NOT EXISTS (SELECT 1 FROM images i WHERE i.study_id = s.id AND i.uploaded_by IS NULL)
+    AND NOT EXISTS (SELECT 1 FROM reading_sessions r WHERE r.study_id = s.id)
+    AND NOT EXISTS (SELECT 1 FROM label_tasks t JOIN images i ON i.id = t.image_id WHERE i.study_id = s.id))"""
+
+
 class Catalog:
     def __init__(self, path: str | Path, images: ImageStore):
         self.path, self.images = str(path), images
@@ -110,11 +118,50 @@ class Catalog:
                            CASE WHEN EXISTS (SELECT 1 FROM reading_sessions r WHERE r.study_id = s.id AND r.status = 'final') THEN 'final'
                                 WHEN EXISTS (SELECT 1 FROM reading_sessions r WHERE r.study_id = s.id) THEN 'in_progress' ELSE 'new' END AS status,
                            (SELECT r.id FROM reading_sessions r WHERE r.study_id = s.id AND r.doctor_id = ?) AS own_session_id,
-                           (SELECT r.status FROM reading_sessions r WHERE r.study_id = s.id AND r.doctor_id = ?) AS own_session_status
+                           (SELECT r.status FROM reading_sessions r WHERE r.study_id = s.id AND r.doctor_id = ?) AS own_session_status,
+                           {EDITABLE} AS editable
                     FROM studies s WHERE {where} ORDER BY s.study_date DESC, s.id DESC""",
                 (actor_id, actor_id, *params),
             ).fetchall()
-        return [dict(row) for row in rows]
+        return [{**dict(row), "editable": bool(row["editable"])} for row in rows]
+
+    def update_study(self, study_id: int, study_date: str, indication: str) -> bool:
+        """Returns False when the study is not editable (see EDITABLE)."""
+        with connect(self.path) as db:
+            return db.execute(f"UPDATE studies SET study_date = ?, indication = ? WHERE id IN (SELECT s.id FROM studies s WHERE s.id = ? AND {EDITABLE})",
+                              (study_date, indication, study_id)).rowcount == 1
+
+    def delete_study(self, study_id: int) -> bool:
+        with connect(self.path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            if not db.execute(f"SELECT 1 FROM studies s WHERE s.id = ? AND {EDITABLE}", (study_id,)).fetchone():
+                return False
+            keys = [row[0] for row in db.execute("SELECT storage_key FROM images WHERE study_id = ?", (study_id,))]
+            db.execute("DELETE FROM images WHERE study_id = ?", (study_id,))
+            db.execute("DELETE FROM studies WHERE id = ?", (study_id,))
+            self._drop_unused_files(db, keys)
+        return True
+
+    def delete_image(self, study_id: int, image_id: int) -> str:
+        """Returns 'deleted', 'locked' (study not editable), 'last' (delete the study instead) or 'missing'."""
+        with connect(self.path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT storage_key FROM images WHERE id = ? AND study_id = ?", (image_id, study_id)).fetchone()
+            if row is None:
+                return "missing"
+            if not db.execute(f"SELECT 1 FROM studies s WHERE s.id = ? AND {EDITABLE}", (study_id,)).fetchone():
+                return "locked"
+            if db.execute("SELECT COUNT(*) FROM images WHERE study_id = ?", (study_id,)).fetchone()[0] == 1:
+                return "last"
+            db.execute("DELETE FROM images WHERE id = ?", (image_id,))
+            self._drop_unused_files(db, [row[0]])
+        return "deleted"
+
+    def _drop_unused_files(self, db, keys: list[str]) -> None:
+        # Uploads are stored by content hash, so another image may share the same file.
+        for key in set(keys):
+            if not db.execute("SELECT 1 FROM images WHERE storage_key = ?", (key,)).fetchone():
+                self.images.delete(key)
 
     def studies_for_patient(self, patient_id: int, actor_id: int = 0) -> list[dict]:
         return self._study_rows("s.patient_id = ?", (patient_id,), actor_id)

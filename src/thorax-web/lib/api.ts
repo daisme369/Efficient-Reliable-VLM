@@ -169,6 +169,11 @@ export const api = {
   // `permitted=yes` records that the uploader confirmed the image is synthetic or permitted.
   createStudy: (patientId: number, study: { study_date: string; indication: string; view: View }, file: Blob) =>
     json<StudyDetail>(`/patients/${patientId}/studies?${new URLSearchParams({ ...study, permitted: 'yes' })}`, { method: 'POST', file }),
+  editStudy: (studyId: number, body: { study_date: string; indication: string }) =>
+    json<StudyDetail>(`/studies/${studyId}`, { method: 'PATCH', body }),
+  deleteStudy: (studyId: number) => json<void>(`/studies/${studyId}`, { method: 'DELETE' }),
+  deleteStudyImage: (studyId: number, imageId: number) =>
+    json<StudyDetail>(`/studies/${studyId}/images/${imageId}`, { method: 'DELETE' }),
   addStudyImage: (studyId: number, view: View, file: Blob) =>
     json<StudyDetail>(`/studies/${studyId}/images?${new URLSearchParams({ view, permitted: 'yes' })}`, { method: 'POST', file }),
   // Labeling (annotator role). Served by the real backend only; the local demo API has no labeling.
