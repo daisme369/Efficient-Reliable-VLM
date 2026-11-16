@@ -2,12 +2,13 @@
 
 // Admin panels that need the real Thorax backend: overview, users of every role, AI monitoring
 // with the pause switch, labeling oversight, and the admin activity log.
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Pause, Play, RefreshCw, UserPlus } from "lucide-react";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Download, Pause, Play, RefreshCw, Upload, UserPlus } from "lucide-react";
 import { useState, type FormEvent, type ReactNode } from "react";
 import { Badge, Confirm, Notice, formatTime } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
 import type { AdminUser, AuthUser, LabelTaskStatus, UserRole } from "@/lib/contracts";
+import { UploadStudy } from "@/features/uploads/UploadStudy";
 
 const roleLabel: Record<UserRole, string> = { doctor: "Doctor", annotator: "Annotator", admin: "Administrator" };
 const taskLabel: Record<LabelTaskStatus, string> = { open: "Unlabeled", in_progress: "In progress", submitted: "Awaiting review", returned: "Returned", approved: "Approved" };
@@ -16,6 +17,7 @@ const actionLabel: Record<string, string> = {
   user_created: "Created account", user_disabled: "Disabled account", user_enabled: "Enabled account", password_reset: "Reset password",
   forced_sign_out: "Signed out user", access_granted: "Granted patient access", access_revoked: "Revoked patient access",
   ai_paused: "Paused AI", ai_resumed: "Resumed AI", labels_exported: "Exported approved labels",
+  patient_created: "Created patient", study_uploaded: "Uploaded study", image_uploaded: "Uploaded image",
 };
 const ms = (value: number | null) => value === null ? "—" : value >= 1000 ? `${(value / 1000).toFixed(1)} s` : `${value} ms`;
 const problem = (failure: unknown) => failure instanceof ApiError ? failure.message : "Could not reach the server. Try again.";
@@ -71,6 +73,67 @@ export function Overview({ actor, active }: { actor: number; active: boolean }) 
   </Panel>;
 }
 
+export function Patients({ actor, active }: { actor: number; active: boolean }) {
+  const queryClient = useQueryClient();
+  const query = useInfiniteQuery({
+    queryKey: ["actor", actor, "admin", "patient-catalog"], initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam, signal }) => api.adminPatients("", pageParam, signal),
+    getNextPageParam: page => page.next_cursor ?? undefined, enabled: active,
+  });
+  const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState<{ tone: "info" | "error"; text: string } | null>(null);
+  const [uploadFor, setUploadFor] = useState<{ id: number; code: string } | null>(null);
+  const patients = query.data?.pages.flatMap(page => page.items) ?? [];
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ["actor", actor, "admin"] });
+
+  async function create(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const year = String(data.get("birth_year") ?? "").trim();
+    const body = { name: String(data.get("name") ?? "").trim(), birth_year: year ? Number(year) : null, sex: String(data.get("sex") ?? "") || null };
+    setBusy(true); setFeedback(null);
+    try {
+      const created = await api.adminCreatePatient(body);
+      setFeedback({ tone: "info", text: `Created patient ${created.code}. Grant a doctor access under Assignments.` });
+      form.reset();
+      await refresh();
+    } catch (failure) { setFeedback({ tone: "error", text: problem(failure) }); }
+    finally { setBusy(false); }
+  }
+
+  return <div className="admin-stack">
+    <Panel title="Patients" description="Patient codes in the catalogue. Add a study to upload chest X-rays; only synthetic or permitted images.">
+      {feedback && <div className="admin-console-feedback"><Notice tone={feedback.tone}>{feedback.text}</Notice></div>}
+      <Loading query={query} label="patients">{() => <div className="admin-table-wrap"><table className="admin-table">
+        <thead><tr><th scope="col">Patient code</th><th scope="col">Doctors with access</th><th scope="col">Actions</th></tr></thead>
+        <tbody>{patients.map(patient => <tr key={patient.id}>
+          <th scope="row" className="mono">{patient.code}</th>
+          <td>{patient.assigned_doctor_ids.length}</td>
+          <td><button className="button ghost" onClick={() => { setFeedback(null); setUploadFor({ id: patient.id, code: patient.code }); }}><Upload size={16} aria-hidden="true" />Add study</button></td>
+        </tr>)}</tbody>
+      </table>
+        {query.hasNextPage && <div className="admin-panel-footer"><button className="button" disabled={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()}>{query.isFetchingNextPage ? "Loading…" : "Load more patients"}</button></div>}
+      </div>}</Loading>
+    </Panel>
+    <form className="admin-panel admin-form admin-create-user" onSubmit={event => void create(event)} aria-labelledby="admin-create-patient">
+      <header className="admin-panel-heading"><h2 id="admin-create-patient"><UserPlus size={20} aria-hidden="true" /> Create patient</h2><p>A patient code is assigned automatically.</p></header>
+      <fieldset disabled={busy}>
+        <label htmlFor="admin-patient-name">Name</label><input id="admin-patient-name" name="name" required maxLength={120} autoComplete="off" />
+        <label htmlFor="admin-patient-year">Birth year (optional)</label><input id="admin-patient-year" name="birth_year" type="number" min={1900} max={new Date().getFullYear()} />
+        <label htmlFor="admin-patient-sex">Sex (optional)</label>
+        <select id="admin-patient-sex" name="sex" defaultValue=""><option value="">Not recorded</option><option>Female</option><option>Male</option><option>Other</option></select>
+        <button type="submit" className="button primary">{busy ? "Saving…" : "Create patient"}</button>
+      </fieldset>
+    </form>
+    {uploadFor && <UploadStudy patientId={uploadFor.id} patientLabel={uploadFor.code} onClose={() => setUploadFor(null)} onUploaded={(study, complete) => {
+      setFeedback({ tone: "info", text: `Added a study to ${uploadFor.code} with ${study.image_count} ${study.image_count === 1 ? "image" : "images"}.` });
+      if (complete) setUploadFor(null);
+      void refresh();
+    }} />}
+  </div>;
+}
+
 export function UsersAccess({ actor, active, me }: { actor: number; active: boolean; me: AuthUser }) {
   const queryClient = useQueryClient();
   const query = useQuery({ queryKey: ["actor", actor, "admin", "users"], queryFn: ({ signal }) => api.adminUsers(signal), enabled: active });
@@ -123,7 +186,7 @@ export function UsersAccess({ actor, active, me }: { actor: number; active: bool
       </table></div>}</Loading>
     </Panel>
     <form className="admin-panel admin-form admin-create-user" onSubmit={event => void create(event)} aria-labelledby="admin-create-user">
-      <header className="admin-panel-heading"><h2 id="admin-create-user"><UserPlus size={20} aria-hidden="true" /> Create account</h2><p>Share the initial password privately; the user can’t change it themselves yet.</p></header>
+      <header className="admin-panel-heading"><h2 id="admin-create-user"><UserPlus size={20} aria-hidden="true" /> Create account</h2><p>Share the initial password privately; the user can change it after signing in.</p></header>
       <fieldset disabled={busy}>
         <label htmlFor="admin-user-role">Role</label>
         <select id="admin-user-role" value={role} onChange={event => setRole(event.target.value as UserRole)}>{(Object.keys(roleLabel) as UserRole[]).map(r => <option key={r} value={r}>{roleLabel[r]}</option>)}</select>

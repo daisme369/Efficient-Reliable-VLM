@@ -2,6 +2,8 @@
 fastapi==0.135.3
 starlette==1.0.0
 uvicorn==0.44.0
+# Upload validation and re-encoding (same pin as requirements.txt).
+pillow==12.3.0
 # Test client only (tests/api).
 httpx==0.28.1
 

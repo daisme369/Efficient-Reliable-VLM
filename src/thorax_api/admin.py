@@ -8,6 +8,7 @@ import os
 import sqlite3
 import tempfile
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -225,6 +226,21 @@ def register_admin(app: FastAPI, *, accounts: AccountStore, catalog: Catalog, la
         rows = [{"id": pid, "code": code, "assigned_doctor_ids": sorted(d for d, p in assigned if p == pid)}
                 for pid, code in catalog.patient_codes() if search in code.lower()]
         return page(request, me, rows)
+
+    @app.post("/api/v1/admin/patients")
+    async def create_patient(request: Request):
+        me = admin(request)
+        body = await body_of(request, {"name", "birth_year", "sex"})
+        name, birth_year, sex = body.get("name"), body.get("birth_year"), body.get("sex")
+        if not isinstance(name, str) or not 1 <= len(name.strip()) <= 120:
+            raise invalid("Enter the patient's name (1–120 characters).")
+        if birth_year is not None and (not isinstance(birth_year, int) or isinstance(birth_year, bool) or not 1900 <= birth_year <= datetime.now(timezone.utc).year):
+            raise invalid("Enter a birth year between 1900 and this year, or leave it empty.")
+        if sex not in (None, "Female", "Male", "Other"):
+            raise invalid("Choose Female, Male or Other, or leave it empty.")
+        created = catalog.create_patient(name.strip(), birth_year, sex)
+        store.log(me.id, "patient_created", created["code"])
+        return ok({"resource_type": "patient", "resource_id": created["id"], "code": created["code"]}, 201)
 
     @app.post("/api/v1/admin/assignments")
     async def assign(request: Request):

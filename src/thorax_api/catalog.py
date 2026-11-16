@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import io
 from pathlib import Path
 
-from .db import connect
+from .db import connect, utc_now
 from .storage import ImageStore
 
 SCHEMA = (
@@ -53,6 +54,11 @@ class Catalog:
         with connect(self.path) as db:
             for statement in SCHEMA:
                 db.execute(statement)
+            # Upload provenance, added after the first release; NULL for seeded synthetic images.
+            columns = {row[1] for row in db.execute("PRAGMA table_info(images)")}
+            for column, kind in (("uploaded_by", "INTEGER REFERENCES users (id)"), ("uploaded_at", "TEXT")):
+                if column not in columns:
+                    db.execute(f"ALTER TABLE images ADD COLUMN {column} {kind}")
 
     def is_assigned(self, doctor_id: int, patient_id: int) -> bool:
         with connect(self.path) as db:
@@ -133,6 +139,78 @@ class Catalog:
         if hashlib.sha256(data).hexdigest() != image["sha256"]:
             raise ValueError("stored image does not match its recorded checksum")
         return data
+
+    # --- write side: admin-created patients, uploaded studies and images ---
+    def create_patient(self, name: str, birth_year: int | None, sex: str | None) -> dict:
+        with connect(self.path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            pid = db.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM patients").fetchone()[0]
+            code = f"PX-{1041 + pid:04d}"  # the demo's code scheme, so codes stay unique and ordered
+            db.execute("INSERT INTO patients (id, code, name, birth_year, sex) VALUES (?, ?, ?, ?, ?)", (pid, code, name, birth_year, sex))
+        return {"id": pid, "code": code}
+
+    def patient_exists(self, patient_id: int) -> bool:
+        with connect(self.path) as db:
+            return db.execute("SELECT 1 FROM patients WHERE id = ?", (patient_id,)).fetchone() is not None
+
+    def _store_upload(self, png: bytes) -> tuple[str, str]:
+        digest = hashlib.sha256(png).hexdigest()
+        key = f"uploads/{digest}.png"
+        self.images.put(key, png)
+        return key, digest
+
+    def create_study(self, patient_id: int, study_date: str, indication: str, view: str, upload: tuple[bytes, int, int], user_id: int) -> int:
+        """A study is created together with its first image, so no study is ever empty."""
+        png, width, height = upload
+        key, digest = self._store_upload(png)
+        with connect(self.path) as db:
+            cursor = db.execute("INSERT INTO studies (patient_id, study_date, indication) VALUES (?, ?, ?)", (patient_id, study_date, indication))
+            self._insert_image(db, cursor.lastrowid, view, width, height, digest, key, user_id)
+        return cursor.lastrowid
+
+    def add_image(self, study_id: int, view: str, upload: tuple[bytes, int, int], user_id: int) -> int | None:
+        """Returns None when the study already has a reading: its image list is fixed once reading starts."""
+        png, width, height = upload
+        key, digest = self._store_upload(png)
+        with connect(self.path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            if db.execute("SELECT 1 FROM reading_sessions WHERE study_id = ?", (study_id,)).fetchone():
+                return None
+            return self._insert_image(db, study_id, view, width, height, digest, key, user_id)
+
+    @staticmethod
+    def _insert_image(db, study_id, view, width, height, digest, key, user_id) -> int:
+        return db.execute("""INSERT INTO images (study_id, view, width, height, sha256, media_type, storage_key, uploaded_by, uploaded_at)
+                             VALUES (?, ?, ?, ?, ?, 'image/png', ?, ?, ?)""",
+                          (study_id, view, width, height, digest, key, user_id, utc_now())).lastrowid
+
+
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+MAX_UPLOAD_PIXELS = 16_000_000
+
+
+def normalize_upload(data: bytes) -> tuple[bytes, int, int]:
+    """Fully decodes a PNG or JPEG and re-encodes it as PNG, which drops EXIF and text metadata
+    (they can carry patient details) and applies the EXIF orientation. Raises ValueError with a user message."""
+    from PIL import Image, ImageOps
+
+    try:
+        with Image.open(io.BytesIO(data)) as image:
+            if image.format not in ("PNG", "JPEG"):
+                raise ValueError("Upload a PNG or JPEG image.")
+            if getattr(image, "n_frames", 1) != 1:
+                raise ValueError("Animated images are not supported.")
+            if image.width * image.height > MAX_UPLOAD_PIXELS:
+                raise ValueError("Upload an image of at most 16 megapixels.")
+            image.load()
+            image = ImageOps.exif_transpose(image)
+            if image.mode not in ("L", "RGB", "I;16", "I"):  # keep grayscale and 16-bit radiographs as they are
+                image = image.convert("RGB")
+            out = io.BytesIO()
+            image.save(out, format="PNG")
+    except (OSError, SyntaxError, Image.DecompressionBombError):
+        raise ValueError("The file is not a readable PNG or JPEG image.") from None
+    return out.getvalue(), image.width, image.height
 
 
 # --- Synthetic demo seed: the same patients, studies, images and assignments as the web mock (thorax-demo-v1). ---

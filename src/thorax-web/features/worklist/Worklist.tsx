@@ -1,12 +1,13 @@
 'use client';
 
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { ArrowRight, ChevronDown, ChevronRight, ClipboardList, FolderOpen, Search, X } from 'lucide-react';
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowRight, ChevronDown, ChevronRight, ClipboardList, FolderOpen, Search, Upload, X } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { AppShell, DemoBadge, DesktopNotice, RoleGate, useAuth, useDesktop } from '@/components/shell';
 import { Badge, EmptyState, formatDate, Notice, readingLabel, Skeleton } from '@/components/ui';
 import { api, ApiError } from '@/lib/api';
+import { UploadStudy } from '@/features/uploads/UploadStudy';
 
 export function Worklist({ localDemo }: { localDemo: boolean }) {
   const desktop = useDesktop();
@@ -57,7 +58,7 @@ function AssignedPatients({ actor, localDemo }: { actor: number; localDemo: bool
                 <td className="mono">{patient.code}</td><td className="mono">{patient.birth_year ?? '—'}</td><td>{patient.sex ?? '—'}</td><td className="mono">{patient.study_count}</td>
                 <td className="align-right"><button className="button ghost" aria-expanded={expanded === patient.id} aria-label={`${expanded === patient.id ? 'Hide' : 'Show'} studies for ${patient.name}`} aria-controls={`patient-studies-${patient.id}`} onClick={() => { setExpanded(expanded === patient.id ? null : patient.id); void refresh(true).catch(() => {}); }}>{expanded === patient.id ? <ChevronDown size={17} aria-hidden /> : <ChevronRight size={17} aria-hidden />}{expanded === patient.id ? 'Hide studies' : 'Show studies'}</button></td>
               </tr>
-              {expanded === patient.id && <tr><td colSpan={6} className="study-cell"><PatientStudies key={patient.id} actor={actor} patientId={patient.id} /></td></tr>}
+              {expanded === patient.id && <tr><td colSpan={6} className="study-cell"><PatientStudies key={patient.id} actor={actor} patientId={patient.id} patientLabel={`${patient.name} (${patient.code})`} canUpload={!localDemo} /></td></tr>}
             </tbody>)}
           </table>
           <div className="worklist-footer"><span role="status">{rows.length} {rows.length === 1 ? 'patient' : 'patients'} shown</span>{list.hasNextPage && <button className="button" disabled={list.isFetchingNextPage} onClick={() => { touch(); void list.fetchNextPage(); }}>{list.isFetchingNextPage ? 'Loading…' : 'Load more'}</button>}</div>
@@ -66,8 +67,11 @@ function AssignedPatients({ actor, localDemo }: { actor: number; localDemo: bool
   </main>;
 }
 
-function PatientStudies({ actor, patientId }: { actor: number; patientId: number }) {
+function PatientStudies({ actor, patientId, patientLabel, canUpload }: { actor: number; patientId: number; patientLabel: string; canUpload: boolean }) {
   const { expire } = useAuth();
+  const queryClient = useQueryClient();
+  const [uploading, setUploading] = useState(false);
+  const [uploaded, setUploaded] = useState('');
   const result = useInfiniteQuery({
     queryKey: ['actor', actor, 'patient', patientId, 'studies'], initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam, signal }) => api.studies(patientId, pageParam, signal),
@@ -76,7 +80,15 @@ function PatientStudies({ actor, patientId }: { actor: number; patientId: number
   useEffect(() => { if (result.error instanceof ApiError && result.error.status === 401) expire(); }, [result.error, expire]);
   const studies = result.data?.pages.flatMap(page => page.items) ?? [];
   return <div className="study-list" id={`patient-studies-${patientId}`}>
-    <div className="section-heading"><FolderOpen aria-hidden size={17} /><h3>Studies</h3></div>
+    <div className="section-heading study-list-heading"><FolderOpen aria-hidden size={17} /><h3>Studies</h3>
+      {canUpload && <button className="button" onClick={() => { setUploaded(''); setUploading(true); }}><Upload size={16} aria-hidden />Add study</button>}</div>
+    {uploaded && <Notice tone="info">{uploaded}</Notice>}
+    {uploading && <UploadStudy patientId={patientId} patientLabel={patientLabel} onClose={() => setUploading(false)} onUploaded={(study, complete) => {
+      setUploaded(`Study of ${formatDate(study.study_date)} added with ${study.image_count} ${study.image_count === 1 ? 'image' : 'images'}.`);
+      if (complete) setUploading(false);
+      void queryClient.invalidateQueries({ queryKey: ['actor', actor, 'patient', patientId, 'studies'] });
+      void queryClient.invalidateQueries({ queryKey: ['actor', actor, 'patients'] });
+    }} />}
     {result.isPending ? <Skeleton label="Loading studies" rows={2} /> : result.error ? <><Notice tone="error">Could not load this study list.</Notice><button className="button" onClick={() => void result.refetch()}>Retry</button></> : studies.length === 0 ? <p>No studies are available for this patient.</p> :
       <table className="data-table nested-table"><thead><tr><th scope="col">Study date</th><th scope="col">Indication</th><th scope="col">Images</th><th scope="col">Study status</th><th scope="col">Reading status</th><th scope="col"><span className="sr-only">Open</span></th></tr></thead>
         <tbody>{studies.map(study => {

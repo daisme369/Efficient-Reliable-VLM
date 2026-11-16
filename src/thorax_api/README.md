@@ -28,7 +28,7 @@ Other commands: `python -m thorax_api.accounts create|disable|enable|reset-passw
 | --- | --- |
 | `app.py` | App factory, sign-in (HttpOnly session cookie, CSRF, Origin check, rate limits, 30 min idle / 2 h absolute), password change, worklist and image routes |
 | `accounts.py` | Users (doctor, admin, annotator), scrypt password hashes, sign-in history, account CLI |
-| `catalog.py` | Patients, studies, images, assignments, prior reports, synthetic demo seed |
+| `catalog.py` | Patients, studies, images, assignments, prior reports, synthetic demo seed, and uploads: admin-created patients, studies with PNG/JPEG images (decoded, limited to 10 MiB and 16 MP, re-encoded as PNG without metadata) |
 | `reading.py` | Doctor readings: findings (with revisions), regions, chat, reports, audit events, AI jobs, idempotency |
 | `labeling.py` | Annotator tasks, labeler → reviewer flow, reviewer fixes, approved-label export |
 | `admin.py` | Overview, user and access control, AI monitoring and pause switch, labeling oversight, admin activity log |

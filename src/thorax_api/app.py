@@ -33,7 +33,7 @@ from starlette.concurrency import run_in_threadpool
 
 from .accounts import ROLES, AccountStore, User, password_matches, valid_password
 from .admin import register_admin, sessions_view
-from .catalog import Catalog
+from .catalog import MAX_UPLOAD_BYTES, Catalog, normalize_upload
 from .reading import ReadingStore, register_reading
 from .sessions import Login, SessionStore
 from .db import utc_now
@@ -378,6 +378,68 @@ def create_app(
     app.state.admin = register_admin(
         app, accounts=store, catalog=catalog, labels=labels, started_at=utc_now(), actor=actor, page=page, read_body=read_body,
         no_store=no_store, invalid=invalid, error=ApiError, path_id=path_id, sessions=sessions_view(sessions, clock))
+
+    # --- uploads: admins for any patient, doctors for their assigned patients ------------------
+    def may_upload(user: User, patient_id: int) -> None:
+        if not catalog.patient_exists(patient_id) or (user.role == "doctor" and not catalog.is_assigned(user.id, patient_id)):
+            raise missing()  # unassigned and nonexistent look the same
+
+    async def upload(request: Request) -> tuple[str, tuple[bytes, int, int]]:
+        """Checks the attestation and view, then reads and normalizes the raw image body (no multipart)."""
+        query = request.query_params
+        if query.get("permitted") != "yes":
+            raise invalid("Confirm the image is synthetic or permitted for this demo. Restricted datasets such as MIMIC are not allowed.")
+        view = query.get("view", "")
+        if view not in ("PA", "AP", "LAT"):
+            raise invalid("Choose the view: PA, AP or LAT.")
+        if request.headers.get("content-type", "").split(";")[0].strip() not in ("image/png", "image/jpeg"):
+            raise ApiError(415, "UNSUPPORTED_MEDIA_TYPE", "Upload a PNG or JPEG image.")
+        too_large = ApiError(413, "UPLOAD_TOO_LARGE", "Upload an image of 10 MiB or less.")
+        declared = request.headers.get("content-length", "")
+        if declared.isdigit() and int(declared) > MAX_UPLOAD_BYTES:
+            raise too_large
+        data = bytearray()
+        async for chunk in request.stream():
+            data += chunk
+            if len(data) > MAX_UPLOAD_BYTES:
+                raise too_large
+        try:
+            return view, await run_in_threadpool(normalize_upload, bytes(data))
+        except ValueError as problem:
+            raise invalid(str(problem)) from None
+
+    @app.post("/api/v1/patients/{patient_id}/studies")
+    async def create_study(request: Request, patient_id: str):
+        user = actor(request, "doctor", "admin")
+        pid = path_id(patient_id)
+        may_upload(user, pid)
+        study_date, indication = request.query_params.get("study_date", ""), request.query_params.get("indication", "").strip()
+        try:
+            day = datetime.strptime(study_date, "%Y-%m-%d").date()
+        except ValueError:
+            raise invalid("Enter the study date as YYYY-MM-DD.") from None
+        if not datetime(1900, 1, 1).date() <= day <= datetime.fromtimestamp(clock(), timezone.utc).date():
+            raise invalid("The study date cannot be in the future.")
+        if not 1 <= len(indication) <= 200:
+            raise invalid("Enter the indication (1–200 characters).")
+        view, image = await upload(request)
+        sid = await run_in_threadpool(catalog.create_study, pid, study_date, indication, view, image, user.id)
+        app.state.admin.log(user.id, "study_uploaded", f"{dict(catalog.patient_codes())[pid]} study {sid} ({view}), confirmed permitted")
+        return no_store(JSONResponse(catalog.study(sid, user.id), status_code=201))
+
+    @app.post("/api/v1/studies/{study_id}/images")
+    async def add_study_image(request: Request, study_id: str):
+        user = actor(request, "doctor", "admin")
+        found = catalog.study(path_id(study_id))
+        if found is None:
+            raise missing()
+        may_upload(user, found["patient_id"])
+        view, image = await upload(request)
+        image_id = await run_in_threadpool(catalog.add_image, found["id"], view, image, user.id)
+        if image_id is None:
+            raise ApiError(409, "STUDY_IN_READING", "This study already has a reading, so its images are fixed. Add a new study instead.")
+        app.state.admin.log(user.id, "image_uploaded", f"study {found['id']} image {image_id} ({view}), confirmed permitted")
+        return no_store(JSONResponse(catalog.study(found["id"], user.id), status_code=201))
 
     def doctor_still_allowed(doctor_id: int, patient_id: int) -> bool:
         user = store.by_id(doctor_id)

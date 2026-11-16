@@ -154,3 +154,9 @@ input, textarea, select { min-width: 0; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; } }
 .password-fields { display: grid; gap: 12px; min-width: min(360px, 80vw); }
 .password-error { color: var(--error-text); font-size: 14px; }
+.upload-fields { display: grid; gap: 12px; min-width: 0; }
+.upload-view { grid-template-columns: minmax(0, 1fr) 120px; align-items: center; font-weight: 400; }
+.upload-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upload-permit { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; line-height: 1.45; }
+.upload-permit input { width: 18px; height: 18px; margin-top: 2px; flex: none; }
+.study-list-heading .button { margin-left: auto; }

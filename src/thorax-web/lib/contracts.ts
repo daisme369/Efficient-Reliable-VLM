@@ -278,7 +278,7 @@ export interface FixtureStatus {
 }
 
 export interface MutationReceipt {
-  resource_type: 'doctor' | 'assignment' | 'fixture' | 'box' | 'findings' | 'report';
+  resource_type: 'doctor' | 'assignment' | 'fixture' | 'box' | 'findings' | 'report' | 'patient';
   resource_id: number | string;
   session_revision?: number;
 }

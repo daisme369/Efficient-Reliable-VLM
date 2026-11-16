@@ -42,6 +42,7 @@ Set `THORAX_DEMO_ANNOTATOR_PASSWORD` in `.env.local` to create `annotator@thorax
 | Admin: users of every role, AI monitoring and pause, labeling oversight, activity log | No | Yes |
 | Admin: mock fixtures | Yes | No |
 | Change your own password | No | Yes |
+| Create patients (admin), add studies with uploaded images (admin, assigned doctors) | No | Yes |
 | AI answers | Fixed demo answers | Fixed demo answers (the trained model is not connected yet) |
 
 ## Build and verify
