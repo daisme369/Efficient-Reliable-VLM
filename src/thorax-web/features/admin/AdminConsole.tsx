@@ -285,7 +285,7 @@ export function LabelingOversight({ actor, active }: { actor: number; active: bo
     const total = Object.values(data.counts).reduce((sum, value) => sum + value, 0);
     return <div className="admin-stack">
       <Panel title="Labeling progress" description={`${total} images in the labeling queue.`} action={<Refresh onClick={() => void query.refetch()} busy={query.isFetching} />}>
-        {!data.vocabulary.verified && <div className="admin-console-feedback"><Notice tone="pending">The label list ({data.vocabulary.version}) is unverified. Verify it before using these labels for research.</Notice></div>}
+        {!data.vocabulary.verified && <div className="admin-console-feedback"><Notice tone="pending">The label list ({data.vocabulary.version}) is not fully verified. Check it before using these labels for research. {data.vocabulary.status}</Notice></div>}
         <Stats items={[...(Object.keys(taskLabel) as LabelTaskStatus[]).map(status => ({ label: taskLabel[status], value: data.counts[status] })),
           { label: "Approved with reviewer fixes", value: data.approved_with_reviewer_changes }]} />
         <div className="admin-progress" role="img" aria-label={`${data.counts.approved} of ${total} images approved`}>
