@@ -78,7 +78,7 @@ function LabelingQueue() {
       <TaskTable title="Your work" empty="Nothing in progress." rows={mine} action={row => row.status === 'returned' ? 'Fix' : 'Continue'} note={row => row.review_comment ? `Reviewer: “${row.review_comment}”` : `Last change ${formatTime(row.updated_at)}`} />
       <TaskTable title="Waiting for your review" empty="Nothing to review. You can’t review your own labels." rows={review} action={() => 'Review'} note={row => `Submitted ${formatTime(row.updated_at)}`} />
     </div>
-    <p className="muted dense">Only approved labels are exported. The label list is unverified. Training on these labels needs an approved scope-change record.</p>
+    <p className="muted dense">Only approved labels are exported. The label list is not fully verified yet. Training on these labels needs an approved scope-change record.</p>
   </main>;
 }
 

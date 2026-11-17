@@ -47,7 +47,7 @@ Set `THORAX_DEMO_ANNOTATOR_PASSWORD` in `.env.local` to create `annotator@thorax
 
 ## End-to-end tests
 
-`pnpm e2e` builds the app into `.next-build` (a running `pnpm dev` is not disturbed), starts it on port 3300 with the backend on port 8300 and a fresh synthetic database, then signs in as each role in Chromium: a doctor reads a study and manages an upload, an admin creates a patient and checks the activity log, and an annotator labels an image. Run `pnpm exec playwright install chromium` once first. Python with `requirements/api.txt` must be on the path (or set `PYTHON`).
+`pnpm e2e` builds the app into `.next-build` (a running `pnpm dev` is not disturbed), starts it on port 3300 with the backend on port 8300 and a fresh synthetic database, then signs in as each role in Chromium: a doctor reads a study to a signed report, asks the AI and manages an upload; an admin creates a patient, pauses the AI and checks the activity log; one annotator labels an image and a second approves it; a user changes their password. It then rebuilds the app in mock mode (no backend) and checks the reading workflow still works and backend-only features stay hidden. Run `pnpm exec playwright install chromium` once first. Python with `requirements/api.txt` must be on the path (or set `PYTHON`).
 
 ## Build and verify
 

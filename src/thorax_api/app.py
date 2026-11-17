@@ -92,6 +92,7 @@ def create_app(
     store = AccountStore(db_path)
     catalog = Catalog(db_path, LocalImageStore(image_root or os.environ.get("THORAX_IMAGE_ROOT", "thorax-images")))
     labels = LabelStore(db_path)
+    per_address = int(os.environ.get("THORAX_SIGNIN_PER_ADDRESS_PER_MINUTE", "5"))
     origins = web_origins if web_origins is not None else [o.strip().rstrip("/") for o in os.environ.get("THORAX_WEB_ORIGINS", "http://127.0.0.1:3000,http://localhost:3000").split(",") if o.strip()]
     sessions = SessionStore(db_path)
     state = AuthState(sessions.secret())
@@ -213,8 +214,9 @@ def create_app(
         now = clock()
         account_key = hmac.new(state.secret, f"login:{email}".encode(), hashlib.sha256).hexdigest()
         address_key = hmac.new(state.secret, f"login-address:{client_address(request)}".encode(), hashlib.sha256).hexdigest()
-        # Per account: 10 failures / 15 min. Per address: 5 attempts / min, successful or not.
-        scopes = ((account_key, 15 * 60, 10, True), (address_key, 60, 5, False))
+        # Per account: 10 failures / 15 min. Per address: 5 attempts / min (THORAX_SIGNIN_PER_ADDRESS_PER_MINUTE),
+        # successful or not; raise it when many users share one public address, such as a clinic network.
+        scopes = ((account_key, 15 * 60, 10, True), (address_key, 60, per_address, False))
         with state.lock:
             for key, window, limit, _ in scopes:
                 recent = [at for at in state.attempts.get(key, []) if now - at < window]

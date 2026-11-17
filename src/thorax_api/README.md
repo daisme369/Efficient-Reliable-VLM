@@ -17,6 +17,7 @@ python scripts/serve_api.py
 | `THORAX_IMAGE_ROOT` | `thorax-images` | Folder holding image files |
 | `THORAX_WEB_ORIGINS` | `http://127.0.0.1:3000,http://localhost:3000` | Origins allowed to send changes (CSRF/Origin check) |
 | `THORAX_API_PORT` | `8000` | Port for `scripts/serve_api.py` |
+| `THORAX_SIGNIN_PER_ADDRESS_PER_MINUTE` | `5` | Sign-in attempts allowed per client address per minute; raise it when many users share one public address |
 | `THORAX_VLM_URL` | unset | Health check URL of the model service (not built yet) shown to admins |
 | `THORAX_DEMO_AI_FAULT` | unset | `timeout` or `detector` to simulate AI failures |
 

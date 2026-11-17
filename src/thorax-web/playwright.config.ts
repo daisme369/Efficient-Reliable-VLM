@@ -16,6 +16,7 @@ const api = `http://127.0.0.1:${API_PORT}`;
 
 export default defineConfig({
   testDir: './e2e',
+  testIgnore: 'mock.spec.ts', // runs with playwright.mock.config.ts
   fullyParallel: false,
   workers: 1, // one active login per account: tests share accounts, so they run in order
   retries: process.env.CI ? 1 : 0,
@@ -35,6 +36,7 @@ export default defineConfig({
         THORAX_IMAGE_ROOT: path.join(data, 'images'),
         THORAX_API_PORT: String(API_PORT),
         THORAX_WEB_ORIGINS: web,
+        THORAX_SIGNIN_PER_ADDRESS_PER_MINUTE: '100', // every test signs in from 127.0.0.1
         THORAX_DEMO_DOCTOR_PASSWORD: PASSWORDS.doctor,
         THORAX_DEMO_ADMIN_PASSWORD: PASSWORDS.admin,
         THORAX_DEMO_ANNOTATOR_PASSWORD: PASSWORDS.annotator,

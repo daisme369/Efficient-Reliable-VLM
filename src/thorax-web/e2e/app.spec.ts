@@ -93,3 +93,78 @@ test('annotator labels an image and submits it for review', async ({ page }) => 
   await page.getByRole('button', { name: 'Submit for review' }).click();
   await expect(page.getByText(/Awaiting review|submitted/i).first()).toBeVisible();
 });
+
+test('a second annotator reviews the submitted labels and approves them', async ({ page }) => {
+  await signIn(page, 'annotator2@thorax.demo', PASSWORDS.annotator, /\/labeling$/);
+  await page.getByRole('link', { name: 'Review', exact: true }).first().click();
+  await expect(page).toHaveURL(/\/labeling\/tasks\/\d+$/);
+  await expect(page.getByRole('button', { name: /^Box 1:/ })).toBeVisible();
+  await page.getByRole('button', { name: /^Approve/ }).click();
+  await expect(page.getByText('Approved').first()).toBeVisible();
+});
+
+test('doctor completes a reading: accept, approve findings, draft and sign the report, ask AI', async ({ page }) => {
+  await signIn(page, 'doctor@thorax.demo', PASSWORDS.doctor, /\/worklist$/);
+  await page.goto('/patients/2/studies/2421');
+  await page.getByRole('button', { name: 'Analyze selected image' }).click();
+  await expect(page.getByRole('tab', { name: /^Review \d+ left/ })).toHaveAttribute('aria-selected', 'true', { timeout: 20_000 });
+
+  // Ask AI from the drawer while reviewing.
+  await page.getByRole('button', { name: 'Ask AI' }).click();
+  await page.getByLabel('Doctor’s question').fill('Is there a pleural effusion?');
+  await page.getByRole('button', { name: 'Send' }).click();
+  await expect(page.getByText('AI assistant').first()).toBeVisible({ timeout: 20_000 });
+  await page.keyboard.press('Escape');
+
+  // Accept every AI suggestion, then approve the findings (Gate 1).
+  for (let left = 0; left < 10 && await page.getByRole('button', { name: 'Accept', exact: true }).count(); left++) {
+    await page.getByRole('button', { name: 'Accept', exact: true }).first().click();
+  }
+  await page.getByRole('button', { name: 'Save', exact: true }).click();  // accepting leaves unsaved changes
+  await page.getByRole('button', { name: 'Approve findings' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Approve findings' }).click();
+  await page.getByRole('button', { name: /Go to report/ }).click();
+  await page.getByRole('button', { name: 'Generate report' }).click();
+  await expect(page.getByRole('button', { name: 'Sign report' })).toBeEnabled({ timeout: 20_000 });
+  await page.getByRole('button', { name: 'Sign report' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Sign report' }).click();
+  // Signing opens the read-only final report.
+  await expect(page.getByRole('heading', { name: 'Final chest X-ray report' })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText('Final — read-only')).toBeVisible();
+});
+
+test('admin pauses AI, the doctor is told, and AI resumes', async ({ browser }) => {
+  const admin = await browser.newPage();
+  await signIn(admin, 'admin@thorax.demo', PASSWORDS.admin, /\/admin$/);
+  await admin.getByRole('tab', { name: 'AI' }).click();
+  await admin.getByRole('button', { name: 'Pause AI' }).click();
+  await admin.getByRole('dialog').getByRole('button', { name: /Pause/ }).click();
+  await expect(admin.getByText('AI paused').first()).toBeVisible();
+
+  const doctor = await browser.newPage();
+  await signIn(doctor, 'doctor2@thorax.demo', PASSWORDS.doctor, /\/worklist$/);
+  await doctor.goto('/patients/11/studies/2511');
+  await doctor.getByRole('button', { name: 'Analyze selected image' }).click();
+  await expect(doctor.getByText(/paused AI/)).toBeVisible({ timeout: 20_000 });
+
+  await admin.getByRole('button', { name: 'Resume AI' }).click();
+  await expect(admin.getByText('AI accepting requests')).toBeVisible();
+});
+
+test('a user changes their password and signs in with it', async ({ page }) => {
+  const next = 'e2e-changed-pass-2';
+  await signIn(page, 'annotator2@thorax.demo', PASSWORDS.annotator, /\/labeling$/);
+  const change = async (from: string, to: string) => {
+    await page.getByRole('button', { name: 'Change password' }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByLabel('Current password').fill(from);
+    await dialog.getByLabel('New password', { exact: true }).fill(to);
+    await dialog.getByLabel('Repeat new password').fill(to);
+    await dialog.getByRole('button', { name: 'Change password' }).click();
+    await expect(page.getByText('Your password was changed.')).toBeVisible();
+  };
+  await change(PASSWORDS.annotator, next);
+  await page.getByRole('button', { name: /Sign out/ }).click();
+  await signIn(page, 'annotator2@thorax.demo', next, /\/labeling$/);
+  await change(next, PASSWORDS.annotator);  // restore for reruns against the same data
+});

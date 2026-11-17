@@ -12,3 +12,4 @@
 *.py[cod]
 /test-results/
 /playwright-report/
+/playwright-report-mock/

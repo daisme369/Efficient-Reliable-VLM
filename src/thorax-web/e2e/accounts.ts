@@ -3,6 +3,7 @@ import { deflateSync } from 'node:zlib';
 
 export const WEB_PORT = 3300;
 export const API_PORT = 8300;
+export const MOCK_PORT = 3301;
 
 // Test-only passwords for a throwaway synthetic database; not used anywhere else.
 export const PASSWORDS = { doctor: 'e2e-doctor-pass-1', admin: 'e2e-admin-pass-1', annotator: 'e2e-annotator-pass-1' };
