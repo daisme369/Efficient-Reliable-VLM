@@ -499,7 +499,7 @@ Không tạo thêm Jira issue trong lượt lập plan. Các work package dùng 
 | Runtime/precision/VRAM của bundle | Nhận từ team model; phải đo full pipeline trên 4090, không tự đổi để làm vừa |
 | Multi-turn calibration | Evidence chưa có; label theo scope, không tái hiệu chuẩn trong task hệ thống |
 | Ngân sách RunPod và giờ chạy | Chưa cấp; chưa có GPU được thuê; chốt trước deployment paid |
-| Nguồn ảnh demo | Chưa chốt bộ cụ thể; Cáp xác minh non-MIMIC, license và quyền trình chiếu |
+| Nguồn ảnh demo | Đề xuất 17/11/2026: Random Sample of NIH Chest X-ray Dataset trên Kaggle (CC0, NIH Clinical Center, không phải MIMIC); chờ Gia Khánh review. Xem `docs/demo-data/README.md` |
 | Tham số TTL/input/watchdog | Đã đề xuất trong phần 7; team có thể điều chỉnh sau smoke test |
 | Frontend library versions | Chọn và pin khi triển khai; plan không cài dependency |
 | RTX 3090 | Chưa đủ gate theo policy repo; 4090 là đường triển khai chính |
