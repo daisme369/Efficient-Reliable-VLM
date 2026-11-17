@@ -1,8 +1,14 @@
-# Dựng manifest MedGemma trên Vast.ai
+# Chuẩn bị dữ liệu và chạy MedGemma trên Vast.ai
 
 Runbook này dành cho thành viên bắt đầu từ checkout mới. Dataset, manifest,
 mapping, secrets, model cache và checkpoint nằm trên vùng lưu trữ riêng của
 instance. Git chỉ chuyển mã và tài liệu.
+
+Chọn [luồng B1](#4-kiểm-tra-và-fine-tune-b1) để train answer-only hoặc
+[luồng M1](#7-chạy-m1-trên-tập-phát-triển) để train thêm grounding và sinh
+Impression. Hai luồng dùng chung bước tải, dựng manifest và xác minh
+mapping. M1 kết hợp tín hiệu câu trả lời và grounding để chọn khi nào
+abstain theo [kế hoạch nghiên cứu](../DETAILED_ACTION_PLAN.md).
 
 ## 1. Chọn instance và chuẩn bị quyền truy cập
 
@@ -26,21 +32,35 @@ instance. Git chỉ chuyển mã và tài liệu.
   chế bí mật được duyệt cho instance. Cấp riêng HF token có quyền đọc model
   để tải weight. Giữ các bí mật ngoài repo và tắt shell tracing.
 
-Trên instance, clone repo vào đường dẫn riêng với data, checkout commit đã
-review rồi đi vào thư mục repo. Các lệnh sau chạy bằng user có quyền với
-volume private và trong runtime của image đã chọn.
+Từ trang instance, dùng lệnh **SSH** của Vast. Mở shell của user
+`researcher` (UID 10001) có quyền với volume private. Đặt `REPO_URL`
+và `REPO_COMMIT` theo repo và commit đã review. Dùng quyền Git riêng
+đã cấu hình cho user đó.
 
 ```bash
 set -euo pipefail
 umask 077
+git clone "${REPO_URL:?set the repository URL}" /workspace/efficient-reliable-vlm
+cd /workspace/efficient-reliable-vlm
+git checkout --detach "${REPO_COMMIT:?set the reviewed commit}"
+git rev-parse HEAD
 export PYTHONPATH="$PWD/src"
 export DATA=/private/project/data
 export AWS_PAGER=
 mkdir -p "$DATA"
 df -h "$DATA"
 aws --version
+python --version
+python -m pip check
 python scripts/ci/check_gpu_environment.py --role train
 ```
+
+Image đã cài requirements theo lock `requirements.txt`,
+`requirements/gpu-runtime.txt` và `requirements/gpu-cu130.txt`. Nếu
+`pip check` hoặc GPU preflight lỗi, kiểm tra lại image và offer trước
+khi tải dữ liệu. Khi cần vừa train vừa đánh giá trên cùng một instance,
+chọn RTX PRO 6000 Blackwell. H100 và H200 qua vai trò train, còn lệnh
+`evaluate` yêu cầu một GPU được duyệt cho inference.
 
 ## 2. Tải các release lên instance đã được duyệt
 
@@ -57,31 +77,58 @@ Windows.
 | `MS_CXR_S3_URI` | MS-CXR 1.1.0 |
 | `LLAVA_RAD_S3_URI` | LLaVA-Rad MIMIC-CXR annotations 1.0.0 |
 
-```bash
-: "${MIMIC_CXR_JPG_S3_URI:?missing MIMIC JPEG release URI}"
-: "${MIMIC_CXR_VQA_S3_URI:?missing VQA release URI}"
-: "${CHEST_IMAGENOME_S3_URI:?missing Chest ImaGenome release URI}"
-: "${MS_CXR_S3_URI:?missing MS-CXR release URI}"
-: "${LLAVA_RAD_S3_URI:?missing LLaVA-Rad release URI}"
+Cho JPEG, tải trực tiếp từ S3 vào volume của instance để tránh trung chuyển
+qua máy cá nhân. Chạy với mặc định của AWS CLI trước. Nếu NIC và đĩa còn
+dư tải, có thể thử tăng số request đồng thời trong profile AWS của phiên
+này. Ví dụ cấu hình khởi điểm để đo, đơn vị là số request.
 
-aws s3 sync "${MIMIC_CXR_JPG_S3_URI%/}/" "$DATA/mimic-cxr-jpg/2.1.0/" --only-show-errors
-aws s3 sync "${MIMIC_CXR_VQA_S3_URI%/}/" "$DATA/mimic-ext-mimic-cxr-vqa/1.0.0/" --only-show-errors
-aws s3 sync "${CHEST_IMAGENOME_S3_URI%/}/" "$DATA/chest-imagenome/1.0.0/" --only-show-errors
-aws s3 sync "${MS_CXR_S3_URI%/}/" "$DATA/ms-cxr/" --only-show-errors
-aws s3 sync "${LLAVA_RAD_S3_URI%/}/" "$DATA/llava-rad-mimic-cxr-annotations-1.0.0/" --only-show-errors
+```bash
+aws configure set s3.max_concurrent_requests 32 --profile "${AWS_PROFILE:-default}"
 ```
 
-Chạy lại cùng lệnh `sync` sau khi mất mạng. Nếu PhysioNet chỉ cung cấp tải
-HTTPS cho một release, dùng lệnh tải trên trang release với tài khoản đã được
-cấp quyền, rồi giữ đúng cấu trúc thư mục ở trên, gồm `LICENSE.txt` và
-`SHA256SUMS.txt`. Giữ split nguồn, gold và danh sách images-to-avoid để xác
-định bệnh nhân holdout. [AWS CLI sync](https://docs.aws.amazon.com/cli/latest/reference/s3/sync.html)
+Đo tốc độ trên các lô mới có kích thước tương đương. Tính số byte tải thành
+công chia cho thời gian, đồng thời theo dõi lỗi, retry và tải đĩa. Giữ mức
+concurrency thấp nhất gần tốc độ tốt nhất. Tốc độ tối đa phụ thuộc host,
+đường truyền và S3. Nếu đã có plan JPEG riêng của instance, có thể dùng
+downloader giữ receipt với benchmark 16 rồi 32 workers theo
+[quy trình downloader](../configs/MIMIC_DOWNLOADER_HANDOFF.md#phase-4--bounded-benchmark-after-the-approved-handoff).
+Chỉ dùng một downloader cho cùng thư mục. [Cấu hình song song của AWS CLI](https://docs.aws.amazon.com/cli/latest/topic/s3-config.html)
+
+Chạy từng lệnh tương ứng với release có S3 URI. Nếu một release chỉ cấp
+HTTPS, dùng lệnh tải trên trang release và lưu vào đúng thư mục đích.
+
+```bash
+: "${MIMIC_CXR_JPG_S3_URI:?set the MIMIC JPEG release URI before the S3 commands}"
+aws s3 sync "${MIMIC_CXR_JPG_S3_URI%/}/" "$DATA/mimic-cxr-jpg/2.1.0/" --only-show-errors
+```
+
+```bash
+if [[ -n "${MIMIC_CXR_VQA_S3_URI:-}" ]]; then
+  aws s3 sync "${MIMIC_CXR_VQA_S3_URI%/}/" "$DATA/mimic-ext-mimic-cxr-vqa/1.0.0/" --only-show-errors
+fi
+if [[ -n "${CHEST_IMAGENOME_S3_URI:-}" ]]; then
+  aws s3 sync "${CHEST_IMAGENOME_S3_URI%/}/" "$DATA/chest-imagenome/1.0.0/" --only-show-errors
+fi
+if [[ -n "${MS_CXR_S3_URI:-}" ]]; then
+  aws s3 sync "${MS_CXR_S3_URI%/}/" "$DATA/ms-cxr/" --only-show-errors
+fi
+if [[ -n "${LLAVA_RAD_S3_URI:-}" ]]; then
+  aws s3 sync "${LLAVA_RAD_S3_URI%/}/" "$DATA/llava-rad-mimic-cxr-annotations-1.0.0/" --only-show-errors
+fi
+```
+
+Chạy lại cùng lệnh `sync` sau khi mất mạng. Với cả HTTPS và S3, giữ
+`LICENSE.txt` và `SHA256SUMS.txt` ở gốc release. Giữ split nguồn, gold
+và danh sách images-to-avoid để xác định bệnh nhân holdout.
+[AWS CLI sync](https://docs.aws.amazon.com/cli/latest/reference/s3/sync.html)
 · [MS-CXR](https://physionet.org/content/ms-cxr/1.1.0/)
 · [Chest ImaGenome](https://physionet.org/content/chest-imagenome/1.0.0/)
 · [LLaVA-Rad](https://physionet.org/content/llava-rad-mimic-cxr-annotation/1.0.0/)
 
 Xác minh checksum JPEG trước khi tạo catalog. Lỗi checksum đồng nghĩa với
-download chưa đủ hoặc file cần tải lại. Giữ log chi tiết tại volume riêng.
+download chưa đủ hoặc file cần tải lại. Nếu `sync` bỏ qua một file đã sai
+checksum, tải lại đúng object bằng `aws s3 cp` và kiểm tra lại. Giữ log chi
+tiết tại volume riêng.
 
 ```bash
 mkdir -p "$DATA/qc"
@@ -130,7 +177,7 @@ lại. Nếu export chưa có `report.json`, giữ thư mục lỗi để kiểm
 và dùng tên `BUNDLE` mới khi chạy lại. Một gói đã xác minh có
 `verification.json` với status `passed`.
 
-## 4. Chuẩn bị chạy
+## 4. Kiểm tra và fine-tune B1
 
 - `manifest.jsonl` và `provenance.json` dùng schema B1. Chạy luồng
   [configure → preflight → train của B1](../configs/B1_PIPELINE.md#5-preflight-pilot-and-monitoring)
@@ -139,27 +186,237 @@ và dùng tên `BUNDLE` mới khi chạy lại. Một gói đã xác minh có
   `ms_cxr_phrase` theo ảnh/finding/phrase và `context_image` theo đúng
   ảnh. `context_study` chọn một ảnh AP/PA cho mỗi study. Tọa độ bbox là
   `xyxy` theo pixel ảnh gốc. Báo cáo được tham chiếu bằng byte range.
-- Trainer B1 chỉ học đáp án. Để train cả bbox và tạo báo cáo cần trainer
-  đọc mapping và loss tương ứng, một protocol đã duyệt, cùng review nhãn
-  silver. Thiết kế image-only VQA giữ báo cáo và bbox ground truth ra khỏi
-  prompt. Giữ các file dữ liệu, output và checkpoint ở volume private.
+- Trainer B1 chỉ học đáp án. Lệnh M1 ở phần 7 đọc mapping và giữ bbox cùng
+  Impression trong target huấn luyện. Giữ file dữ liệu, output và
+  checkpoint ở volume private.
 
-Tạo config B1 answer-only với revision MedGemma 40 ký tự đã duyệt và Jira
-issue của run. Trong config local, đường dẫn protocol trỏ ngay vào bản draft
-được sinh trong cùng thư mục. Hoàn tất review, điền `CXR_CONTAINER_IMAGE_ID`
-thực tế và cache model theo tài liệu B1 trước khi chạy bootstrap.
+Kiểm tra `verification.json` của bundle đã qua và giữ `report.json`
+cùng số mẫu theo split. Tạo config B1 answer-only với revision MedGemma
+40 ký tự đã duyệt và Jira issue của run. Chạy `cache-model` với `HF_TOKEN`
+của người đã chấp nhận điều khoản model. Lệnh chỉ tải weight theo revision.
 
 ```bash
 export RUN_DRAFT="$DATA/rental/b1-grounding-answer-only-v1"
+export HF_CACHE=/private/project/cache/hf
 python scripts/gpu/setup_b1.py configure --prepared-dir "$BUNDLE" \
-  --output "$RUN_DRAFT" --revision "$MEDGEMMA_REVISION" --jira-issue "$JIRA_ISSUE"
-python scripts/gpu/bootstrap.py --config "$RUN_DRAFT/b1-local.json" \
-  --cache /private/project/cache/hf
+  --output "$RUN_DRAFT" --revision "${MEDGEMMA_REVISION:?set the model revision}" \
+  --jira-issue "${JIRA_ISSUE:?set the run issue}"
+python scripts/gpu/rental_access.py cache-model --config "$RUN_DRAFT/b1-local.json" --cache "$HF_CACHE"
 ```
 
-Bootstrap mặc định chỉ preflight. Sau khi toàn bộ gate đạt, thêm `--train`
-vào chính lệnh bootstrap để bắt đầu B1 answer-only.
+Hoàn tất review trên `$RUN_DRAFT/protocol-b1-local.json` và export
+`CXR_CONTAINER_IMAGE_ID` theo image thực tế. Chạy preflight. Lệnh kiểm tra
+manifest và file ảnh, protocol, GPU, quyền ghi và model cache offline.
 
-Phạm vi handoff là checkout → tải → xác minh → chuẩn bị dữ liệu. Không có
-Jira được cung cấp. Chạy local CPU để xác minh code và artifact, không cần
-thuê GPU cho việc bàn giao.
+```bash
+python scripts/gpu/bootstrap.py --config "$RUN_DRAFT/b1-local.json" --cache "$HF_CACHE"
+```
+
+Khi thấy `preflight_passed`, chạy pilot theo [B1 pipeline](../configs/B1_PIPELINE.md#5-preflight-pilot-and-monitoring)
+trước full run. Sau khi pilot đạt và full run có protocol đã duyệt, chạy
+trong phiên SSH bền hoặc dùng lệnh dưới đây. B1 nạp base MedGemma đã cache
+và khởi tạo adapter mới, trừ khi đang khôi phục cùng một run.
+
+```bash
+export TRAIN_DIR="$DATA/runs/b1/$(basename "$RUN_DRAFT")"
+nohup python -u scripts/gpu/bootstrap.py --config "$RUN_DRAFT/b1-local.json" \
+  --cache "$HF_CACHE" --train >"$RUN_DRAFT/training.log" 2>&1 < /dev/null &
+TRAIN_PID=$!
+printf '%s\n' "$TRAIN_PID" >"$RUN_DRAFT/training.pid"
+```
+
+Khi `$TRAIN_DIR/run.json` xuất hiện, chạy monitor. Nếu tiến trình thoát
+trước đó, đọc `$RUN_DRAFT/training.log` ở volume private.
+
+```bash
+python scripts/gpu/monitor_b1.py --run "$TRAIN_DIR" \
+  --pid "$(cat "$RUN_DRAFT/training.pid")" --watch
+```
+
+Nếu SSH ngắt hoặc máy bị dừng giữa chừng, giữ nguyên các file và xem
+[cách resume checkpoint B1](../configs/B1_PIPELINE.md#6-recovery-and-completion).
+
+## 5. Đánh giá B1 trên validation
+
+Dùng adapter đã xuất trong `$TRAIN_DIR/adapter` khi `run.json` báo
+`complete`. Tạo một run ID đánh giá mới và giữ nguyên cấu hình khoa học
+cùng dataset, manifest và đường dẫn đã bind. Nếu đánh giá trên instance
+khác, giữ cùng đường dẫn private và điều kiện truy cập đã duyệt.
+
+```bash
+export EVAL_ID="$(basename "$RUN_DRAFT")-validation"
+export EVAL_CONFIG="$RUN_DRAFT/b1-validation.json"
+python - "$RUN_DRAFT/b1-local.json" "$EVAL_CONFIG" "$EVAL_ID" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+source, output, run_id = sys.argv[1:]
+config = json.loads(Path(source).read_text(encoding="utf-8"))
+config["run_id"] = run_id
+with Path(output).open("x", encoding="utf-8") as stream:
+    json.dump(config, stream, indent=2)
+PY
+export HF_HOME="$HF_CACHE" HF_HUB_CACHE="$HF_CACHE/hub"
+export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
+python scripts/ci/check_gpu_environment.py --role inference
+python -m cxr_research evaluate --config "$EVAL_CONFIG" --checkpoint "$TRAIN_DIR/adapter"
+export EVAL_DIR="$DATA/runs/b1/$EVAL_ID"
+```
+
+`metrics.json` có normalized match và metric closed-ended trên validation.
+Số đo thời gian hiện tại chỉ tính generation, batch 1, chưa warm-up.
+Benchmark latency để báo cáo cần warm-up, lặp lại và ghi p50/p95 dưới cùng
+điều kiện. Chỉ mở test với protocol cuối đã duyệt.
+
+## 6. Kiểm tra và tải artifact về
+
+Trên instance, sau khi train và validation báo `complete`, kiểm tra SHA-256
+của adapter và từng checkpoint được giữ lại. Đóng gói run, config, protocol
+và các báo cáo tổng hợp. Các bản dự đoán từng QA ở lại volume private.
+
+```bash
+export EXPORT_DIR=/private/project/exports
+mkdir -p "$EXPORT_DIR"
+python - "$TRAIN_DIR" "$EVAL_DIR" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+from cxr_research.experiments.checkpoints import verify_artifacts
+
+train, evaluation = map(Path, sys.argv[1:])
+for run in (train, evaluation):
+    if json.loads((run / "run.json").read_text(encoding="utf-8"))["status"] != "complete":
+        raise SystemExit("Run is incomplete")
+    if not (run / "metrics.json").is_file():
+        raise SystemExit("Run metrics are missing")
+verify_artifacts(train / "adapter")
+for checkpoint in sorted(train.glob("checkpoint-*")):
+    if checkpoint.is_dir():
+        verify_artifacts(checkpoint)
+print("Adapter, checkpoints and completed run records checked.")
+PY
+export ARCHIVE="$(basename "$RUN_DRAFT").tar"
+tar -cf "$EXPORT_DIR/$ARCHIVE" --exclude="$(basename "$EVAL_DIR")/predictions.jsonl" \
+  -C "$DATA/runs/b1" "$(basename "$TRAIN_DIR")" "$(basename "$EVAL_DIR")" \
+  -C "$RUN_DRAFT" b1-local.json b1-validation.json protocol-b1-local.json \
+  -C "$BUNDLE" provenance.json report.json verification.json
+(
+  cd "$EXPORT_DIR"
+  sha256sum "$ARCHIVE" >"$ARCHIVE.sha256"
+)
+```
+
+Trên máy nhận có vùng lưu trữ đã duyệt, đặt `ARCHIVE` cùng tên ở trên,
+`VAST_SSH_PORT` và `VAST_SSH_TARGET` theo lệnh SSH của instance. Dùng Bash
+có `scp`, `sha256sum` và `tar`, chẳng hạn WSL.
+
+```bash
+set -euo pipefail
+umask 077
+scp -P "$VAST_SSH_PORT" "$VAST_SSH_TARGET:/private/project/exports/$ARCHIVE" .
+scp -P "$VAST_SSH_PORT" "$VAST_SSH_TARGET:/private/project/exports/$ARCHIVE.sha256" .
+sha256sum -c "$ARCHIVE.sha256"
+tar -tf "$ARCHIVE" >"$ARCHIVE.files"
+```
+
+Chỉ kết thúc thuê sau khi bản sao đã qua kiểm tra và danh sách file có
+adapter, checkpoint cần giữ, config, protocol, identity và metrics.
+
+## 7. Chạy M1 trên tập phát triển
+
+### Tạo và duyệt config
+
+Hoàn tất các bước 1–3. M1 khởi tạo LoRA mới từ cùng revision MedGemma với
+B1. Dùng protocol và run ID riêng. `--resume` chỉ dành cho checkpoint
+M1 có cùng mapping, manifest và config khoa học.
+
+```bash
+export RUN_DRAFT="$DATA/rental/m1-grounding-impression-v1"
+export HF_CACHE=/private/project/cache/hf
+python scripts/gpu/setup_b1.py configure --prepared-dir "$BUNDLE" \
+  --output "$RUN_DRAFT" --revision "${MEDGEMMA_REVISION:?set the model revision}" \
+  --jira-issue "${JIRA_ISSUE:?set the run issue}"
+sha256sum "$BUNDLE/report.json"
+```
+
+Trong `$RUN_DRAFT/protocol-b1-local.json`, giữ fingerprint đã sinh, điền
+các trường protocol chung, rồi thêm đối tượng `m1`. Điền SHA-256 của
+`$BUNDLE/report.json`. Các trường còn lại cần giá trị thực từ reviewer
+trước khi chuyển trạng thái protocol sang `approved`.
+
+| Trường trong `m1` | Giá trị |
+| --- | --- |
+| `bundle_report_sha256` | Digest từ lệnh trên |
+| `bbox_review` | Hồ sơ review nhãn và quyền dùng bbox |
+| `impression_supervision_decision` | Quyết định dùng Impression làm target ảnh → báo cáo |
+| `grounding_protocol` | Hồ sơ duyệt quy tắc chấm bbox và sử dụng MS-CXR |
+| `target_risk` | Ngưỡng risk mục tiêu đã duyệt, số thực giữa 0 và 1 |
+| `pilot` | `true` cho pilot, `false` cho full run |
+
+### Kiểm tra và train
+
+Export `CXR_CONTAINER_IMAGE_ID` theo image thực tế và cấp `HF_TOKEN`
+để cache model nếu cache còn thiếu. Dùng config `b1-local.json` sinh ở trên
+cho backbone và LoRA. Entry point riêng ghi `variant: M1` trong run record.
+
+```bash
+python scripts/gpu/rental_access.py cache-model --config "$RUN_DRAFT/b1-local.json" --cache "$HF_CACHE"
+python scripts/gpu/run_m1.py validate --config "$RUN_DRAFT/b1-local.json" --cache "$HF_CACHE"
+```
+
+Kiểm tra số mẫu trong output `m1_preflight_passed`. Mỗi QA, grounding
+Chest ImaGenome, nhóm phrase MS-CXR và Impression LLaVA-Rad là một mẫu
+riêng trong luồng M1. Grounding Chest ImaGenome thêm một mẫu localization
+cho QA đã có. Impression rỗng bị loại và được đếm. Bbox được lượng tử hóa
+về lưới 0–1000 dựa trên kích thước ảnh gốc. Dùng `pilot: true` để giới
+hạn mỗi tác vụ còn tối đa 8 mẫu train và 8 mẫu ở mỗi nhóm bệnh nhân
+validation. Pilot vẫn kiểm tra toàn bộ bundle và checksum. Sau khi
+pilot kiểm tra được token budget, VRAM và adapter reload, tạo config,
+protocol và run ID mới với `pilot: false` để train đầy đủ.
+
+```bash
+export TRAIN_DIR="$DATA/runs/b1/$(basename "$RUN_DRAFT")"
+nohup python -u scripts/gpu/run_m1.py train --config "$RUN_DRAFT/b1-local.json" \
+  --cache "$HF_CACHE" >"$RUN_DRAFT/training.log" 2>&1 < /dev/null &
+printf '%s\n' "$!" >"$RUN_DRAFT/training.pid"
+```
+
+Theo dõi `$TRAIN_DIR` với `monitor_b1.py` sau khi có `run.json`.
+Khi cần khôi phục, dùng config có run ID mới và cùng fingerprint, rồi
+thêm `--resume /absolute/private/path/to/checkpoint-N` vào lệnh train.
+
+### Đánh giá và tải artifact
+
+Tạo `$RUN_DRAFT/b1-validation.json` theo lệnh tạo config ở phần 5.
+Giữ config và protocol đã bind, đổi run ID cho lượt đánh giá rồi chạy
+lệnh M1 trên GPU qua vai trò inference.
+
+```bash
+export EVAL_ID="$(basename "$RUN_DRAFT")-validation"
+export EVAL_DIR="$DATA/runs/b1/$EVAL_ID"
+python scripts/gpu/run_m1.py evaluate --config "$RUN_DRAFT/b1-validation.json" \
+  --cache "$HF_CACHE" --checkpoint "$TRAIN_DIR/adapter"
+```
+
+M1 chia bệnh nhân validation cố định thành nhóm chọn checkpoint, fit
+calibration và báo cáo. Tín hiệu answer dùng xác suất token sinh đáp án.
+Tín hiệu grounding dùng xác suất token của bbox hợp lệ do model sinh.
+Risk được fit bằng logistic regression trên nhóm calibration, sau đó
+áp ngưỡng abstain trên nhóm báo cáo. Bbox tham chiếu và báo cáo nguồn
+chỉ dùng để chấm. Nếu thiếu hai lớp đúng/sai khi fit, metrics ghi rõ
+calibration chưa đủ dữ liệu. Chỗ thiếu nhãn bbox không đưa vào mẫu số
+grounding dương tính.
+
+Đọc `$EVAL_DIR/metrics.json` để xem VQA, grounding theo nguồn, độ khớp
+từ vựng của Impression, Brier, ECE, AURC, coverage, risk và latency
+batch 1. Điểm report là lexical F1. Phần ablation đo ba cách dùng tín
+hiệu trên cùng adapter. Kết quả là exploratory validation. So sánh
+paper-facing còn cần các baseline B1/B2/B3 độc lập cùng cohort, review
+nhãn và protocol benchmark đã khóa. Nếu không có câu MS-CXR validation
+hoặc bbox silver đủ ở nhóm báo cáo, metric tương ứng ghi số mẫu và null.
+
+Dùng phần 6 để xác minh và tải adapter, checkpoint, config, protocol,
+`data_summary.json` và metrics về. Giữ bản sao private đã xác minh
+trước khi kết thúc thuê.

@@ -15,7 +15,7 @@ from cxr_research.utils.errors import ContractError
 from cxr_research.utils.io import write_json
 
 
-def train(config, manifest, directory: Path, *, resume: Path | None = None, store=None):
+def train(config, manifest, directory: Path, *, resume: Path | None = None, store=None, multitask=None):
     if config.baseline != "B1":
         raise ContractError("only B1 is trainable")
     import torch
@@ -23,14 +23,20 @@ def train(config, manifest, directory: Path, *, resume: Path | None = None, stor
     from transformers import Trainer, TrainingArguments
     model, processor = load_model(config, training=True)
     identity = _identity(config, manifest, processor)
+    if multitask is not None:
+        if store is not None:
+            raise ContractError("M1 requires the files backend")
+        identity.update(multitask.identity)
     if resume:
         _verify_parent(resume.parent / "model_identity.json", identity)
         verify_artifacts(resume)
     write_json(directory / "model_identity.json", identity)
     t = config.train
-    updates_per_epoch = ceil(len(manifest.select("medgemma", "train")) /
+    train_size = len(multitask.train) if multitask is not None else len(manifest.select("medgemma", "train"))
+    updates_per_epoch = ceil(train_size /
                              (t.batch_size * t.accumulation_steps))
     args = TrainingArguments(output_dir=str(directory), num_train_epochs=t.epochs,
+        use_cpu=config.device == "cpu",
         per_device_train_batch_size=t.batch_size, per_device_eval_batch_size=t.batch_size,
         gradient_accumulation_steps=t.accumulation_steps, learning_rate=t.learning_rate,
         weight_decay=t.weight_decay, max_grad_norm=t.max_grad_norm,
@@ -61,6 +67,9 @@ def train(config, manifest, directory: Path, *, resume: Path | None = None, stor
         training = ShardDataset(store, manifest.select("medgemma", "train"))
         validation = ShardDataset(store, manifest.select("medgemma", "validation"))
         collator = CachedVQACollator(processor.tokenizer.pad_token_id)
+    elif multitask is not None:
+        training, validation = multitask.train, multitask.selection
+        collator = VQACollator(processor, config.medgemma)
     else:
         training = VQADataset(manifest, manifest.select("medgemma", "train"))
         validation = VQADataset(manifest, manifest.select("medgemma", "validation"))
