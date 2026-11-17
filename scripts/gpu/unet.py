@@ -131,6 +131,14 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="command", required=True)
     prepare = sub.add_parser("prepare", help="decode selected masks from a pinned catalog")
     prepare.add_argument("--spec", type=Path, required=True)
+    pooled = sub.add_parser("prepare-pool", help="prepare the full patient-isolated MIMIC/NIH population")
+    pooled.add_argument("--spec", type=Path, required=True)
+    cache = sub.add_parser("cache", help="write input-equivalent U-Net PNG tar shards")
+    cache.add_argument("--config", type=Path, required=True)
+    cache.add_argument("--output", type=Path, required=True)
+    cache.add_argument("--empty-mask-policy", choices=["stop", "exclude-both-empty"], default="stop")
+    cache.add_argument("--expected-exclusions", type=int)
+    cache.add_argument("--qc-decision")
     draft = sub.add_parser("configure", help="generate private draft configs from a completed manifest")
     draft.add_argument("--prepared-dir", type=Path, required=True)
     draft.add_argument("--output", type=Path, required=True)
@@ -144,6 +152,13 @@ def main(argv=None):
         if args.command == "prepare":
             from cxr_research.data.segmentation_catalog import prepare_unet_catalog
             result = prepare_unet_catalog(args.spec, ROOT)
+        elif args.command == "prepare-pool":
+            from cxr_research.data.segmentation_pool import prepare_pool
+            result = prepare_pool(args.spec, ROOT)
+        elif args.command == "cache":
+            from cxr_research.data.segmentation_cache import cache_unet
+            result = cache_unet(args.config, args.output, ROOT, empty_mask_policy=args.empty_mask_policy,
+                                expected_exclusions=args.expected_exclusions, qc_decision=args.qc_decision)
         elif args.command == "configure":
             result = prepare_unet_run(args.prepared_dir, args.output, args.jira_issue)
         else:

@@ -132,13 +132,14 @@ export interface ReportContent extends ReportNarrative {
     study_date: string;
     indication: string;
     image_ids: number[];
-    analyzed_image_id: number;
+    analyzed_image_id: number | null;
   };
   source_item_ids: string[];
 }
 
 export interface ReportDTO {
   id: number;
+  source?: 'doctor' | 'ai';
   findings_version: number;
   status: 'draft' | 'stale' | 'final';
   content: ReportContent;
@@ -236,6 +237,7 @@ export interface HistoryReport {
 
 export interface Workspace {
   session: SessionDTO;
+  analyzed_image_id?: number | null;
   patient: PatientIdentity;
   study: StudyDTO;
   images: ImageDTO[];
@@ -247,6 +249,7 @@ export interface Workspace {
   live_request_id: number | null;
   latest_ai_request: AIRequest | null;
   initial_analysis?: AIRequest | null;
+  preliminary_report: { image_id: number; text: string } | null;
   blockers: Blocker[];
   capabilities: Capabilities;
 }
@@ -319,6 +322,7 @@ export interface LabelTask {
 export interface LabelQueueRow { id: number; image_id: number; status: LabelTaskStatus; updated_at: string; review_comment?: string | null }
 
 export interface LabelQueue {
+  claimable_count?: number;
   my_tasks: LabelQueueRow[];
   to_review: LabelQueueRow[];
   counts: Record<LabelTaskStatus, number>;

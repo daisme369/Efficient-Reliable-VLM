@@ -8,6 +8,7 @@ from cxr_research.data.shards import ShardDataset, encoded_collate
 from cxr_research.preprocessing.decoding import make_decoder
 from cxr_research.preprocessing.segmentation import transform_pair
 from cxr_research.preprocessing.tensor_segmentation import transform_tensor_pair
+from cxr_research.utils.errors import ContractError
 
 
 def loader_options(config):
@@ -25,6 +26,8 @@ class SegmentationLoader:
         samples = manifest.select("unet", split)
         self.count = len(samples)
         self.sharded = store is not None
+        if self.sharded and any(s.mask_format != "png" for s in samples):
+            raise ContractError("referenced CheXmask masks require the files backend")
         dataset = ShardDataset(store, samples) if self.sharded else SegmentationDataset(
             manifest, samples, config.unet, training=self.training, seed=config.seed)
         if not self.sharded:

@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import subprocess
 import time
 from contextlib import contextmanager
 from pathlib import Path
 from cxr_research.experiments.config import ExperimentConfig
 from cxr_research.experiments.environment import environment
+from cxr_research.experiments.source import source_provenance
 from cxr_research.utils.io import write_json
 
 
@@ -15,14 +15,12 @@ from cxr_research.utils.io import write_json
 def run_record(config: ExperimentConfig, manifest, operation: str, repository: Path,
                gpu_evidence: dict | None = None):
     directory = Path(config.output_root) / config.run_id
+    source = source_provenance(config, repository)
     directory.mkdir(parents=True, exist_ok=False)
-    git = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repository, capture_output=True, text=True)
-    status = subprocess.run(["git", "status", "--porcelain"], cwd=repository, capture_output=True, text=True)
     record = {"schema_version": 1, "operation": operation, "config": config.as_dict(),
               "config_sha256": config.fingerprint, "manifest_sha256": manifest.sha256,
               "provenance_sha256": manifest.provenance_sha256,
-              "git_commit": git.stdout.strip() if git.returncode == 0 else "unknown",
-              "git_dirty": bool(status.stdout) if status.returncode == 0 else None,
+              **source,
               "environment": environment(), "status": "running",
               "evidence": "synthetic" if config.data.synthetic else "exploratory",
               "started_at_unix": time.time(), "deterministic_algorithms": True}

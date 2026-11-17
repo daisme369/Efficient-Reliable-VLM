@@ -229,11 +229,10 @@ export function useReadingActions(data: Workspace, reload: () => Promise<Workspa
   }
 
   function resolveConflict() { setConflict(null); setError(''); }
-  const clearError = useCallback(() => setError(''), []);
 
   return {
     busy, offline, uncertain, error, conflict, job, live: liveId !== null,
-    pollError, checking, reconnect, resolveConflict, clearError, transact, submit, retry,
+    pollError, checking, reconnect, resolveConflict, transact, submit, retry,
     checkStatus: () => liveId === null ? Promise.resolve() : poll(liveId),
   };
 }

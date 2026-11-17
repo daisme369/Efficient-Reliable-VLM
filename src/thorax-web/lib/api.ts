@@ -22,24 +22,9 @@ export const authLostEvent = 'thorax:auth-lost';
 let csrfToken: string | undefined;
 let authEpoch = 0;
 
-// Images are immutable, so one download per image serves the viewer and its thumbnail.
-// Held in page memory only and dropped with the login, never in browser storage.
-const imageCache = new Map<number, Promise<Blob>>();
-
 export function clearApiAuth() {
   csrfToken = undefined;
   authEpoch += 1;
-  imageCache.clear();
-}
-
-function abortable<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
-  if (!signal) return promise;
-  if (signal.aborted) return Promise.reject(signal.reason);
-  return new Promise((resolve, reject) => {
-    const abort = () => reject(signal.reason);
-    signal.addEventListener('abort', abort, { once: true });
-    promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
-  });
 }
 
 export const actionKey = () => crypto.randomUUID();
@@ -196,15 +181,9 @@ export const api = {
   openStudy: (studyId: number) =>
     json<Workspace>(`/studies/${studyId}/sessions`, { method: 'POST' }),
   workspace: (id: number, signal?: AbortSignal) => json<Workspace>(session(id), { signal }),
-  image(imageId: number, signal?: AbortSignal) {
-    let blob = imageCache.get(imageId);
-    if (!blob) {
-      // Shared download: one caller aborting must not cancel it for the others.
-      blob = send(`/images/${imageId}/content`).then(response => response.blob());
-      imageCache.set(imageId, blob);
-      blob.catch(() => { if (imageCache.get(imageId) === blob) imageCache.delete(imageId); });
-    }
-    return abortable(blob, signal);
+  async image(imageId: number, signal?: AbortSignal) {
+    const response = await send(`/images/${imageId}/content`, { signal });
+    return response.blob();
   },
   messages: (id: number, cursor?: string, signal?: AbortSignal) =>
     json<Page<MessageDTO>>(query(`${session(id)}/messages`, cursor), { signal }),
@@ -220,10 +199,14 @@ export const api = {
     mutate<MutationReceipt>('PATCH', `${session(id)}/boxes/${boxId}`, body, options),
   deleteBox: (id: number, boxId: number, options: MutationOptions) =>
     mutate<MutationReceipt>('DELETE', `${session(id)}/boxes/${boxId}`, undefined, options),
+  startManualFindings: (id: number, options: MutationOptions) =>
+    mutate<MutationReceipt>('POST', `${session(id)}/findings`, {}, options),
   saveFindings: (id: number, body: FindingsEdit, options: MutationOptions) =>
     mutate<MutationReceipt>('PATCH', `${session(id)}/findings`, body, options),
   approveFindings: (id: number, findingsVersion: number, options: MutationOptions) =>
     mutate<MutationReceipt>('POST', `${session(id)}/findings/approve`, { findings_version: findingsVersion }, options),
+  createReport: (id: number, findingsVersion: number, options: MutationOptions) =>
+    mutate<MutationReceipt>('POST', `${session(id)}/reports`, { findings_version: findingsVersion }, options),
   saveReport: (id: number, reportId: number, body: Partial<ReportNarrative>, options: MutationOptions) =>
     mutate<MutationReceipt>('PATCH', `${session(id)}/reports/${reportId}`, body, options),
   approveReport: (id: number, reportId: number, findingsVersion: number, options: MutationOptions) =>

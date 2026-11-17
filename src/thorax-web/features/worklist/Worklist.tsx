@@ -10,6 +10,7 @@ import { api, ApiError } from '@/lib/api';
 import { EditStudy, UploadStudy } from '@/features/uploads/UploadStudy';
 import type { StudyDetail, StudyDTO } from '@/lib/contracts';
 
+/** `localDemo`: the built-in mock API, which has no uploads. */
 export function Worklist({ localDemo }: { localDemo: boolean }) {
   const desktop = useDesktop();
   return <RoleGate role="doctor">{user => <AppShell>{desktop ? <AssignedPatients key={user.id} actor={user.id} localDemo={localDemo} /> : <DesktopNotice />}</AppShell>}</RoleGate>;
@@ -39,7 +40,7 @@ function AssignedPatients({ actor, localDemo }: { actor: number; localDemo: bool
   function touch() { void refresh(true).catch(() => {}); }
   function searchFor(value: string) { setInput(value); setSearch(value.trim()); setExpanded(null); touch(); }
   return <main className="page-wrap worklist" id="main-content">
-    <div className="page-heading"><div><h1>Assigned patients</h1><p>Open a chest X-ray study to start or continue your reading.</p></div><DemoBadge mode={localDemo ? 'mock' : 'real'} /></div>
+    <div className="page-heading"><div><h1>Assigned patients</h1><p>Open a chest X-ray study to start or continue your reading.</p></div><DemoBadge mode="mock" /></div>
     <section className="surface worklist-table" aria-label="Patient worklist">
       <div className="worklist-toolbar">
         <div className="section-heading"><ClipboardList size={20} aria-hidden /><h2>Patient worklist</h2></div>

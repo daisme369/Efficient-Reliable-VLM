@@ -8,10 +8,9 @@ test('doctor reads a study: analyze runs and the review step opens', async ({ pa
   await expect(page.getByRole('rowheader', { name: /Eleanor Brooks/ })).toBeVisible();
   await page.goto('/patients/1/studies/2411');
   await page.getByRole('button', { name: 'Analyze selected image' }).click();
-  // The mock AI settles in about 1.5 s; then the Review step opens with items to review.
-  await expect(page.getByRole('tab', { name: /^Analyze Done/ })).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByRole('tab', { name: /^Review \d+ left/ })).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByText('Review this AI region.')).toBeVisible();
+  // The mock AI settles in about 1.5 s; then the preliminary report and the findings to review appear.
+  await expect(page.getByText('Preliminary AI report')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole('button', { name: /Findings review \d+ findings/ })).toBeVisible();
 });
 
 test('doctor uploads, edits, extends and deletes a study before reading it', async ({ page }) => {
@@ -103,31 +102,33 @@ test('a second annotator reviews the submitted labels and approves them', async 
   await expect(page.getByText('Approved').first()).toBeVisible();
 });
 
-test('doctor completes a reading: accept, approve findings, draft and sign the report, ask AI', async ({ page }) => {
+test('doctor completes a reading: discuss with AI, accept, approve findings, draft and sign the report', async ({ page }) => {
   await signIn(page, 'doctor@thorax.demo', PASSWORDS.doctor, /\/worklist$/);
   await page.goto('/patients/2/studies/2421');
   await page.getByRole('button', { name: 'Analyze selected image' }).click();
-  await expect(page.getByRole('tab', { name: /^Review \d+ left/ })).toHaveAttribute('aria-selected', 'true', { timeout: 20_000 });
+  await expect(page.getByText('Preliminary AI report')).toBeVisible({ timeout: 20_000 });
 
-  // Ask AI from the drawer while reviewing.
-  await page.getByRole('button', { name: 'Ask AI' }).click();
-  await page.getByLabel('Doctor’s question').fill('Is there a pleural effusion?');
-  await page.getByRole('button', { name: 'Send' }).click();
-  await expect(page.getByText('AI assistant').first()).toBeVisible({ timeout: 20_000 });
-  await page.keyboard.press('Escape');
+  // Ask the AI in the discussion; its reply is saved to the discussion.
+  await page.getByLabel('Clinical observation or question').fill('Is there a pleural effusion?');
+  await page.getByRole('button', { name: 'Add to discussion' }).click();
+  await expect(page.getByLabel('Saved study discussion').getByText(/Mock response/)).toBeVisible({ timeout: 20_000 });
 
   // Accept every AI suggestion, then approve the findings (Gate 1).
+  await page.getByRole('tab', { name: 'Findings' }).click();
   for (let left = 0; left < 10 && await page.getByRole('button', { name: 'Accept', exact: true }).count(); left++) {
     await page.getByRole('button', { name: 'Accept', exact: true }).first().click();
   }
-  await page.getByRole('button', { name: 'Save', exact: true }).click();  // accepting leaves unsaved changes
-  await page.getByRole('button', { name: 'Approve findings' }).click();
+  await page.getByRole('button', { name: 'Save findings' }).click();  // accepting leaves unsaved changes
+  // AI regions are reviewed in the viewer's region editor.
+  await page.getByRole('button', { name: 'Left basilar region' }).click();
+  await page.getByRole('button', { name: 'Accept region' }).click();
+  await page.getByRole('button', { name: 'Approve findings (Gate 1)' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Approve findings' }).click();
   await page.getByRole('button', { name: /Go to report/ }).click();
   await page.getByRole('button', { name: 'Generate report' }).click();
-  await expect(page.getByRole('button', { name: 'Sign report' })).toBeEnabled({ timeout: 20_000 });
-  await page.getByRole('button', { name: 'Sign report' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Sign report' }).click();
+  await expect(page.getByRole('button', { name: 'Approve final report (Gate 2)' })).toBeEnabled({ timeout: 20_000 });
+  await page.getByRole('button', { name: 'Approve final report (Gate 2)' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Approve final report' }).click();
   // Signing opens the read-only final report.
   await expect(page.getByRole('heading', { name: 'Final chest X-ray report' })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText('Final — read-only')).toBeVisible();

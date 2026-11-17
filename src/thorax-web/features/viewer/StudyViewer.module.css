@@ -166,10 +166,15 @@
   min-inline-size: 0;
   min-block-size: 335px;
   overflow: hidden;
+  overscroll-behavior: contain;
   background: var(--image-stage);
   touch-action: none;
   user-select: none;
 }
+
+.shortcuts { padding: 4px 16px 8px; color: var(--image-muted); border-top: 1px solid var(--image-divider); font-size: 0.8125rem; }
+.shortcuts summary { padding-block: 4px; cursor: pointer; }
+.shortcuts p { margin: 4px 0; }
 
 .stage:focus-visible {
   outline: 3px solid var(--image-focus);

@@ -39,6 +39,16 @@ Other commands: `python -m thorax_api.accounts create|disable|enable|reset-passw
 
 Tests: `python -m unittest discover -s tests/api -t .` (they skip when FastAPI is not installed).
 
+## Manual review and recovery
+
+On a fresh reading, **Start manual review** creates an empty findings version through `POST /api/v1/sessions/{id}/findings` with `{}`. The doctor enters findings or confirms a normal study, saves regions if needed, and approves Gate 1. **Create report manually** calls `POST /api/v1/sessions/{id}/reports` with `{findings_version}` to prepare an editable draft from those approved findings. Gate 2 requires saved Findings and Impression. Both creation routes require the current `If-Match` and an `Idempotency-Key` and work while AI is paused. An existing approved findings set can also use manual report creation.
+
+Starting manual review reserves the reading's findings. Subsequent initial Analyze returns `FINDINGS_ALREADY_EXIST` to preserve that work. Workspace exposes nullable `analyzed_image_id`, and each report exposes `source` as `doctor` or `ai`, so the UI can show its origin. Saved readings use the existing database structure.
+
+An active annotator can use **Label next image** to recover unfinished work owned by a disabled account. The claim preserves boxes and records both owners. Every previous labeler is excluded from reviewing the task. The queue includes `claimable_count` for this action. Administrator user PATCH requests accept exactly one of `is_active` or `password`.
+
+Web mock regressions run from `src/thorax-web` with `node --test tests/mock-clinical.test.cjs`.
+
 ## Limits
 
 - AI answers are the same fixed demo answers as the web mock. The trained model is not connected yet; its inference service is not built.

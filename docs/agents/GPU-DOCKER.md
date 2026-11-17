@@ -10,7 +10,8 @@ Hardware roles are locked unless an approved dependency or experiment decision c
 
 - H100 and H200 (`sm90`), and RTX PRO 6000 Blackwell (`sm120`), are training hardware. The RTX PRO addition is recorded as HW-2026-10-29 in `DETAILED_ACTION_PLAN.md`.
 - RTX 4090 (`sm89`), RTX 5090 (`sm120`), and RTX PRO 6000 Blackwell (`sm120`) are test, inference, and deployment-research hardware.
-- User-approved exception, 2026-10-17: local RTX 3060 (`sm86`) may run synthetic DALI/CUDA smoke tests only, using `--role smoke`. This does not authorize real-data training/inference or research performance claims. The experiment runner continues to select only `train` or `inference`.
+- User-approved exception, 2026-10-17: local RTX 3060 (`sm86`) may run synthetic DALI/CUDA smoke tests using `--role smoke`. This smoke role does not authorize real-data training/inference or research performance claims.
+- UNET-LOCAL-2026-10-30 supersedes the preceding exception for the user-requested local U-Net run. An approved U-Net `S1` protocol with `hardware_profile: local-unet-rtx3060` selects `--role train-unet-local`, which requires the exact NVIDIA GeForce RTX 3060 identity and `sm86`. The Linux container, driver, CUDA and package checks remain mandatory. This exception does not permit MedGemma training or RTX 3060 evaluation/inference through the research CLI. See the dated record in `DETAILED_ACTION_PLAN.md`.
 - The host must expose an NVIDIA release 580 or newer driver through NVIDIA Container Toolkit.
 
 User-approved preparation exception RUNTIME-2026-10-30: on Vast instance 58351663,

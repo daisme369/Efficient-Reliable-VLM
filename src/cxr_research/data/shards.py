@@ -32,6 +32,8 @@ def pack_shards(config, manifest, output: Path, repository: Path, *, shard_bytes
         raise ContractError("shard size must be positive")
     if config.task == "medgemma" and processor is None:
         raise ContractError("MedGemma packing requires the pinned processor")
+    if any(s.mask_format != "png" for s in manifest.samples if s.task == "unet"):
+        raise ContractError("referenced CheXmask masks require the files backend")
     output.mkdir(parents=True, exist_ok=False)
     status = {"status": "running", "task": config.task}
     write_json(output / "pack.json", status)
@@ -122,6 +124,11 @@ class ShardStore:
                     "manifest_sha256": manifest.sha256, "provenance_sha256": manifest.provenance_sha256}
         if any(self.index.get(key) != value for key, value in expected.items()):
             raise ContractError("shards do not match the source manifest and task")
+        cache = self.index.get("unet_cache")
+        if cache is not None and (config.task != "unet" or not isinstance(cache, dict)
+                or type(cache.get("size")) is not int or cache["size"] != config.unet.size
+                or cache.get("geometry") != "crop_letterbox_valid_rectangle_v1"):
+            raise ContractError("U-Net cache resolution or geometry differs from this experiment")
         self.root = self.path.parent.resolve()
         self.shards = {}
         for shard in self.index["shards"]:

@@ -186,7 +186,7 @@ export function UsersAccess({ actor, active, me }: { actor: number; active: bool
       </table></div>}</Loading>
     </Panel>
     <form className="admin-panel admin-form admin-create-user" onSubmit={event => void create(event)} aria-labelledby="admin-create-user">
-      <header className="admin-panel-heading"><h2 id="admin-create-user"><UserPlus size={20} aria-hidden="true" /> Create account</h2><p>Share the initial password privately; the user can change it after signing in.</p></header>
+      <header className="admin-panel-heading"><h2 id="admin-create-user"><UserPlus size={20} aria-hidden="true" /> Create account</h2><p>Share the initial password privately. Users can change it after signing in.</p></header>
       <fieldset disabled={busy}>
         <label htmlFor="admin-user-role">Role</label>
         <select id="admin-user-role" value={role} onChange={event => setRole(event.target.value as UserRole)}>{(Object.keys(roleLabel) as UserRole[]).map(r => <option key={r} value={r}>{roleLabel[r]}</option>)}</select>

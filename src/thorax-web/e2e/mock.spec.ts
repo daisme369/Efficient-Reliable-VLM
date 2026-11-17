@@ -12,7 +12,7 @@ test('mock doctor reads a study and sees no upload actions', async ({ page }) =>
   await expect(page.getByRole('button', { name: /Edit the study/ })).toHaveCount(0);
   await page.goto('/patients/1/studies/2411');
   await page.getByRole('button', { name: 'Analyze selected image' }).click();
-  await expect(page.getByRole('tab', { name: /^Review \d+ left/ })).toHaveAttribute('aria-selected', 'true', { timeout: 20_000 });
+  await expect(page.getByText('Preliminary AI report')).toBeVisible({ timeout: 20_000 });
 });
 
 test('mock admin gets the demo console only', async ({ page }) => {

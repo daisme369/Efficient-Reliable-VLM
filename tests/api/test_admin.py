@@ -104,6 +104,19 @@ class AdminTests(unittest.TestCase):
         self.assertEqual(self.admin.post("/api/v1/admin/assignments", json={"doctor_id": 4, "patient_id": 11}).status_code, 404)  # not a doctor
         self.assertEqual(self.actions()[:2], ["access_revoked", "access_granted"])
 
+    def test_mixed_user_changes_are_rejected_without_side_effects(self):
+        original_hash = self.app.state.accounts.by_id(1).password_hash
+        for body in ({"is_active": False, "password": "short"},
+                     {"is_active": False, "password": "a-valid-new-password"}, {}):
+            with self.subTest(body_fields=list(body)):
+                response = self.admin.patch("/api/v1/admin/users/1", json=body)
+                self.assertEqual(response.status_code, 422)
+                user = self.app.state.accounts.by_id(1)
+                self.assertTrue(user.is_active)
+                self.assertEqual(user.password_hash, original_hash)
+                self.assertEqual(self.doctor.get("/api/v1/auth/me").status_code, 200)
+                self.assertEqual(self.actions(), [])
+
     def test_ai_pause_switch_and_request_log(self):
         store = self.app.state.admin
         self.assertFalse(store.ai_paused())

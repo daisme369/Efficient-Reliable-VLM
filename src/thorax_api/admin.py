@@ -179,8 +179,8 @@ def register_admin(app: FastAPI, *, accounts: AccountStore, catalog: Catalog, la
         me = admin(request)
         user = user_or_404(user_id)
         body = await body_of(request, {"is_active", "password"})
-        if not body:
-            raise invalid("Send is_active or password.")
+        if len(body) != 1:
+            raise invalid("Send exactly one of is_active or password.")
         if "is_active" in body:
             if not isinstance(body["is_active"], bool):
                 raise invalid("is_active must be true or false.")
@@ -306,4 +306,3 @@ def register_admin(app: FastAPI, *, accounts: AccountStore, catalog: Catalog, la
 def sessions_view(sessions, clock) -> SimpleNamespace:
     """Adapter over the session store, so admin code never touches tokens."""
     return SimpleNamespace(signed_in=lambda: sessions.signed_in(clock()), revoke=sessions.revoke_user)
-

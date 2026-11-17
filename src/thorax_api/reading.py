@@ -38,6 +38,11 @@ SCHEMA = (
         analyzed_image_id INTEGER REFERENCES images (id),
         UNIQUE (doctor_id, study_id)
     )""",
+    """CREATE TABLE IF NOT EXISTS preliminary_reports (
+        session_id INTEGER PRIMARY KEY REFERENCES reading_sessions (id),
+        image_id INTEGER NOT NULL REFERENCES images (id),
+        text TEXT NOT NULL CHECK (length(trim(text)) BETWEEN 1 AND 8000)
+    )""",
     """CREATE TABLE IF NOT EXISTS findings_versions (
         id INTEGER PRIMARY KEY,
         session_id INTEGER NOT NULL REFERENCES reading_sessions (id),
@@ -308,7 +313,7 @@ class ReadingStore:
         if findings and findings["status"] == "approved":
             return []
         if not findings:
-            return [self._blocker("gate1", "ANALYSIS_REQUIRED", "findings", "Run the initial analysis.")]
+            return [self._blocker("gate1", "ANALYSIS_REQUIRED", "findings", "Run the initial analysis or start a manual review.")]
         pending = []
         if findings["status"] != "in_review":
             pending.append(self._blocker("gate1", "SAVE_REQUIRED", "findings", "Save findings before approval."))
@@ -345,13 +350,19 @@ class ReadingStore:
         study = self._study(db, reading["session"]["study_id"])
         live = self._active_job(reading)
         initial = next((j["request"] for j in reading["jobs"] if j["request"]["operation"] == "analyze" and j["request"]["status"] == "succeeded"), None)
+        preliminary = db.execute("SELECT image_id, text FROM preliminary_reports WHERE session_id = ?", (reading["session"]["id"],)).fetchone()
+        generated_reports = {j["request"]["output_refs"].get("report_id") for j in reading["jobs"]
+                             if j["request"]["operation"] == "draft_report" and j["request"]["status"] == "succeeded"}
         return {
             "session": reading["session"], "patient": self._patient(db, reading["session"]["patient_id"]),
             "study": self._study_dto(db, study, reading["session"]["doctor_id"]), "images": study["images"], "history": self._history(db, study),
-            "latest_findings": reading["findings"][-1] if reading["findings"] else None, "reports": reading["reports"], "boxes": reading["boxes"],
+            "latest_findings": reading["findings"][-1] if reading["findings"] else None,
+            "reports": [{**report, "source": "ai" if report["id"] in generated_reports else "doctor"} for report in reading["reports"]],
+            "boxes": reading["boxes"], "analyzed_image_id": reading["analyzed_image_id"],
             "messages": messages_page, "live_request_id": live["request"]["request_id"] if live else None,
             "latest_ai_request": live["request"] if live else (reading["jobs"][-1]["request"] if reading["jobs"] else None),
-            "initial_analysis": initial, "blockers": self._gate1(reading) + self._gate2(reading),
+            "initial_analysis": initial, "preliminary_report": dict(preliminary) if preliminary else None,
+            "blockers": self._gate1(reading) + self._gate2(reading),
             "capabilities": {"provider_mode": "mock", "can_detect": True, "can_ask_roi": True, "model_artifacts": MODEL_ARTIFACTS},
         }
 
@@ -396,9 +407,6 @@ class ReadingStore:
         if not self.is_allowed(session["doctor_id"], session["patient_id"]):
             request["status"] = "cancelled"
             request["error"] = {"code": "AUTHORIZATION_REVOKED", "message": "Access to this study was revoked.", "retryable": False}
-        elif now_ms >= job["submitted_at"] + DEADLINE_MS:
-            request["status"] = "timed_out"
-            request["error"] = {"code": "AI_DEADLINE_EXCEEDED", "message": "The AI request reached its time limit.", "retryable": True}
         elif job["failure"] != "timeout" and elapsed >= ANALYZE_MS:
             if job["failure"] == "detector":
                 request["status"] = "failed"
@@ -411,6 +419,9 @@ class ReadingStore:
                 else:
                     request["output_refs"] = {"report_id": self._draft(db, reading)}
                 request["status"] = "succeeded"
+        elif now_ms >= job["submitted_at"] + DEADLINE_MS:
+            request["status"] = "timed_out"
+            request["error"] = {"code": "AI_DEADLINE_EXCEEDED", "message": "The AI request reached its time limit.", "retryable": True}
         else:
             if elapsed >= RUNNING_MS and request["status"] == "queued":
                 request["status"] = "running"
@@ -438,8 +449,10 @@ class ReadingStore:
     def _complete_analysis(self, db, reading: dict, request: dict, image_id: int) -> dict:
         image = self._image(self._study(db, reading["session"]["study_id"]), image_id)
         boxes, suggestions = [], []
-        if image["view"] == "PA":
-            boxes.append({"id": self._next_id(db), "image_id": image_id, "bbox_xyxy": [501.25, 542.5, 663.75, 685], "label": "Left basilar region",
+        if image["view"] in ("PA", "AP"):
+            x_scale, y_scale = image["width"] / 800, image["height"] / 880
+            bbox = [501.25 * x_scale, 542.5 * y_scale, 663.75 * x_scale, 685 * y_scale]
+            boxes.append({"id": self._next_id(db), "image_id": image_id, "bbox_xyxy": bbox, "label": "Left basilar region",
                           "note": None, "source": "ai", "review_action": "pending", "revision": 1, "deleted_at": None, "ai_request_id": request["request_id"]})
         if image["view"] != "LAT":
             rid = request["request_id"]
@@ -451,6 +464,10 @@ class ReadingStore:
             ]
         findings = {"id": self._next_id(db), "version": 1, "status": "ai_proposed", "items": suggestions, "ai_items": copy.deepcopy(suggestions),
                     "no_abnormality_confirmed": False, "annotation_snapshot": None, "approved_by": None, "approved_at": None}
+        text = "\n".join(item["text"] for item in suggestions) or (
+            "The mock analysis returned no suggested findings for this image. Review the image and record your assessment."
+        )
+        db.execute("INSERT INTO preliminary_reports (session_id, image_id, text) VALUES (?, ?, ?)", (reading["session"]["id"], image_id, text))
         reading["analyzed_image_id"] = image_id
         reading["findings"].append(findings)
         reading["boxes"].extend(boxes)
@@ -488,10 +505,21 @@ class ReadingStore:
         return report["id"]
 
     # --- public operations -----------------------------------------------------------------
-    def open_reading(self, study_id: int, actor_id: int, messages_args: tuple) -> tuple[dict, int]:
+    @staticmethod
+    def _authorize(db, actor_id: int, patient_id: int, authorize=None) -> None:
+        if authorize is not None and authorize().id != actor_id:
+            missing()
+        allowed = db.execute("""SELECT 1 FROM users u JOIN assignments a ON a.doctor_id = u.id
+                                WHERE u.id = ? AND u.role = 'doctor' AND u.is_active = 1
+                                AND a.patient_id = ? AND a.active = 1""", (actor_id, patient_id)).fetchone()
+        if allowed is None:
+            missing()
+
+    def open_reading(self, study_id: int, actor_id: int, messages_args: tuple, *, authorize=None) -> tuple[dict, int]:
         with connect(self.path) as db:
             db.execute("BEGIN IMMEDIATE")
             study = self._study(db, study_id)
+            self._authorize(db, actor_id, study["patient_id"], authorize)
             row = db.execute("SELECT id FROM reading_sessions WHERE doctor_id = ? AND study_id = ?", (actor_id, study_id)).fetchone()
             status = 200
             if row is None:
@@ -512,10 +540,13 @@ class ReadingStore:
             row = db.execute("SELECT doctor_id, patient_id FROM reading_sessions WHERE id = ?", (session_id,)).fetchone()
         return (row["doctor_id"], row["patient_id"]) if row else None
 
-    def read(self, session_id: int, actor_id: int, view: str, *args):
+    def read(self, session_id: int, actor_id: int, view: str, *args, authorize=None):
         with connect(self.path) as db:
             db.execute("BEGIN IMMEDIATE")
             reading = self._load(db, session_id)
+            if reading["session"]["doctor_id"] != actor_id:
+                missing()
+            self._authorize(db, actor_id, reading["session"]["patient_id"], authorize)
             if self._settle(db, reading):
                 self._save(db, reading)
             if view == "workspace":
@@ -533,10 +564,14 @@ class ReadingStore:
             return {"items": events[start:end], "next_cursor": self._signed(scope, end) if end < len(events) else None}
 
     def mutate(self, session_id: int, actor_id: int, kind: str, body: dict, *, if_match: str | None, idempotency_key: str | None,
-               path: str, method: str, target: int | None = None) -> tuple[dict, int]:
-        required = kind in ("ai", "add_box", "approve_findings", "approve_report")
+               path: str, method: str, target: int | None = None, authorize=None) -> tuple[dict, int]:
+        required = kind in ("ai", "add_box", "approve_findings", "approve_report", "start_manual", "create_report")
         with connect(self.path) as db:
             db.execute("BEGIN IMMEDIATE")
+            reading = self._load(db, session_id)
+            if reading["session"]["doctor_id"] != actor_id:
+                missing()
+            self._authorize(db, actor_id, reading["session"]["patient_id"], authorize)
             scope = body_hash = None
             if idempotency_key is not None or required:
                 if not idempotency_key or not (16 <= len(idempotency_key) <= 128) or not all(32 <= ord(c) <= 126 for c in idempotency_key):
@@ -548,7 +583,6 @@ class ReadingStore:
                     if saved["body_hash"] != body_hash:
                         fail(409, "IDEMPOTENCY_CONFLICT", "This action key was already used with different input.")
                     return json.loads(saved["data"]), saved["status"]
-            reading = self._load(db, session_id)
             self._settle(db, reading)
             if not if_match:
                 fail(428, "PRECONDITION_REQUIRED", "Reload this reading before saving.")
@@ -558,12 +592,13 @@ class ReadingStore:
                 fail(409, "FINAL_READ_ONLY", "This final reading is read-only.")
             if self._active_job(reading):
                 fail(409, "AI_BUSY", "Wait for the current AI request before making changes.")
-            if kind in ("add_box", "change_box", "delete_box", "save_findings", "approve_findings") and reading["analyzed_image_id"] is None:
-                fail(409, "ANALYSIS_REQUIRED", "Run the initial analysis before making this change.")
+            if kind in ("add_box", "change_box", "delete_box", "save_findings", "approve_findings") and not reading["findings"]:
+                fail(409, "ANALYSIS_REQUIRED", "Run the initial analysis or start a manual review before making this change.")
             study = self._study(db, reading["session"]["study_id"])
             handler = {"ai": self._submit, "add_box": self._create_box, "change_box": self._edit_box, "delete_box": self._edit_box,
                        "save_findings": self._save_findings, "approve_findings": self._approve_findings,
-                       "save_report": self._edit_report, "approve_report": self._edit_report}[kind]
+                       "save_report": self._edit_report, "approve_report": self._edit_report,
+                       "start_manual": self._start_manual, "create_report": self._create_report}[kind]
             data, status = handler(db, reading, study, body, kind, target)
             self._save(db, reading)
             if scope:
@@ -574,6 +609,26 @@ class ReadingStore:
     # --- mutation handlers (same rules as the mock) ----------------------------------------
     def _receipt(self, reading, resource_type, resource_id):
         return {"resource_type": resource_type, "resource_id": resource_id, "session_revision": reading["session"]["revision"]}
+
+    def _start_manual(self, db, reading, study, body, kind, target):
+        fields(body, [])
+        if reading["findings"]:
+            fail(409, "FINDINGS_ALREADY_EXIST", "Continue reviewing the existing findings.")
+        findings = {"id": self._next_id(db), "version": 1, "status": "in_review", "items": [], "ai_items": [],
+                    "no_abnormality_confirmed": False, "annotation_snapshot": None, "approved_by": None, "approved_at": None}
+        reading["findings"].append(findings)
+        self._record_edit(reading, "manual_review_started", {"findings_version": findings["version"]})
+        return self._receipt(reading, "findings", findings["id"]), 201
+
+    def _create_report(self, db, reading, study, body, kind, target):
+        fields(body, ["findings_version"])
+        version = integer(body.get("findings_version"), "findings version")
+        latest = reading["findings"][-1] if reading["findings"] else None
+        if not latest or latest["status"] != "approved" or latest["version"] != version or reading["session"]["status"] != "findings_approved":
+            fail(409, "GATE1_REQUIRED", "Approve the latest findings before creating a report.")
+        report_id = self._draft(db, reading)
+        self._record_edit(reading, "report_created", {"report_id": report_id, "findings_version": version, "source": "doctor"})
+        return self._receipt(reading, "report", report_id), 201
 
     def _invalidate_approval(self, db, reading) -> None:
         latest = reading["findings"][-1] if reading["findings"] else None
@@ -755,6 +810,8 @@ class ReadingStore:
         box = None
         if data["operation"] == "analyze" and reading["analyzed_image_id"] is not None:
             fail(409, "ALREADY_ANALYZED", "Initial analysis already succeeded for this reading.")
+        if data["operation"] == "analyze" and reading["findings"]:
+            fail(409, "FINDINGS_ALREADY_EXIST", "Continue reviewing the manually entered findings.")
         if data["operation"] == "ask":
             if reading["analyzed_image_id"] is None:
                 fail(409, "ANALYSIS_REQUIRED", "Run the initial analysis before asking a question.")
@@ -841,36 +898,36 @@ def register_reading(app, *, store: ReadingStore, catalog, actor, path_id, read_
             missing()
         if await read_body(request):
             invalid("Unexpected request field.")
-        workspace, status = store.open_reading(found["id"], user.id, message_args(request))
+        workspace, status = store.open_reading(found["id"], user.id, message_args(request), authorize=lambda: actor(request, "doctor"))
         return reply(workspace, status, workspace["session"]["revision"])
 
     @app.get("/api/v1/sessions/{session_id}")
     async def get_session(request: Request, session_id: str):
         user, sid = owned(request, session_id)
-        workspace = store.read(sid, user.id, "workspace", *message_args(request))
+        workspace = store.read(sid, user.id, "workspace", *message_args(request), authorize=lambda: actor(request, "doctor"))
         return reply(workspace, revision=workspace["session"]["revision"])
 
     @app.get("/api/v1/sessions/{session_id}/messages")
     async def get_messages(request: Request, session_id: str):
         user, sid = owned(request, session_id)
-        return reply(store.read(sid, user.id, "messages", *message_args(request)))
+        return reply(store.read(sid, user.id, "messages", *message_args(request), authorize=lambda: actor(request, "doctor")))
 
     @app.get("/api/v1/sessions/{session_id}/events")
     async def get_events(request: Request, session_id: str):
         user, sid = owned(request, session_id)
-        return reply(store.read(sid, user.id, "events", request.query_params.get("cursor"), request.query_params.get("limit")))
+        return reply(store.read(sid, user.id, "events", request.query_params.get("cursor"), request.query_params.get("limit"), authorize=lambda: actor(request, "doctor")))
 
     @app.get("/api/v1/sessions/{session_id}/ai-requests/{request_id}")
     async def get_ai_request(request: Request, session_id: str, request_id: str):
         user, sid = owned(request, session_id)
-        return reply(store.read(sid, user.id, "request", path_id(request_id)))
+        return reply(store.read(sid, user.id, "request", path_id(request_id), authorize=lambda: actor(request, "doctor")))
 
     async def change(request: Request, session_id: str, kind: str, target: str | None = None):
         user, sid = owned(request, session_id)
         body = await read_body(request)
         data, status = store.mutate(sid, user.id, kind, body, if_match=request.headers.get("if-match"),
                                     idempotency_key=request.headers.get("idempotency-key"), path=request.url.path, method=request.method,
-                                    target=path_id(target) if target is not None else None)
+                                    target=path_id(target) if target is not None else None, authorize=lambda: actor(request, "doctor"))
         return reply(data, status, data["session_revision"])
 
     @app.post("/api/v1/sessions/{session_id}/ai-requests")
@@ -893,6 +950,10 @@ def register_reading(app, *, store: ReadingStore, catalog, actor, path_id, read_
     async def save_findings(request: Request, session_id: str):
         return await change(request, session_id, "save_findings")
 
+    @app.post("/api/v1/sessions/{session_id}/findings")
+    async def start_manual_findings(request: Request, session_id: str):
+        return await change(request, session_id, "start_manual")
+
     @app.post("/api/v1/sessions/{session_id}/findings/approve")
     async def approve_findings(request: Request, session_id: str):
         return await change(request, session_id, "approve_findings")
@@ -900,6 +961,10 @@ def register_reading(app, *, store: ReadingStore, catalog, actor, path_id, read_
     @app.patch("/api/v1/sessions/{session_id}/reports/{report_id}")
     async def save_report(request: Request, session_id: str, report_id: str):
         return await change(request, session_id, "save_report", report_id)
+
+    @app.post("/api/v1/sessions/{session_id}/reports")
+    async def create_manual_report(request: Request, session_id: str):
+        return await change(request, session_id, "create_report")
 
     @app.post("/api/v1/sessions/{session_id}/reports/{report_id}/approve")
     async def approve_report(request: Request, session_id: str, report_id: str):

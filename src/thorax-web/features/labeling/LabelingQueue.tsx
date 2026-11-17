@@ -32,9 +32,12 @@ function LabelingQueue() {
   const queue = useQuery({ queryKey: ['labeling', 'queue'], queryFn: ({ signal }) => api.labelQueue(signal) });
   const [claiming, setClaiming] = useState(false);
   const [error, setError] = useState('');
+  const unfinished = queue.data?.my_tasks.filter(task => task.status === 'in_progress' || task.status === 'returned') ?? [];
+  const claimable = queue.data?.claimable_count ?? queue.data?.counts.open ?? 0;
+  const canClaim = unfinished.length > 0 || claimable > 0;
 
   async function next() {
-    if (claiming) return;
+    if (claiming || !canClaim) return;
     setClaiming(true); setError('');
     try {
       const task = await api.labelNext();
@@ -57,8 +60,8 @@ function LabelingQueue() {
   if (queue.isPending) return <main id="main-content" className="page-wrap surface"><Skeleton label="Loading labeling queue" rows={5} /></main>;
   if (queue.error) return <main id="main-content" className="page-wrap surface"><EmptyState title="Could not load the labeling queue" action={<button className="button" onClick={() => void queue.refetch()}>Retry</button>}>Check your connection and try again.</EmptyState></main>;
   const { my_tasks: mine, to_review: review, counts } = queue.data;
-  const returned = mine.filter(task => task.status === 'returned').length;
-  const nextText = returned ? `Next: fix ${returned} returned ${returned === 1 ? 'image' : 'images'}` : mine.length ? 'Next: continue your image' : counts.open ? 'Next: label a new image' : 'No images left to label';
+  const returned = unfinished.filter(task => task.status === 'returned').length;
+  const nextText = returned ? `Next: fix ${returned} returned ${returned === 1 ? 'image' : 'images'}` : unfinished.length ? 'Next: continue your image' : claimable ? 'Next: label a new image' : 'No images left to label';
 
   return <main id="main-content" className="labeling-page">
     <div className="page-heading"><div><h1>Labeling queue</h1><p>Mark findings on chest X-rays with region boxes. A second annotator reviews each image.</p></div><Badge tone="info">Demo · synthetic images</Badge></div>
@@ -68,14 +71,14 @@ function LabelingQueue() {
         <p className="muted dense">Returned and in-progress work comes first, then the oldest unlabeled image.</p>
         {error && <Notice tone="error">{error}</Notice>}
         <div className="labeling-row-actions">
-          <button className="button primary" disabled={claiming || (!mine.length && !counts.open)} onClick={() => void next()}>{claiming ? <Spinner /> : null}Label next image <ArrowRight size={16} aria-hidden /></button>
+          <button className="button primary" disabled={claiming || !canClaim} onClick={() => void next()}>{claiming ? <Spinner /> : null}Label next image <ArrowRight size={16} aria-hidden /></button>
           <span className="muted dense">Shortcut <kbd>N</kbd></span>
         </div>
       </div>
       <dl className="labeling-counts">{(Object.keys(statusLabel) as LabelTaskStatus[]).map(status => <div key={status}><dt>{statusLabel[status]}</dt><dd>{counts[status]}</dd></div>)}</dl>
     </section>
     <div className="labeling-lists">
-      <TaskTable title="Your work" empty="Nothing in progress." rows={mine} action={row => row.status === 'returned' ? 'Fix' : 'Continue'} note={row => row.review_comment ? `Reviewer: “${row.review_comment}”` : `Last change ${formatTime(row.updated_at)}`} />
+      <TaskTable title="Your work" empty="Nothing in progress." rows={mine} action={row => row.status === 'returned' ? 'Fix' : row.status === 'in_progress' ? 'Continue' : 'View'} note={row => row.review_comment ? `Reviewer: “${row.review_comment}”` : `Last change ${formatTime(row.updated_at)}`} />
       <TaskTable title="Waiting for your review" empty="Nothing to review. You can’t review your own labels." rows={review} action={() => 'Review'} note={row => `Submitted ${formatTime(row.updated_at)}`} />
     </div>
     <p className="muted dense">Only approved labels are exported. The label list is not fully verified yet. Training on these labels needs an approved scope-change record.</p>

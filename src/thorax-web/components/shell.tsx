@@ -12,16 +12,17 @@ type AuthUser = Awaited<ReturnType<typeof api.me>>;
 const authKey = ['auth', 'me'] as const;
 const authContext = createContext<{
   user: AuthUser | undefined; loading: boolean; error: unknown; expired: boolean;
+  backendConnected: boolean;
   refresh: (activity?: boolean) => Promise<AuthUser | undefined>;
   accept: (user: AuthUser) => void; expire: () => void; signOut: () => Promise<void>;
 } | null>(null);
 
-export function Providers({ children }: { children: ReactNode }) {
+export function Providers({ children, backendConnected }: { children: ReactNode; backendConnected: boolean }) {
   const [queryClient] = useState(() => new QueryClient({ defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false, gcTime: 0 } } }));
-  return <QueryClientProvider client={queryClient}><AuthProvider>{children}</AuthProvider></QueryClientProvider>;
+  return <QueryClientProvider client={queryClient}><AuthProvider backendConnected={backendConnected}>{children}</AuthProvider></QueryClientProvider>;
 }
 
-function AuthProvider({ children }: { children: ReactNode }) {
+function AuthProvider({ children, backendConnected }: { children: ReactNode; backendConnected: boolean }) {
   const queryClient = useQueryClient();
   const router = useRouter();
   const pathname = usePathname();
@@ -96,7 +97,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(timer);
   }, [user?.expires_at, refresh, expire]);
 
-  return <authContext.Provider value={{ user, loading: auth.isPending, error: auth.error, expired, refresh, accept, expire, signOut }}>{children}</authContext.Provider>;
+  return <authContext.Provider value={{ user, loading: auth.isPending, error: auth.error, expired, backendConnected, refresh, accept, expire, signOut }}>{children}</authContext.Provider>;
 }
 
 export function useAuth() {
@@ -124,8 +125,8 @@ export function Brand() {
   return <span className="brand"><span className="brand-mark"><ScanLine size={22} aria-hidden /></span><strong>Thorax AI</strong></span>;
 }
 
-export function AppShell({ children, workspace, onWorklist, onSignOut }: { children: ReactNode; workspace?: boolean; onWorklist?: () => void; onSignOut?: () => void }) {
-  const { user, signOut, refresh } = useAuth();
+export function AppShell({ children, workspace, onWorklist, onLabelingQueue, onSignOut }: { children: ReactNode; workspace?: boolean; onWorklist?: () => void; onLabelingQueue?: () => void; onSignOut?: () => void }) {
+  const { user, signOut, refresh, backendConnected } = useAuth();
   const [signingOut, setSigningOut] = useState(false);
   const [error, setError] = useState('');
   const [warning, setWarning] = useState(false);
@@ -164,7 +165,7 @@ export function AppShell({ children, workspace, onWorklist, onSignOut }: { child
       {user && <nav aria-label="Primary navigation" className="main-nav">
         {user.role === 'doctor' ? <Link prefetch={false} href="/worklist" aria-current={pathname === '/worklist' ? 'page' : undefined} onClick={onWorklist ? event => { if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); onWorklist(); } : undefined}>
           {pathname !== '/worklist' && <ArrowLeft size={16} aria-hidden />} Worklist
-        </Link> : user.role === 'annotator' ? <Link prefetch={false} href="/labeling" aria-current={pathname === '/labeling' ? 'page' : undefined}>
+        </Link> : user.role === 'annotator' ? <Link prefetch={false} href="/labeling" aria-current={pathname === '/labeling' ? 'page' : undefined} onClick={onLabelingQueue ? event => { if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); onLabelingQueue(); } : undefined}>
           {pathname !== '/labeling' && <ArrowLeft size={16} aria-hidden />} Labeling queue
         </Link> : <Link prefetch={false} href="/admin" aria-current="page">Admin</Link>}
         {user.role === 'annotator' && pathname.startsWith('/labeling/') && <><ChevronRight size={14} aria-hidden /><span>Label image</span></>}
@@ -172,7 +173,7 @@ export function AppShell({ children, workspace, onWorklist, onSignOut }: { child
       </nav>}
       <div className="header-account">
         {user && <><span className="avatar" aria-hidden>{initials}</span><span className="account-name"><strong>{user.name}</strong><span>{{ admin: 'Administrator', annotator: 'Annotator', doctor: 'Doctor' }[user.role]}</span></span></>}
-        {user && <button className="button ghost" onClick={() => setChangingPassword(true)}><KeyRound size={16} aria-hidden /> Change password</button>}
+        {user && backendConnected && <button className="button ghost" onClick={() => setChangingPassword(true)}><KeyRound size={16} aria-hidden /> Change password</button>}
         {user && <button className="button ghost" onClick={() => void leave()} disabled={signingOut}><LogOut size={16} aria-hidden /> {signingOut ? 'Signing out…' : 'Sign out'}</button>}
       </div>
     </header>

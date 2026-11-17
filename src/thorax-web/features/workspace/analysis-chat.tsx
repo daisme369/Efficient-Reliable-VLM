@@ -1,27 +1,20 @@
 'use client';
 
-import { Activity, ArrowDown, ArrowRight, CheckCircle2, ImageIcon, Info, MessageSquare, ScanLine, Send, X } from 'lucide-react';
+import { Activity, ArrowDown, ImageIcon, Info, MessageSquare, ScanLine, Send, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { aiSuggestion, Badge, EmptyState, formatTime, Notice, Spinner } from '@/components/ui';
-import { api, ApiError, isTerminal } from '@/lib/api';
+import { api, isTerminal } from '@/lib/api';
 import type { AIProvenance, AIRequest, BoxDTO, ImageDTO, MessageDTO, Workspace } from '@/lib/contracts';
-import { regionName, regionState } from '@/features/viewer/RegionEditor';
-import type { Panel } from './StudyWorkspace';
 import { errorText, type ReadingActions } from './useReading';
 
 type AnalysisProps = {
   data: Workspace; image?: ImageDTO; imageReady: boolean; actions: ReadingActions; disabled: boolean;
-  reason?: string; onPanel: (panel: Panel) => void; onBox: (id: number) => void;
+  reason?: string; onManual: () => void;
 };
 
 export function imageLabel(images: ImageDTO[], id: number | null | undefined) {
   const index = images.findIndex(image => image.id === id);
   return index < 0 ? 'Image unavailable' : `${images[index].view} · Image ${index + 1}`;
-}
-
-function regionLabel(boxes: BoxDTO[], id: number) {
-  const box = boxes.find(item => item.id === id);
-  return box ? regionName(boxes, box) : `Region ${id}`;
 }
 
 export function AIStatus({ job, actions }: { job: AIRequest; actions: ReadingActions }) {
@@ -32,9 +25,8 @@ export function AIStatus({ job, actions }: { job: AIRequest; actions: ReadingAct
     const timer = window.setInterval(() => setTime(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [active]);
-  // The contract's deadline is submission + 60 s; started_at stays null while queued.
-  const submittedAt = Date.parse(job.deadline_at) - 60_000;
-  const elapsed = Number.isFinite(submittedAt) ? Math.max(0, Math.floor((time - submittedAt) / 1000)) : 0;
+  const started = job.provenance.started_at ? Date.parse(job.provenance.started_at) : null;
+  const elapsed = started ? Math.max(0, Math.floor((time - started) / 1000)) : 0;
   const runningLabel = job.operation === 'analyze' ? 'Analyzing image…' : job.operation === 'ask' ? 'Preparing answer…' : 'Drafting report…';
   if (active) return <div className="job-status">
     <div className="job-line"><Spinner /><strong role="status">{job.status === 'queued' ? job.operation === 'analyze' ? 'Waiting to analyze…' : 'Waiting to start…' : runningLabel}</strong><span className="mono muted" aria-hidden>{elapsed}s</span></div>
@@ -66,36 +58,19 @@ export function SourceDetails({ data, provenance, approval }: { data: Workspace;
   </details>;
 }
 
-export function AnalysisPanel({ data, image, imageReady, actions, disabled, reason, onPanel, onBox }: AnalysisProps) {
-  const findings = data.latest_findings;
-  const analysis = actions.job?.operation === 'analyze' ? actions.job : data.initial_analysis ?? undefined;
-  const submitted = analysis?.submitted_input;
-  const analyzedId = (submitted?.operation === 'analyze' && submitted.image_id) || findings?.ai_items[0]?.image_id || data.reports[0]?.content.study.analyzed_image_id || data.boxes.find(box => box.source === 'ai')?.image_id;
-  const detections = data.boxes.filter(box => !box.deleted_at && box.source === 'ai');
-  const linked = new Set(findings?.items.flatMap(item => item.box_ids));
-  const unlinked = detections.filter(box => !linked.has(box.id));
+export function AnalysisPanel({ data, image, imageReady, actions, disabled, reason, onManual }: AnalysisProps) {
+  const analysis = actions.job?.operation === 'analyze' ? actions.job : undefined;
   const active = analysis && !isTerminal(analysis.status);
   const failed = analysis?.error;
   return <div className="panel-content analysis-panel">
-    <div className="panel-heading"><div className="section-heading"><Activity size={20} aria-hidden /><h2>AI analysis</h2></div>{findings && <Badge tone="approved"><CheckCircle2 size={14} aria-hidden />Analyzed</Badge>}</div>
-    {!findings ? <>
-      <p className="muted">Run the initial analysis on one image from this study. Review the text suggestions and any AI regions before drafting a report.</p>
-      <div className="analysis-input"><span className="empty-icon"><ScanLine size={22} aria-hidden /></span><div><span className="muted">Selected image</span><strong>{image ? imageLabel(data.images, image.id) : 'No image available'}</strong></div></div>
-      <div className="analysis-sources"><div><span>Earlier reports</span><strong>{data.history.length ? `${data.history.length} available` : 'None'}</strong></div><div><span>Image coverage</span><strong>Current image only</strong></div></div>
-      {analysis && <AIStatus job={analysis} actions={actions} />}
-      {!active && !failed?.retryable && <button className="button primary full-action" disabled={disabled || !imageReady || !image || !data.capabilities.can_detect} onClick={() => image && void actions.submit({ operation: 'analyze', image_id: image.id }).catch(() => {})}><Activity size={17} aria-hidden />{actions.busy ? 'Submitting…' : 'Analyze selected image'}</button>}
-      {!active && (reason || !imageReady || !data.capabilities.can_detect) && <p className="muted dense">{reason || (!data.capabilities.can_detect ? 'The configured detector is unavailable.' : 'Wait for the selected image to load.')}</p>}
-    </> : <>
-      <p className="muted">{analyzedId ? `Initial AI analysis: ${imageLabel(data.images, analyzedId)} only` : 'Initial AI analysis covers one image.'}</p>
-      <div className="analysis-sources"><div><span>{analysis?.provenance.history_report_ids ? 'Earlier reports used' : 'Earlier reports available'}</span><strong>{analysis?.provenance.history_report_ids?.length ?? data.history.length}</strong></div><div><span>AI regions</span><strong>{detections.length}</strong></div></div>
-      <section className="panel-section"><h3>Original AI output</h3><p className="muted dense">Unedited model suggestions, kept for the record. Review them in the Review step.</p>{findings.ai_items.length ? <ul className="analysis-results">{findings.ai_items.map(item => <li key={item.id}>
-        <p>{item.text}</p>{item.location && <small>{item.location}</small>}
-        {item.box_ids.length > 0 && <div className="row-actions">{item.box_ids.map(id => <button key={id} className="text-button" onClick={() => onBox(id)}>{regionLabel(data.boxes, id)}</button>)}</div>}
-      </li>)}</ul> : <p className="muted">The analysis returned no text suggestions. Review the image and record your findings.</p>}</section>
-      {!detections.length && <p className="muted">The detector returned zero regions.</p>}
-      {unlinked.length > 0 && <section className="panel-section"><h3>AI regions without a linked finding</h3>{unlinked.map(box => <div className="unlinked-box" key={box.id}><Badge tone={box.review_action === 'pending' ? 'pending' : 'neutral'}>{box.review_action === 'pending' ? aiSuggestion : `AI suggestion · ${regionState(box)}`}</Badge><button className="text-button" onClick={() => onBox(box.id)}>{box.label || `Region ${box.id}`}</button></div>)}</section>}
-      <button className="button" onClick={() => onPanel('findings')}>Review findings <ArrowRight size={16} aria-hidden /></button>
-    </>}
+    <div className="section-heading"><Activity size={20} aria-hidden /><h2>AI analysis</h2></div>
+    <p className="muted">Analyze one image to open the clinical discussion with a preliminary AI report, findings and detected regions.</p>
+    <div className="analysis-input"><span className="empty-icon"><ScanLine size={22} aria-hidden /></span><div><span className="muted">Selected image</span><strong>{image ? imageLabel(data.images, image.id) : 'No image available'}</strong></div></div>
+    <div className="analysis-sources"><div><span>Earlier reports</span><strong>{data.history.length ? `${data.history.length} available` : 'None'}</strong></div><div><span>Image coverage</span><strong>Current image only</strong></div></div>
+    {analysis && <AIStatus job={analysis} actions={actions} />}
+    {!active && !failed?.retryable && <button className="button primary full-action" disabled={disabled || !imageReady || !image || !data.capabilities.can_detect} onClick={() => image && void actions.submit({ operation: 'analyze', image_id: image.id }).catch(() => {})}><Activity size={17} aria-hidden />{actions.busy ? 'Submitting…' : 'Analyze selected image'}</button>}
+    {!active && (reason || !imageReady || !data.capabilities.can_detect) && <p className="muted dense">{reason || (!data.capabilities.can_detect ? 'The configured detector is unavailable.' : 'Wait for the selected image to load.')}</p>}
+    <button className="button full-action" disabled={disabled || !imageReady || !image} onClick={onManual}>Start manual review</button>
     <SourceDetails data={data} provenance={analysis?.provenance} />
     <div className="panel-note"><Info size={16} aria-hidden /><p>Review the original image and any AI suggestions before recording your assessment.</p></div>
   </div>;
@@ -114,7 +89,6 @@ export function ChatPanel({ data, image, actions, disabled, reason, attachment, 
   const [error, setError] = useState('');
   const [newAnswer, setNewAnswer] = useState(false);
   const [announcement, setAnnouncement] = useState('');
-  const [inputError, setInputError] = useState('');
   const feed = useRef<HTMLDivElement>(null);
   const questionRef = useRef<HTMLTextAreaElement>(null);
   const lastMessage = useRef<number | undefined>(data.messages.items.at(-1)?.id);
@@ -125,7 +99,7 @@ export function ChatPanel({ data, image, actions, disabled, reason, attachment, 
   const submitted = currentJob?.submitted_input?.operation === 'ask' ? currentJob.submitted_input : null;
   const liveQuestion = currentJob && !isTerminal(currentJob.status) ? submitted : null;
   const readOnly = data.session.status === 'final';
-  const analyzed = Boolean(data.latest_findings);
+  const analyzed = data.analyzed_image_id === undefined ? Boolean(data.latest_findings) : data.analyzed_image_id !== null;
   const messages = [...older.filter(item => !data.messages.items.some(message => message.id === item.id)), ...data.messages.items];
   const next = cursor === undefined ? data.messages.next_cursor : cursor;
   const canSend = analyzed && !readOnly && !disabled && Boolean(image) && Boolean(question.trim()) && question.trim().length <= 2000;
@@ -134,7 +108,6 @@ export function ChatPanel({ data, image, actions, disabled, reason, attachment, 
   useEffect(() => () => olderFetch.current?.abort(), []);
   useEffect(() => {
     if (!currentJob || !submitted || currentJob.request_id === restored.current) return;
-    if (!isTerminal(currentJob.status)) { setAnnouncement(''); return; }
     if (currentJob.status === 'succeeded') {
       restored.current = currentJob.request_id;
       setQuestion(value => value.trim() === submitted.question ? '' : value);
@@ -172,20 +145,24 @@ export function ChatPanel({ data, image, actions, disabled, reason, attachment, 
   }
   function send() {
     if (!canSend || !image) return;
-    setError(''); setInputError('');
-    questionRef.current?.focus(); // Send disables itself while the answer runs; keep focus in the chat.
-    void actions.submit({ operation: 'ask', image_id: image.id, question: question.trim(), ...(attachment ? { box_id: attachment.id } : {}) }).catch(failure => {
-      if (failure instanceof ApiError && failure.code === 'PHI_IN_MODEL_INPUT') { setInputError(errorText(failure)); actions.clearError(); questionRef.current?.focus(); }
-    });
+    setError('');
+    void actions.submit({ operation: 'ask', image_id: image.id, question: question.trim(), ...(attachment ? { box_id: attachment.id } : {}) }).catch(failure => { if (errorText(failure).includes('patient')) questionRef.current?.focus(); });
   }
+  if (!analyzed && data.latest_findings) return <div className="panel-content"><EmptyState title="Manual review">Record your assessment in Findings, then prepare and approve the report.</EmptyState></div>;
   return <div className="panel-content chat-panel">
-    <div className="panel-heading"><div className="section-heading"><MessageSquare size={20} aria-hidden /><h2>Ask AI</h2></div>{readOnly && <Badge tone="approved">Read-only</Badge>}</div>
-    <p className="muted">Questions concern this study only.</p>
+    <div className="panel-heading"><div className="section-heading"><MessageSquare size={20} aria-hidden /><h2>Discussion with AI</h2></div>{readOnly && <Badge tone="approved">Read-only</Badge>}</div>
+    {data.preliminary_report ? <details className="preliminary-report" open>
+      <summary>Preliminary AI report</summary>
+      <Badge tone="pending">{aiSuggestion}</Badge> <Badge>{imageLabel(data.images, data.preliminary_report.image_id)}</Badge>
+      <p>{data.preliminary_report.text}</p>
+      <SourceDetails data={data} provenance={data.initial_analysis?.provenance} />
+    </details> : analyzed && <p className="muted">Preliminary report unavailable for this saved reading.</p>}
+    <p className="muted">Discuss this image or a saved region, then record any corrections in Findings.</p>
     {image && <Badge><ImageIcon size={14} aria-hidden />{imageLabel(data.images, image.id)}</Badge>}
-    <div ref={feed} className="message-feed" aria-label="Saved study chat" tabIndex={0}>
-      {next && <button className="button ghost" disabled={loading} onClick={() => void loadOlder()}>{loading ? 'Loading…' : 'Load earlier messages'}</button>}
+    <div ref={feed} className="message-feed" aria-label="Saved study discussion" tabIndex={0}>
+      {next && <button className="button ghost" disabled={loading} onClick={() => void loadOlder()}>{loading ? 'Loading…' : 'Load earlier entries'}</button>}
       {error && <Notice tone="error">{error}</Notice>}
-      {!messages.length && !liveQuestion && <EmptyState title="No saved messages">Ask a question about this X-ray or select a region.</EmptyState>}
+      {!messages.length && !liveQuestion && <EmptyState title="No discussion entries">Add an observation or question about this X-ray or a saved region.</EmptyState>}
       {messages.map(message => <article className={`message ${message.role === 'user' ? 'doctor' : 'assistant'}`} key={message.id}>
         <div className="message-meta"><strong>{message.role === 'user' ? 'Doctor' : 'AI assistant'}</strong><time dateTime={message.created_at}>{formatTime(message.created_at)}</time></div>
         {message.role === 'assistant' && <Badge tone="pending">{aiSuggestion}</Badge>}<p>{message.text}</p><Badge>{imageLabel(data.images, message.image_id)}</Badge>
@@ -198,11 +175,10 @@ export function ChatPanel({ data, image, actions, disabled, reason, attachment, 
     <div className="sr-only" role="status">{announcement}</div>
     {currentJob && <AIStatus job={currentJob} actions={actions} />}
     {!readOnly && <form className="chat-form" onSubmit={event => { event.preventDefault(); send(); }}>
-      {attachment && <div className="attachment"><Badge tone="info">{regionName(data.boxes, attachment)} · {imageLabel(data.images, attachment.image_id)}</Badge><button className="icon-button" type="button" aria-label="Remove region attachment" onClick={clearAttachment}><X size={16} aria-hidden /></button></div>}
-      <label className="field">Doctor’s question<textarea ref={questionRef} rows={3} maxLength={2000} placeholder="Ask about the current image…" value={question} aria-invalid={inputError ? true : undefined} aria-describedby={inputError ? 'question-error' : undefined} onChange={event => { setQuestion(event.target.value); setInputError(''); }} onKeyDown={event => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); send(); } }} /></label>
-      {inputError && <p id="question-error" className="field-error" role="alert">{inputError}</p>}
-      <div className="chat-actions"><small className="mono muted">{question.length}/2000</small><button className="button primary" disabled={!canSend}><Send size={16} aria-hidden />Send</button></div>
-      <p className="muted dense">{!analyzed ? 'Analyze this study before asking questions.' : reason || 'Do not enter patient names or patient codes.'}</p>
+      {attachment && <div className="attachment"><Badge tone="info">Region {attachment.id} · {imageLabel(data.images, attachment.image_id)}</Badge><button className="icon-button" type="button" aria-label="Remove region attachment" onClick={clearAttachment}><X size={16} aria-hidden /></button></div>}
+      <label className="field">Clinical observation or question<textarea ref={questionRef} rows={3} maxLength={2000} value={question} onChange={event => setQuestion(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); send(); } }} /></label>
+      <div className="chat-actions"><small className="mono muted">{question.length}/2000</small><button className="button primary" disabled={!canSend}><Send size={16} aria-hidden />Add to discussion</button></div>
+      <p className="muted dense">{!analyzed ? 'Analyze this study before starting the discussion.' : reason || 'Do not enter patient names or patient codes.'}</p>
     </form>}
   </div>;
 }

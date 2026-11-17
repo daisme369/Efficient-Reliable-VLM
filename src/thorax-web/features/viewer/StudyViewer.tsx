@@ -3,8 +3,8 @@
 import { BoxSelect, Contrast, Eye, EyeOff, Hand, Maximize, Minus, MousePointer2, Plus, SlidersHorizontal, Sun } from "lucide-react";
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import type { BoxCoordinates, BoxDTO, BoxSnapshot, ImageDTO } from "../../lib/contracts";
-import { drawBounds, imageTransform, moveBounds, resizeBounds, toSource, validBounds, zoomAt, type Corner, type Point } from "./imageCoordinates";
-import RegionEditor, { draftBounds, makeRegionDraft, regionChanges, regionName, regionState, withBounds, type RegionChanges, type RegionDraft } from "./RegionEditor";
+import { clampView, drawBounds, imageTransform, moveBounds, resizeBounds, toSource, validBounds, wheelView, zoomAt, type Corner, type Point } from "./imageCoordinates";
+import RegionEditor, { draftBounds, makeRegionDraft, regionChanges, regionState, withBounds, type RegionChanges, type RegionDraft } from "./RegionEditor";
 import styles from "./StudyViewer.module.css";
 
 export type { RegionChanges } from "./RegionEditor";
@@ -113,6 +113,21 @@ function SelectedImageViewer({ image, images, boxes, selectedBoxId, canAnnotate,
   const editor = currentDraft ?? (selected ? makeRegionDraft(selected, selected.bbox_xyxy) : null);
   const dirty = Boolean(currentDraft && Object.keys(regionChanges(currentDraft, selected, image.id)).length);
 
+  useEffect(() => { setView(current => clampView(image, viewport, current)); }, [image, viewport]);
+
+  useEffect(() => {
+    function tools(event: globalThis.KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      if (!ready || event.ctrlKey || event.metaKey || event.altKey || event.isComposing || gesture.current || target?.closest('input, textarea, select, [contenteditable="true"]') || document.querySelector('dialog[open]')) return;
+      const key = event.key.toLowerCase();
+      if (key === "c") { setTool("pan"); event.preventDefault(); }
+      if (key === "v") { setTool("select"); event.preventDefault(); }
+      if (key === "b" && editable && !dirty) { setTool("draw"); setShowOverlays(true); event.preventDefault(); }
+    }
+    window.addEventListener("keydown", tools);
+    return () => window.removeEventListener("keydown", tools);
+  }, [ready, editable, dirty]);
+
   useEffect(() => {
     const controller = new AbortController();
     let bitmap: ImageBitmap | undefined;
@@ -173,11 +188,11 @@ function SelectedImageViewer({ image, images, boxes, selectedBoxId, canAnnotate,
     const element = stage.current;
     if (!element || !ready || !viewport.width || !viewport.height) return;
     function wheel(event: WheelEvent) {
-      if (event.ctrlKey || event.metaKey || !event.deltaY || gesture.current) return;
       event.preventDefault();
+      if (gesture.current) return;
       const rect = element!.getBoundingClientRect();
       const anchor = { x: event.clientX - rect.left, y: event.clientY - rect.top };
-      setView((current) => zoomAt(image, viewport, current, anchor, event.deltaY < 0 ? 1.2 : 1 / 1.2));
+      setView((current) => wheelView(image, viewport, current, anchor, event));
     }
     element.addEventListener("wheel", wheel, { passive: false });
     return () => element.removeEventListener("wheel", wheel);
@@ -259,7 +274,7 @@ function SelectedImageViewer({ image, images, boxes, selectedBoxId, canAnnotate,
     const dx = current.x - active.origin.x;
     const dy = current.y - active.origin.y;
     if (active.kind === "pan") {
-      setView((previous) => ({ ...previous, pan: { x: active.pan.x + dx, y: active.pan.y + dy } }));
+      setView((previous) => clampView(image, viewport, { ...previous, pan: { x: active.pan.x + dx, y: active.pan.y + dy } }));
     } else if (editable && (active.kind === "draw" || Math.hypot(dx, dy) >= 2)) {
       setPreview(gestureBounds(active, current));
     } else {
@@ -295,13 +310,13 @@ function SelectedImageViewer({ image, images, boxes, selectedBoxId, canAnnotate,
   }
 
   function stageKeys(event: KeyboardEvent<HTMLDivElement>) {
-    if (!ready || event.target !== event.currentTarget) return;
+    if (!ready || event.target !== event.currentTarget || event.ctrlKey || event.metaKey || event.altKey) return;
     if (event.key === "Escape") { if (!busy) cancelDraft(); return; }
     const direction = panKeys[event.key];
     if (!direction || gesture.current) return;
     event.preventDefault();
     const distance = event.shiftKey ? 50 : 10;
-    setView((previous) => ({ ...previous, pan: { x: previous.pan.x + direction.x * distance, y: previous.pan.y + direction.y * distance } }));
+    setView((previous) => clampView(image, viewport, { ...previous, pan: { x: previous.pan.x + direction.x * distance, y: previous.pan.y + direction.y * distance } }));
   }
 
   async function mutate(action: () => Promise<void>, message: string, clearSelection = false) {
@@ -341,9 +356,9 @@ function SelectedImageViewer({ image, images, boxes, selectedBoxId, canAnnotate,
         </header>
         <div className={styles.toolbar} role="group" aria-label="Image viewer tools">
           <div className={styles.toolGroup}>
-            <ToolButton label="Select" Icon={MousePointer2} pressed={tool === "select"} disabled={!ready} onClick={() => setTool("select")} />
-            <ToolButton label="Pan" Icon={Hand} pressed={tool === "pan"} disabled={!ready} onClick={() => setTool("pan")} />
-            {!readOnly && <ToolButton label="Draw region" Icon={BoxSelect} pressed={tool === "draw"} disabled={!editable || dirty} onClick={() => { setTool("draw"); setShowOverlays(true); }} />}
+            <ToolButton label="Select (V)" Icon={MousePointer2} pressed={tool === "select"} disabled={!ready} onClick={() => setTool("select")} />
+            <ToolButton label="Pan (C)" Icon={Hand} pressed={tool === "pan"} disabled={!ready} onClick={() => setTool("pan")} />
+            {!readOnly && <ToolButton label="Draw region (B)" Icon={BoxSelect} pressed={tool === "draw"} disabled={!editable || dirty} onClick={() => { setTool("draw"); setShowOverlays(true); }} />}
           </div>
           <div className={styles.toolGroup}>
             <ToolButton label="Zoom out" Icon={Minus} disabled={!ready || view.zoom <= 0.25} onClick={() => zoom(1 / 1.2)} />
@@ -360,7 +375,7 @@ function SelectedImageViewer({ image, images, boxes, selectedBoxId, canAnnotate,
           <label><Sun size={16} aria-hidden="true" /><span>Brightness</span><input type="range" min={0.5} max={2} step={0.05} value={brightness} onChange={(event) => setBrightness(event.target.valueAsNumber)} /><output>{brightness.toFixed(2)}</output></label>
           <label><Contrast size={16} aria-hidden="true" /><span>Contrast</span><input type="range" min={0.5} max={2} step={0.05} value={contrast} onChange={(event) => setContrast(event.target.valueAsNumber)} /><output>{contrast.toFixed(2)}</output></label>
         </div>}
-        <div ref={stage} className={styles.stage} role="region" aria-label="Image viewport. Use the arrow keys to pan." tabIndex={0} data-tool={tool === "draw" && !editable ? "select" : tool} data-dragging={dragging} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={endGesture} onLostPointerCapture={endGesture} onKeyDown={stageKeys}>
+        <div ref={stage} className={styles.stage} role="region" aria-label="Image viewport. Ctrl + wheel to zoom; wheel to move vertically; Shift + wheel to move horizontally. C selects Pan; arrow keys pan." tabIndex={0} data-tool={tool === "draw" && !editable ? "select" : tool} data-dragging={dragging} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={endGesture} onLostPointerCapture={endGesture} onKeyDown={stageKeys}>
           <canvas ref={canvas} className={styles.canvas} hidden={!ready} role="img" aria-label={`Chest X-ray, ${image.view}, ${image.width} by ${image.height} pixels`} style={{ filter: `brightness(${brightness}) contrast(${contrast})` }} />
           {ready && showOverlays && <svg className={styles.overlays} aria-hidden="true">
             {activeBoxes.map((box, index) => {
@@ -374,8 +389,8 @@ function SelectedImageViewer({ image, images, boxes, selectedBoxId, canAnnotate,
                 <rect {...rect} className={styles.boxBack} />
                 <rect {...rect} className={styles.boxOutline} />
                 <rect {...rect} className={styles.boxHit} data-box-id={box.id} />
-                <rect x={rect.x + 2} y={rect.y + 2} width={30} height={18} rx={2} className={styles.boxLabel} />
-                <text x={rect.x + 17} y={rect.y + 15} textAnchor="middle" className={styles.boxLabelText}>R{index + 1}</text>
+                <rect x={rect.x + 2} y={rect.y + 2} width={24} height={18} rx={2} className={styles.boxLabel} />
+                <text x={rect.x + 14} y={rect.y + 15} textAnchor="middle" className={styles.boxLabelText}>{String(index + 1).padStart(2, "0")}</text>
                 {isSelected && editable && tool === "select" && corners.map((corner) => {
                   const x = rect.x + (corner.endsWith("right") ? rect.width : 0);
                   const y = rect.y + (corner.startsWith("bottom") ? rect.height : 0);
@@ -393,6 +408,7 @@ function SelectedImageViewer({ image, images, boxes, selectedBoxId, canAnnotate,
           </div>}
         </div>
         <div className={styles.imageFooter}><span>{image.width} × {image.height} px · {image.media_type === "image/png" ? "PNG" : "JPEG"}</span><span>{showOverlays ? "Overlays visible" : "Overlays hidden"}</span></div>
+        <details className={styles.shortcuts}><summary>Viewer shortcuts</summary><p>Ctrl + wheel: zoom · Wheel: move up/down · Shift + wheel: move left/right · C: Pan · V: Select · B: Draw region · Arrows: pan (Shift: larger step)</p></details>
       </div>
       {images.length > 1 && <div className={styles.imageStrip} aria-label="Study images" role="group">
         {images.map((candidate, index) => <button type="button" key={candidate.id} aria-pressed={candidate.id === image.id} disabled={busy} onClick={() => onImageChange(candidate.id)}>
@@ -416,21 +432,21 @@ function SelectedImageViewer({ image, images, boxes, selectedBoxId, canAnnotate,
           {activeBoxes.length ? <ul className={styles.regionList}>
             {activeBoxes.map((box, index) => <li key={box.id}>
               <button type="button" aria-pressed={box.id === selectedBoxId} disabled={busy} onClick={() => selectBox(box.id === selectedBoxId ? null : box.id)}>
-                <span className={styles.regionIndex} data-source={box.source}>R{index + 1}</span>
-                <span><strong>{box.label || "Unlabelled region"}</strong><span>{regionState(box)}</span><span>{box.bbox_xyxy.map((value) => value.toFixed(2)).join(", ")} px</span><span>{linkedFindings?.[box.id] || "No linked finding"}</span></span>
+                <span className={styles.regionIndex} data-source={box.source}>{String(index + 1).padStart(2, "0")}</span>
+                <span><strong>{box.label || `Region #${box.id}`}</strong><span>{regionState(box)} · ID {box.id}</span><span>{box.bbox_xyxy.map((value) => value.toFixed(2)).join(", ")} px</span><span>{linkedFindings?.[box.id] || "No linked finding"}</span></span>
               </button>
             </li>)}
           </ul> : <p className={styles.reason}>No saved regions on this image.</p>}
-          {!readOnly && <button type="button" className={styles.numericAdd} disabled={!editable || dirty} onClick={() => beginRegion([image.width * 0.25, image.height * 0.25, image.width * 0.75, image.height * 0.75])}><Plus size={16} aria-hidden="true" /> Add region by coordinates</button>}
-          {editor && canAnnotate && ready && !readOnly && <div ref={editorAnchor} tabIndex={-1} role="group" aria-label="Region coordinates and details"><RegionEditor image={image} draft={editor} box={selected} name={selected ? regionName(boxes, selected) : undefined} canAsk={canAskRegion} busy={busy} dirty={dirty} findingsApproved={findingsApproved}
+          {!readOnly && <button type="button" className={styles.numericAdd} disabled={!editable || dirty} onClick={() => beginRegion([image.width * 0.25, image.height * 0.25, image.width * 0.75, image.height * 0.75])}><Plus size={16} aria-hidden="true" /> Enter region coordinates</button>}
+          {editor && canAnnotate && ready && !readOnly && <div ref={editorAnchor} tabIndex={-1} role="group" aria-label="Region coordinates and details"><RegionEditor image={image} draft={editor} box={selected} canAsk={canAskRegion} busy={busy} dirty={dirty} findingsApproved={findingsApproved}
             onChange={setDraft} onCancel={cancelDraft}
             onSave={() => { if (validBounds(draftBounds(editor), image) && dirty) void mutate(() => onBoxSave(editor.id, regionChanges(editor, selected, image.id)), "Region saved."); }}
             onReview={(review_action) => { if (selected && !dirty) void mutate(() => onBoxSave(selected.id, { review_action }), review_action === "accepted" ? "Region accepted." : "Region rejected.", review_action === "rejected"); }}
             onDelete={() => { if (selected && !dirty) void mutate(() => onBoxDelete(selected.id), "Region removed.", true); }}
             onAsk={() => { if (selected && canAskRegion && !dirty) onAskRegion(selected); }} /></div>}
           {selected && (!canAnnotate || !ready || readOnly) && <div className={styles.readOnlyDetails}>
-            <strong>{regionName(boxes, selected)}{selected.label ? ` · ${selected.label}` : ""}</strong><small className={styles.reason}>ID {selected.id}</small>
-            <p>{selected.source === "ai" && selected.review_action !== "pending" ? `AI suggestion · ${regionState(selected)}` : regionState(selected)}</p>
+            <strong>Region #{selected.id}</strong>
+            <p>{selected.source === "ai" && selected.review_action !== "pending" ? `AI suggestion — needs doctor review · ${regionState(selected)}` : regionState(selected)}</p>
             {selected.note && <p>{selected.note}</p>}
           </div>}
         </div>}

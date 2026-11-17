@@ -3,6 +3,8 @@
 Flow per image: open -> in_progress (claimed) -> submitted -> approved, or -> returned -> submitted again.
 A reviewer must be a different annotator from the labeler and may fix the boxes of a submitted task
 before deciding; such tasks are flagged reviewer_edited. Approved tasks are immutable.
+Unfinished tasks of inactive labelers can be reclaimed. Boxes and ownership events remain,
+and every past labeler is excluded from reviewing that task.
 
 Export writes only approved labels, in the region-record shape used by
 cxr_research.preprocessing.annotations (region, xyxy in original pixels, finding attributes).
@@ -91,7 +93,11 @@ class LabelStore:
                WHERE t.id = ?""", (task_id,)).fetchone()
         if row is None:
             raise LabelError(404, "RESOURCE_NOT_FOUND", "This resource is unavailable.")
-        return dict(row)
+        task = dict(row)
+        task["labeler_ids"] = {event[0] for event in db.execute(
+            "SELECT user_id FROM label_events WHERE task_id = ? AND action IN ('claimed', 'released', 'reclaimed')", (task_id,))}
+        task["labeler_ids"].add(task["labeler_id"])
+        return task
 
     def _event(self, db, task_id: int, user_id: int, action: str) -> None:
         db.execute("INSERT INTO label_events (task_id, user_id, action, created_at) VALUES (?, ?, ?, ?)", (task_id, user_id, action, utc_now()))
@@ -106,25 +112,26 @@ class LabelStore:
 
     def annotator_can_view(self, image_id: int, user_id: int) -> bool:
         with connect(self.path) as db:
-            row = db.execute("SELECT * FROM label_tasks WHERE image_id = ?", (image_id,)).fetchone()
-        return row is not None and self._can_see(dict(row), user_id)
+            row = db.execute("SELECT id FROM label_tasks WHERE image_id = ?", (image_id,)).fetchone()
+            return row is not None and self._can_see(self._row(db, row["id"]), user_id)
 
     @staticmethod
     def _can_see(task: dict, user_id: int) -> bool:
         # Your own tasks, anything waiting for review, and tasks you reviewed. Open tasks come only via "next".
-        return task["labeler_id"] == user_id or task["reviewer_id"] == user_id or (task["status"] == "submitted" and task["labeler_id"] != user_id)
+        return user_id in task["labeler_ids"] or task["reviewer_id"] == user_id or task["status"] == "submitted"
 
     @staticmethod
     def _public(task: dict, boxes: list[dict], user_id: int) -> dict:
         mine = task["labeler_id"] == user_id
+        can_review = user_id not in task["labeler_ids"] and task["status"] == "submitted"
         return {
             "id": task["id"], "image_id": task["image_id"], "status": task["status"], "revision": task["revision"],
             "image": {"id": task["image_id"], "view": task["view"], "width": task["width"], "height": task["height"],
                       "content_url": f"/api/v1/images/{task['image_id']}/content"},
-            "role": "labeler" if mine else "reviewer",
-            "can_edit": (mine and task["status"] in ("in_progress", "returned")) or (not mine and task["status"] == "submitted"),
+            "role": "labeler" if user_id in task["labeler_ids"] else "reviewer",
+            "can_edit": (mine and task["status"] in ("in_progress", "returned")) or can_review,
             "reviewer_edited": bool(task["reviewer_edited"]),
-            "can_review": not mine and task["status"] == "submitted",
+            "can_review": can_review,
             "review_comment": task["review_comment"],
             "boxes": [{"region": b["region"], "finding": b["finding"], "state": b["state"],
                        "bbox_xyxy": [b["x1"], b["y1"], b["x2"], b["y2"]]} for b in boxes],
@@ -135,26 +142,37 @@ class LabelStore:
         with connect(self.path) as db:
             mine = db.execute("""SELECT id, image_id, status, updated_at, review_comment FROM label_tasks
                                  WHERE labeler_id = ? AND status != 'approved' ORDER BY updated_at""", (user_id,)).fetchall()
-            review = db.execute("""SELECT id, image_id, status, updated_at FROM label_tasks
-                                   WHERE status = 'submitted' AND labeler_id != ? ORDER BY updated_at""", (user_id,)).fetchall()
+            review = db.execute("""SELECT id, image_id, status, updated_at FROM label_tasks t
+                                   WHERE status = 'submitted' AND labeler_id != ? AND NOT EXISTS (
+                                       SELECT 1 FROM label_events e WHERE e.task_id = t.id AND e.user_id = ?
+                                       AND e.action IN ('claimed', 'released', 'reclaimed'))
+                                   ORDER BY updated_at""", (user_id, user_id)).fetchall()
             counts = dict(db.execute("SELECT status, COUNT(*) FROM label_tasks GROUP BY status").fetchall())
+            claimable = db.execute("""SELECT COUNT(*) FROM label_tasks t LEFT JOIN users u ON u.id = t.labeler_id
+                                      WHERE t.status = 'open' OR (t.status IN ('in_progress', 'returned') AND u.is_active = 0)""").fetchone()[0]
         return {"my_tasks": [dict(r) for r in mine], "to_review": [dict(r) for r in review],
+                "claimable_count": claimable,
                 "counts": {status: counts.get(status, 0) for status in STATUSES}}
 
     def claim_next(self, user_id: int) -> dict:
         with connect(self.path) as db:
-            # Finish your own unfinished work first, then take the oldest open task.
+            db.execute("BEGIN IMMEDIATE")
+            # Continue your work first, then recover inactive owners' work before taking an open image.
             row = db.execute("""SELECT id FROM label_tasks WHERE labeler_id = ? AND status IN ('in_progress', 'returned')
                                 ORDER BY updated_at LIMIT 1""", (user_id,)).fetchone()
             if row is None:
-                row = db.execute("SELECT id FROM label_tasks WHERE status = 'open' ORDER BY id LIMIT 1").fetchone()
+                row = db.execute("""SELECT t.id, t.labeler_id, t.status FROM label_tasks t LEFT JOIN users u ON u.id = t.labeler_id
+                                    WHERE t.status = 'open' OR (t.status IN ('in_progress', 'returned') AND u.is_active = 0)
+                                    ORDER BY CASE WHEN t.status = 'open' THEN 1 ELSE 0 END, t.id LIMIT 1""").fetchone()
                 if row is None:
                     raise LabelError(404, "NO_TASKS", "There are no images left to label.")
-                claimed = db.execute("""UPDATE label_tasks SET status = 'in_progress', labeler_id = ?, revision = revision + 1, updated_at = ?
-                                        WHERE id = ? AND status = 'open'""", (user_id, utc_now(), row["id"])).rowcount
-                if not claimed:
-                    raise LabelError(409, "TASK_TAKEN", "Another annotator took that image. Try again.")
-                self._event(db, row["id"], user_id, "claimed")
+                db.execute("""UPDATE label_tasks SET status = CASE WHEN status = 'open' THEN 'in_progress' ELSE status END,
+                              labeler_id = ?, reviewer_id = NULL, revision = revision + 1, updated_at = ? WHERE id = ?""",
+                           (user_id, utc_now(), row["id"]))
+                if row["status"] != "open":
+                    # These paired events retain the previous and new owner in the same transaction.
+                    self._event(db, row["id"], row["labeler_id"], "released")
+                self._event(db, row["id"], user_id, "claimed" if row["status"] == "open" else "reclaimed")
         return self.task(row["id"], user_id)
 
     def _validated(self, task: dict, boxes: object) -> list[tuple]:
@@ -187,7 +205,8 @@ class LabelStore:
         with connect(self.path) as db:
             task = self._guarded(db, task_id, user_id, revision)
             labeler = task["labeler_id"] == user_id
-            if not ((labeler and task["status"] in ("in_progress", "returned")) or (not labeler and task["status"] == "submitted")):
+            if not ((labeler and task["status"] in ("in_progress", "returned")) or
+                    (user_id not in task["labeler_ids"] and task["status"] == "submitted")):
                 raise LabelError(409, "TASK_LOCKED", "The labeler edits in-progress or returned tasks; a reviewer edits submitted ones.")
             rows = self._validated(task, boxes)
             db.execute("DELETE FROM label_boxes WHERE task_id = ?", (task_id,))
@@ -217,7 +236,7 @@ class LabelStore:
             raise LabelError(422, "VALIDATION_ERROR", "Say what to fix when returning a task.")
         with connect(self.path) as db:
             task = self._guarded(db, task_id, user_id, revision)
-            if task["labeler_id"] == user_id:
+            if user_id in task["labeler_ids"]:
                 raise LabelError(403, "SELF_REVIEW", "Someone else must review your labels.")
             if task["status"] != "submitted":
                 raise LabelError(409, "TASK_LOCKED", "Only submitted tasks can be reviewed.")

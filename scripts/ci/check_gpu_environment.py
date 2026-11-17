@@ -20,6 +20,7 @@ MINIMUM_DRIVER_MAJOR = 580
 ROLE_CAPABILITIES = {
     "smoke": frozenset({(8, 6)}),
     "train": frozenset({(9, 0), (12, 0)}),
+    "train-unet-local": frozenset({(8, 6)}),
     "inference": frozenset({(8, 9), (12, 0)}),
 }
 
@@ -64,7 +65,7 @@ def validate_profile(
     if profile not in {"cu130", "medgemma-bf16-cu128"}:
         return ["unknown GPU runtime profile"]
     alternate = profile == "medgemma-bf16-cu128"
-    if alternate and role == "smoke":
+    if alternate and role not in {"train", "inference"}:
         return ["cu128 profile is restricted to approved MedGemma train/inference hardware"]
     expected_cuda = "12.8" if alternate else EXPECTED_CUDA
     if role not in ROLE_CAPABILITIES:
@@ -95,6 +96,10 @@ def validate_profile(
                 f"GPU {index} has sm{capability[0]}{capability[1]}; "
                 f"role {role!r} permits only {expected}"
             )
+        if role == "train-unet-local":
+            name = device_names[index] if index < len(device_names) else ""
+            if name != "NVIDIA GeForce RTX 3060":
+                errors.append(f"GPU {index}: local U-Net training requires RTX 3060 model identity")
         if role == "train":
             name = device_names[index] if index < len(device_names) else ""
             name = " ".join(name.replace("_", " ").split())
