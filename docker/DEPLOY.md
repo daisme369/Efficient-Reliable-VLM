@@ -34,7 +34,7 @@ The whole path takes about 1–1.5 hours, mostly waiting. Use a laptop with Chro
 
 1. Search **Lightsail** and open it.
 2. Click **Create instance**:
-   - **Region:** Singapore (ap-southeast-1), the closest to Vietnam.
+   - **Region:** with the new AWS experience, your project has one fixed Region and nothing can be created elsewhere (check it in AWS Settings → View all projects → Overview → Additional info). Our project uses Sydney (ap-southeast-2). On an advanced account, pick Singapore (ap-southeast-1), the closest to Vietnam.
    - **Platform:** Linux/Unix, then **OS only**, then **Ubuntu 24.04 LTS**.
    - **Plan:** the **2 GB** plan that includes public IPv4.
    - **Name:** `thorax`, then click **Create instance**.
