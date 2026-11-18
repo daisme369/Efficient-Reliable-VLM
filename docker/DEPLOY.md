@@ -1,4 +1,4 @@
-# Deploy the app on one server
+# Deploy the app on AWS
 
 `docker/compose.yaml` runs Thorax AI on one Linux server with three containers:
 
@@ -12,54 +12,127 @@ Only Caddy's ports are published. The database and uploaded images are in the `t
 
 Sizing: one API worker and SQLite. This setup is for a capstone demo with a few users, not production scale (see `src/thorax_api/README.md`, Limits).
 
-## First start
+## From sign-up to a running app
 
-1. **Server.** Create an AWS Lightsail Linux instance (Ubuntu 24.04, 2 GB plan) and attach a static IP. In its firewall, open TCP 80, TCP 443 and UDP 443. Install Docker Engine with the Compose plugin ([docs.docker.com/engine/install/ubuntu](https://docs.docker.com/engine/install/ubuntu/)). On a 1–2 GB server, add swap before the first build, because `next build` needs more memory:
+The whole path takes about 1–1.5 hours, mostly waiting. Use a laptop with Chrome. The AWS console layout changes often, so button names may differ slightly from these steps.
 
-   ```bash
-   sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
-   echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
-   ```
+### 1. Create the AWS account (15 min)
 
-2. **Domain.** Point a DNS `A` record at the static IP. A domain you own works, and so does a free DNS name that resolves to the IP. Sign-in requires HTTPS, so a bare IP address cannot be used.
+1. Go to **aws.amazon.com** and click **Create an AWS Account**.
+2. Enter your email and an account name such as `thorax-capstone`. Verify the email with the code AWS sends, then set a password.
+3. Contact info: choose **Personal** and fill in your details.
+4. Add a **debit or credit card**. AWS charges about $1 to verify it and refunds it.
+5. Verify your phone with an SMS code.
+6. When asked to choose a plan, pick **Paid plan**. New accounts still get $100–200 in credits, and the Paid plan allows the GPU server later. The budget alert in step 2 protects you from surprise bills.
 
-3. **Settings.** Clone the repository on the server and create `docker/.env`. Git ignores this file; never commit it.
+### 2. Protect the account (5 min)
 
-   ```bash
-   THORAX_DOMAIN=thorax.example.org
-   # Optional: the real model on the GPU server. Leave unset to use the mock AI.
-   # THORAX_VLM_URL=http://<GPU server private IP>:8500
-   # THORAX_VLM_KEY=<the model service's secret>
-   ```
+1. Search **IAM** in the top search bar, then add MFA for the root user with an authenticator app on your phone.
+2. Search **Budgets** and click **Create budget**, then choose the **Monthly cost budget** template. Set the amount to **$10** and enter your email. AWS will email you if you go over.
 
-4. **Start.**
+### 3. Create the server (10 min)
 
-   ```bash
-   docker compose -f docker/compose.yaml up -d --build --wait
-   ```
+1. Search **Lightsail** and open it.
+2. Click **Create instance**:
+   - **Region:** Singapore (ap-southeast-1), the closest to Vietnam.
+   - **Platform:** Linux/Unix, then **OS only**, then **Ubuntu 24.04 LTS**.
+   - **Plan:** the **2 GB** plan that includes public IPv4.
+   - **Name:** `thorax`, then click **Create instance**.
+3. Wait until it says **Running**.
+4. Open the **Networking** tab, click **Create static IP** and attach it to `thorax`. Write down the IP.
+5. Still under **Networking**, in the **IPv4 Firewall** section, click **Add rule**, choose **HTTPS** (TCP 443) and save. SSH (22) and HTTP (80) are already open.
 
-   Caddy requests the certificate on the first start, which takes a few seconds.
+### 4. Get a free domain (5 min)
 
-5. **Accounts and demo data.** Type the passwords on the server; they never go into Git or the image.
+Sign-in only works over HTTPS, which needs a domain name; a bare IP address cannot be used.
 
-   ```bash
-   read -rs THORAX_DEMO_DOCTOR_PASSWORD && read -rs THORAX_DEMO_ADMIN_PASSWORD && export THORAX_DEMO_DOCTOR_PASSWORD THORAX_DEMO_ADMIN_PASSWORD
-   docker compose -f docker/compose.yaml exec -e THORAX_DEMO_DOCTOR_PASSWORD -e THORAX_DEMO_ADMIN_PASSWORD api python -m thorax_api.accounts seed-demo
-   # One more account (the password is prompted):
-   docker compose -f docker/compose.yaml exec api python -m thorax_api.accounts create --email someone@example.org --name "Name" --role doctor
-   ```
+1. Go to **duckdns.org** and sign in with Google or GitHub.
+2. Type a subdomain such as `thorax-capstone` and click **add domain**.
+3. Put your **static IP** in the "current ip" box and click **update ip**.
 
-   Upload the demo X-rays through the app. Keep restricted research data, such as MIMIC, off this server.
+Your address is now `thorax-capstone.duckdns.org`. A domain you own also works: point its DNS `A` record at the static IP.
+
+### 5. Connect to the server
+
+In Lightsail, open your instance and click **Connect using SSH**. A terminal opens in the browser. Type every command below into that terminal.
+
+### 6. Install Docker (5 min)
+
+```bash
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker ubuntu
+```
+
+Close the terminal window and click **Connect using SSH** again, so the Docker permission takes effect. Then add swap, because `next build` needs more memory than a 2 GB server has free:
+
+```bash
+sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+```
+
+### 7. Download the code (2 min)
+
+```bash
+git clone -b vietanh https://github.com/daisme369/Efficient-Reliable-VLM.git
+cd Efficient-Reliable-VLM
+```
+
+If the repository is **private**, Git asks for a username and password:
+
+- **Username:** your GitHub username.
+- **Password:** a token, not your real password. On GitHub, go to Settings → Developer settings → Personal access tokens → Fine-grained tokens. Create one with **read-only Contents** access to this repository and paste it.
+- The repository owner may have to grant you access first.
+
+### 8. Start the app (10–15 min the first time)
+
+Replace the domain with yours. `docker/.env` is ignored by Git; never commit it.
+
+```bash
+echo "THORAX_DOMAIN=thorax-capstone.duckdns.org" > docker/.env
+docker compose -f docker/compose.yaml up -d --build --wait
+```
+
+Wait until you see three lines that end in **Healthy**. Caddy requests the certificate on the first start, which takes a few seconds.
+
+### 9. Create the accounts and demo data
+
+```bash
+read -rsp "Doctor password: " THORAX_DEMO_DOCTOR_PASSWORD; echo
+read -rsp "Admin password: " THORAX_DEMO_ADMIN_PASSWORD; echo
+export THORAX_DEMO_DOCTOR_PASSWORD THORAX_DEMO_ADMIN_PASSWORD
+docker compose -f docker/compose.yaml exec -e THORAX_DEMO_DOCTOR_PASSWORD -e THORAX_DEMO_ADMIN_PASSWORD api python -m thorax_api.accounts seed-demo
+```
+
+Use passwords of at least 12 characters. The typing stays invisible, which is normal. The passwords never go into Git or the image.
+
+To add one more account (the password is prompted):
+
+```bash
+docker compose -f docker/compose.yaml exec api python -m thorax_api.accounts create --email someone@example.org --name "Name" --role doctor
+```
+
+Upload the demo X-rays through the app. Keep restricted research data, such as MIMIC, off this server.
+
+### 10. Open it
+
+Open `https://<your domain>` and sign in:
+
+- Doctor: `doctor@thorax.demo`
+- Admin: `admin@thorax.demo`
+
+### 11. Turn on backups
+
+In Lightsail, open your instance, go to the **Snapshots** tab and turn on **Automatic snapshots**. A snapshot includes the Docker volumes. To restore, create a new instance from a snapshot and move the static IP to it.
 
 ## Run it
 
 | Task | Command or step |
 | --- | --- |
-| Update to the latest code | `git pull && docker compose -f docker/compose.yaml up -d --build --wait`; data and sign-ins are kept |
-| Status and logs | `docker compose -f docker/compose.yaml ps`, then `... logs api --tail 50` |
-| Switch to the real model | Set `THORAX_VLM_URL` and `THORAX_VLM_KEY` in `docker/.env`, then run the update command. While the GPU server is stopped, AI requests fail as unavailable instead of falling back to mock answers, so unset both between demos. |
-| Backups | Turn on Lightsail automatic daily snapshots for the instance; a snapshot includes the Docker volumes. To restore, create a new instance from a snapshot and move the static IP to it. |
+| Update to the latest code | `cd Efficient-Reliable-VLM && git pull && docker compose -f docker/compose.yaml up -d --build --wait`; data and sign-ins are kept |
+| Status and logs | `docker compose -f docker/compose.yaml ps`, then `docker compose -f docker/compose.yaml logs api --tail 50` |
+| Switch to the real model | Add `THORAX_VLM_URL=http://<GPU server private IP>:8500` and `THORAX_VLM_KEY=<the model service's secret>` to `docker/.env`, then run the update command. While the GPU server is stopped, AI requests fail as unavailable instead of falling back to mock answers, so remove both lines between demos. |
 | Stop | `docker compose -f docker/compose.yaml down`. Adding `-v` also deletes the database and images. |
+| End of the project | Lightsail bills even while the server is stopped. **Delete** the instance and the static IP to stop the charges. |
 
 ## Try it locally
 
