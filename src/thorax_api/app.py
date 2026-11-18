@@ -36,6 +36,7 @@ from .admin import register_admin, sessions_view
 from .catalog import MAX_UPLOAD_BYTES, Catalog, normalize_upload
 from .reading import ReadingStore, register_reading
 from .sessions import Login, SessionStore
+from .vlm import VlmClient
 from .db import utc_now
 from .labeling import LabelError, LabelStore
 from .storage import LocalImageStore
@@ -493,7 +494,8 @@ def create_app(
         return bool(user and user.is_active and catalog.is_assigned(doctor_id, patient_id))
 
     readings = ReadingStore(db_path, clock=clock, secret=state.secret, is_allowed=doctor_still_allowed,
-                            ai_paused=app.state.admin.ai_paused, record_ai=app.state.admin.record_ai_request)
+                            ai_paused=app.state.admin.ai_paused, record_ai=app.state.admin.record_ai_request,
+                            vlm=VlmClient.from_env(), image_png=lambda image_id: catalog.image_bytes(catalog.image(image_id)))
     app.state.readings = readings
     register_reading(app, store=readings, catalog=catalog, actor=actor, path_id=path_id, read_body=read_body, no_store=no_store, error=ApiError)
 

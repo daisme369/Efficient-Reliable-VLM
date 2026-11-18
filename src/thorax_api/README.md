@@ -18,7 +18,8 @@ python scripts/serve_api.py
 | `THORAX_WEB_ORIGINS` | `http://127.0.0.1:3000,http://localhost:3000` | Origins allowed to send changes (CSRF/Origin check) |
 | `THORAX_API_PORT` | `8000` | Port for `scripts/serve_api.py` |
 | `THORAX_SIGNIN_PER_ADDRESS_PER_MINUTE` | `5` | Sign-in attempts allowed per client address per minute; raise it when many users share one public address |
-| `THORAX_VLM_URL` | unset | Health check URL of the model service (not built yet) shown to admins |
+| `THORAX_VLM_URL` | unset | Model service URL (`scripts/serve_vlm.py`). With `THORAX_VLM_KEY` set too, Analyze and Ask AI call the real model; otherwise they use the fixed demo answers |
+| `THORAX_VLM_KEY` | unset | API key shared with the model service |
 | `THORAX_DEMO_AI_FAULT` | unset | `timeout` or `detector` to simulate AI failures |
 
 Other commands: `python -m thorax_api.accounts create|disable|enable|reset-password`, `python -m thorax_api.labeling create-tasks|export --out <dir>`.
@@ -51,7 +52,14 @@ Web mock regressions run from `src/thorax-web` with `node --test tests/mock-clin
 
 ## Limits
 
-- AI answers are the same fixed demo answers as the web mock. The trained model is not connected yet; its inference service is not built.
+- Without `THORAX_VLM_URL` and `THORAX_VLM_KEY`, AI answers are the web mock's fixed demo answers.
+- With a model service (`scripts/serve_vlm.py`, MedGemma plus the M1 or B1 adapter), the call runs in a background thread with a 55 s timeout.
+  - **Analyze** asks one yes/no screening question per finding. "Yes" answers become suggested findings, and the model's boxes become AI regions.
+  - **Ask AI** returns the model's answer.
+  - With a calibration file, answers below the calibrated threshold are withheld ("abstained") and their candidate text is not stored.
+  - Draft report stays template-based on the approved findings.
+  - In-flight results are held in memory, so a backend restart turns them into retryable timeouts.
+  - Test the chain without a GPU with `THORAX_VLM_FAKE=1 THORAX_VLM_KEY=<key> python scripts/serve_vlm.py`.
 - Sign-in sessions are stored in SQLite, so a restart keeps users signed in. Sign-in rate-limit counters are in memory and reset on restart, so run one worker.
 - Each request logs one line: method, route template, status, time and request ID. Errors return the same request ID. Raw URLs, search text and bodies are never logged.
 - SQLite allows one writer. Deploy on one server with its own disk (for example EC2 with EBS, backed up to S3 with Litestream); move to PostgreSQL for several servers.
