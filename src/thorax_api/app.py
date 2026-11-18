@@ -94,6 +94,8 @@ def create_app(
     catalog = Catalog(db_path, LocalImageStore(image_root or os.environ.get("THORAX_IMAGE_ROOT", "thorax-images")))
     labels = LabelStore(db_path)
     per_address = int(os.environ.get("THORAX_SIGNIN_PER_ADDRESS_PER_MINUTE", "5"))
+    # Set only when the API port is reachable solely through the site's own proxy (docker/compose.yaml).
+    trust_proxy = os.environ.get("THORAX_TRUST_PROXY") == "1"
     origins = web_origins if web_origins is not None else [o.strip().rstrip("/") for o in os.environ.get("THORAX_WEB_ORIGINS", "http://127.0.0.1:3000,http://localhost:3000").split(",") if o.strip()]
     sessions = SessionStore(db_path)
     state = AuthState(sessions.secret())
@@ -126,8 +128,8 @@ def create_app(
     def client_address(request: Request) -> str:
         peer = request.client.host if request.client else ""
         forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
-        # Trust X-Forwarded-For only from a proxy on this machine (the Next.js server).
-        return forwarded if forwarded and _is_loopback(peer) else peer or "unknown"
+        # Trust X-Forwarded-For only from a proxy on this machine (the Next.js server), or from any peer with THORAX_TRUST_PROXY=1.
+        return forwarded if forwarded and (trust_proxy or _is_loopback(peer)) else peer or "unknown"
 
     def authenticate(request: Request) -> tuple[User, Login, str, str] | None:
         token = request.cookies.get(COOKIE, "")

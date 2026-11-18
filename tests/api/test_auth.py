@@ -144,6 +144,27 @@ class AuthTests(unittest.TestCase):
         self.now += 61
         self.assertEqual(self.login().status_code, 200)
 
+    def test_forwarded_address_is_trusted_only_behind_the_compose_proxy(self):
+        import os
+        from unittest import mock
+        from fastapi.testclient import TestClient
+        from thorax_api.app import create_app
+
+        # Without the flag the test client is not loopback, so a spoofed header is ignored.
+        untrusted = TestClient(self.app, headers={"Origin": WEB, "X-Forwarded-For": "203.0.113.1"})
+        for _ in range(5):
+            self.login(password="not-the-password", client=untrusted)
+        untrusted.headers["X-Forwarded-For"] = "203.0.113.2"
+        self.assertEqual(self.login(client=untrusted).status_code, 429)
+        with mock.patch.dict(os.environ, {"THORAX_TRUST_PROXY": "1"}):
+            app = create_app(self.app.state.accounts.path, [WEB], clock=lambda: self.now)
+        trusted = TestClient(app, headers={"Origin": WEB, "X-Forwarded-For": "203.0.113.1, 10.0.0.2"})
+        for _ in range(5):
+            self.login(password="not-the-password", client=trusted)
+        self.assertEqual(self.login(client=trusted).status_code, 429)
+        trusted.headers["X-Forwarded-For"] = "203.0.113.2"
+        self.assertEqual(self.login(client=trusted).status_code, 200)
+
     def test_request_validation(self):
         extra = self.client.post("/api/v1/auth/login", json={"email": "doctor@example.test", "password": DOCTOR_PASSWORD, "role": "admin"})
         self.assertEqual(extra.status_code, 422)

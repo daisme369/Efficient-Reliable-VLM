@@ -73,4 +73,18 @@ nvidia-dali-cuda130==2.3.0
 
 The Dockerfile intentionally resolves PyPI packages and PyTorch CUDA wheels in separate uv operations. This avoids mixing indexes under an unsafe best-match policy while still replacing the cross-platform PyTorch pin with the explicit `+cu130` build.
 
+## App deployment images
+
+`docker/compose.yaml` (see `docker/DEPLOY.md`) uses three images, all pinned by digest:
+
+| Image | Pin | Use |
+| --- | --- | --- |
+| `python:3.12.12-slim-bookworm` | Same Linux/amd64 digest as `docker/Dockerfile.gpu` | `docker/Dockerfile.api`; installs `requirements/api.txt` |
+| `node:22.20.0-bookworm-slim` | `sha256:b21fe589dfbe5cc39365d0544b9be3f1f33f55f3c86c87a76ff65a02f8f5848e` | `docker/Dockerfile.web`; matches the local Node 22.20.0 |
+| `caddy:2.11.9-alpine` | `sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0` | HTTPS reverse proxy with automatic certificates (Apache-2.0) |
+
+The web image installs `pnpm@10.34.9`, the version recorded in `src/thorax-web/node_modules/.modules.yaml`, and runs `pnpm install --frozen-lockfile` against the committed `pnpm-lock.yaml`. All three images were pulled and the stack was built and smoke-tested locally on 18 November 2026.
+
+## GPU environment validation
+
 The final Dockerfile built successfully on 23 October 2026, including the pinned Git package. Its dependency consistency check, local RTX 3060 smoke preflight and two synthetic DALI integration tests passed. The build uses a BuildKit uv cache with copy linking so completed public package downloads survive a failed build; the runtime package pins and context allowlist remain unchanged. These local checks do not establish compatibility on approved research hardware; the first rented instance must pass the real GPU preflight before training or inference. The private rental readiness record contains the actual image identifier and validation evidence.
