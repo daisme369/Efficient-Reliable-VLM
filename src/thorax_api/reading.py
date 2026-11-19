@@ -286,7 +286,7 @@ class ReadingStore:
 
     @staticmethod
     def _history(db, study: dict) -> list[dict]:
-        rows = db.execute("SELECT id, report_date, text FROM history_reports WHERE patient_id = ? AND report_date < ? ORDER BY id LIMIT 5",
+        rows = db.execute("SELECT id, report_date, text FROM history_reports WHERE patient_id = ? AND report_date < ? ORDER BY report_date DESC, id DESC LIMIT 5",
                           (study["patient_id"], study["study_date"])).fetchall()
         return [dict(row) for row in rows]
 
