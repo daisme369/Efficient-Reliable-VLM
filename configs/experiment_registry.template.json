@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "experiments": [
+    {
+      "experiment_id": "example-unet-synthetic-seed-42",
+      "jira_key": "MVD-9",
+      "commit": "27ad688854d2328879798ba7b3711718b10449e8",
+      "config": "configs/unet.json",
+      "dataset_version": "synthetic-fixture",
+      "seed": 42,
+      "hardware": "cpu",
+      "status": "complete",
+      "artifact_path": "runs/example-unet-synthetic-seed-42",
+      "notes": "Example record only. Synthetic CPU smoke run; not research evidence."
+    },
+    {
+      "experiment_id": "example-b1-pilot-seed-42",
+      "jira_key": "MVD-6",
+      "commit": "27ad688854d2328879798ba7b3711718b10449e8",
+      "config": "configs/medgemma_b1.json",
+      "dataset_version": "mimic-cxr-jpg-2.1.0+mimic-ext-vqa-1.0.0",
+      "seed": 42,
+      "hardware": "1x RTX PRO 6000 Blackwell 96GB, cu128",
+      "status": "planned",
+      "artifact_path": null,
+      "notes": "Example record only. A planned run may leave artifact_path null."
+    }
+  ],
+  "charts": [
+    {"metric": "dice", "title": "U-Net validation Dice"},
+    {"metric": "primary.closed.closed_accuracy", "title": "Closed-ended accuracy (primary)"}
+  ]
+}
