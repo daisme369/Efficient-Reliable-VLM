@@ -18,6 +18,9 @@ from cxr_research.utils.io import write_json
 def train(config, manifest, directory: Path, *, resume: Path | None = None, store=None, multitask=None):
     if config.baseline != "B1":
         raise ContractError("only B1 is trainable")
+    from cxr_research.experiments.config import M1PerformanceConfig
+    if config.m1_performance != M1PerformanceConfig():
+        raise ContractError("m1_performance options are recorded for serving only; this branch cannot train with them")
     import torch
     torch.use_deterministic_algorithms(config.train.full_determinism)
     from transformers import Trainer, TrainingArguments
