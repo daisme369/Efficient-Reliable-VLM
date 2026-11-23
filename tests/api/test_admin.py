@@ -7,7 +7,9 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+import os
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
@@ -21,6 +23,9 @@ BOX = {"region": "left lower lung zone", "finding": "lung opacity", "state": "po
 @unittest.skipUnless(HAS_API_DEPS, "requires requirements/api.txt (fastapi, httpx)")
 class AdminTests(unittest.TestCase):
     def setUp(self):
+        patcher = patch.dict(os.environ, {"THORAX_LABELING": "1"})  # the annotator workspace is off by default
+        patcher.start()
+        self.addCleanup(patcher.stop)
         from thorax_api.accounts import AccountStore
         from thorax_api.app import create_app
         from thorax_api.catalog import seed_demo
@@ -56,7 +61,7 @@ class AdminTests(unittest.TestCase):
 
     def test_overview(self):
         body = self.admin.get("/api/v1/admin/overview").json()
-        self.assertEqual(body["users"], {"doctor": {"active": 2, "total": 2}, "admin": {"active": 1, "total": 1}, "annotator": {"active": 2, "total": 2}})
+        self.assertEqual(body["users"], {"doctor": {"active": 2, "total": 2}, "admin": {"active": 1, "total": 1}, "annotator": {"active": 2, "total": 2}, "technician": {"active": 0, "total": 0}})
         self.assertEqual(body["signed_in"], 2)
         self.assertEqual(body["catalog"], {"patients": 12, "studies": 23, "images": 27})
         self.assertEqual(body["labeling"]["open"], 1)

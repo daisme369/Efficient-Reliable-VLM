@@ -7,7 +7,7 @@ import { useAuth } from "@/components/shell";
 import { Confirm } from "@/components/ui";
 import { actionKey, api, ApiError } from "@/lib/api";
 import type { AdminDoctor, AdminPatient, AuthUser } from "@/lib/contracts";
-import { ActivityLog, AiMonitor, LabelingOversight, Overview, Patients, UsersAccess } from "./AdminConsole";
+import { ActivityLog, AiMonitor, LabelingOversight, Overview, Patients, UsersAccess, useLabelingEnabled } from "./AdminConsole";
 import "./admin.css";
 
 // The local demo API serves the first set; the Thorax backend serves the full console.
@@ -457,7 +457,8 @@ function Fixtures({ actor, active, refresh }: { actor: number; active: boolean; 
 }
 
 export default function Admin({ user, localDemo }: { user: AuthUser; localDemo: boolean }) {
-  const tabs: readonly { id: Tab; label: string; icon: typeof Activity }[] = localDemo ? demoTabs : backendTabs;
+  const labelingOn = useLabelingEnabled(user.id, !localDemo);
+  const tabs: readonly { id: Tab; label: string; icon: typeof Activity }[] = localDemo ? demoTabs : backendTabs.filter(tab => tab.id !== "labeling" || labelingOn);
   const queryClient = useQueryClient();
   const { refresh: refreshSession } = useAuth();
   const touch = useActivity();
@@ -511,7 +512,7 @@ export default function Admin({ user, localDemo }: { user: AuthUser; localDemo: 
         <div role="tabpanel" id="admin-panel-users" aria-labelledby="admin-tab-users" hidden={selected !== "users"} tabIndex={0}><UsersAccess actor={user.id} active={selected === "users"} me={user} /></div>
         <div role="tabpanel" id="admin-panel-patients" aria-labelledby="admin-tab-patients" hidden={selected !== "patients"} tabIndex={0}><Patients actor={user.id} active={selected === "patients"} /></div>
         <div role="tabpanel" id="admin-panel-ai" aria-labelledby="admin-tab-ai" hidden={selected !== "ai"} tabIndex={0}><AiMonitor actor={user.id} active={selected === "ai"} /></div>
-        <div role="tabpanel" id="admin-panel-labeling" aria-labelledby="admin-tab-labeling" hidden={selected !== "labeling"} tabIndex={0}><LabelingOversight actor={user.id} active={selected === "labeling"} /></div>
+        {labelingOn && <div role="tabpanel" id="admin-panel-labeling" aria-labelledby="admin-tab-labeling" hidden={selected !== "labeling"} tabIndex={0}><LabelingOversight actor={user.id} active={selected === "labeling"} /></div>}
         <div role="tabpanel" id="admin-panel-activity" aria-labelledby="admin-tab-activity" hidden={selected !== "activity"} tabIndex={0}><ActivityLog actor={user.id} active={selected === "activity"} /></div>
       </>}
       <div role="tabpanel" id="admin-panel-assignments" aria-labelledby="admin-tab-assignments" hidden={selected !== "assignments"} tabIndex={0}>

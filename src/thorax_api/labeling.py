@@ -22,6 +22,11 @@ from pathlib import Path
 
 from .db import connect, utc_now
 
+
+def labeling_enabled() -> bool:
+    """The annotator labeling workspace is off unless THORAX_LABELING=1: in the MVP the doctor's Gate 1 review is the annotation."""
+    return os.environ.get("THORAX_LABELING") == "1"
+
 VOCABULARY_PATH = Path(__file__).resolve().parents[2] / "configs" / "labeling_vocabulary.json"
 STATUSES = ("open", "in_progress", "submitted", "returned", "approved")
 MAX_BOXES = 50

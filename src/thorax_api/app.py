@@ -38,7 +38,7 @@ from .reading import ReadingStore, register_reading
 from .sessions import Login, SessionStore
 from .vlm import VlmClient
 from .db import utc_now
-from .labeling import LabelError, LabelStore
+from .labeling import LabelError, LabelStore, labeling_enabled
 from .storage import LocalImageStore
 
 log = logging.getLogger("thorax_api")
@@ -96,6 +96,7 @@ def create_app(
     per_address = int(os.environ.get("THORAX_SIGNIN_PER_ADDRESS_PER_MINUTE", "5"))
     # Set only when the API port is reachable solely through the site's own proxy (docker/compose.yaml).
     trust_proxy = os.environ.get("THORAX_TRUST_PROXY") == "1"
+    labeling_on = labeling_enabled()
     origins = web_origins if web_origins is not None else [o.strip().rstrip("/") for o in os.environ.get("THORAX_WEB_ORIGINS", "http://127.0.0.1:3000,http://localhost:3000").split(",") if o.strip()]
     sessions = SessionStore(db_path)
     state = AuthState(sessions.secret())
@@ -230,7 +231,7 @@ def create_app(
         # Unknown emails are checked against a dummy hash, so timing does not reveal which accounts exist.
         # scrypt takes ~0.3 s and 128 MiB; run it off the event loop.
         matched = valid_password(password, 8) and await run_in_threadpool(password_matches, password, user.password_hash if user else None)
-        ok = bool(matched and user and user.is_active)
+        ok = bool(matched and user and user.is_active and (labeling_on or user.role != "annotator"))
         if user is not None:
             store.record_sign_in(user.id, ok)  # shown to admins: last sign-in and recent failed attempts
         with state.lock:
@@ -283,7 +284,7 @@ def create_app(
             raise ApiError(401, "UNAUTHENTICATED", UNAVAILABLE)
         if request.method != "GET" and not hmac.compare_digest(csrf(auth[2]), request.headers.get("x-csrf-token", "")):
             raise ApiError(403, "CSRF_INVALID", CSRF_MESSAGE)
-        if auth[0].role not in roles:
+        if auth[0].role not in roles or (auth[0].role == "annotator" and not labeling_on):
             raise ApiError(403, "ROLE_FORBIDDEN", UNAVAILABLE)
         return auth[0]
 
@@ -352,14 +353,14 @@ def create_app(
 
     @app.get("/api/v1/patients/{patient_id}/studies")
     async def patient_studies(request: Request, patient_id: str):
-        user = actor(request, "doctor", "admin")  # admins see studies to manage uploads
+        user = actor(request, "doctor", "admin", "technician")  # admins and technicians see studies to manage intake
         pid = path_id(patient_id)
         may_upload(user, pid)  # a doctor sees only assigned patients; unassigned and nonexistent look the same
         return page(request, user, catalog.studies_for_patient(pid, user.id))
 
     @app.get("/api/v1/studies/{study_id}")
     async def study(request: Request, study_id: str):
-        user = actor(request, "doctor", "admin")
+        user = actor(request, "doctor", "admin", "technician")
         found = catalog.study(path_id(study_id), user.id)
         if found is None:
             raise missing()
@@ -381,10 +382,10 @@ def create_app(
         return no_store(Response(data, media_type=image["media_type"]))
 
     app.state.admin = register_admin(
-        app, accounts=store, catalog=catalog, labels=labels, started_at=utc_now(), actor=actor, page=page, read_body=read_body,
+        app, accounts=store, catalog=catalog, labels=labels, labeling_on=labeling_on, started_at=utc_now(), actor=actor, page=page, read_body=read_body,
         no_store=no_store, invalid=invalid, error=ApiError, path_id=path_id, sessions=sessions_view(sessions, clock))
 
-    # --- uploads: admins for any patient, doctors for their assigned patients ------------------
+    # --- intake: technicians and admins push studies for any patient; doctors read, they do not upload ---
     def may_upload(user: User, patient_id: int) -> None:
         if not catalog.patient_exists(patient_id) or (user.role == "doctor" and not catalog.is_assigned(user.id, patient_id)):
             raise missing()  # unassigned and nonexistent look the same
@@ -403,8 +404,8 @@ def create_app(
         return study_date, indication.strip()
 
     def managed_study(request: Request, study_id: str) -> tuple[User, dict]:
-        """Admin, or a doctor assigned to the study's patient."""
-        user = actor(request, "doctor", "admin")
+        """A technician or admin; doctors read studies but no longer upload or edit them."""
+        user = actor(request, "admin", "technician")
         found = catalog.study(path_id(study_id))
         if found is None:
             raise missing()
@@ -439,7 +440,7 @@ def create_app(
 
     @app.post("/api/v1/patients/{patient_id}/studies")
     async def create_study(request: Request, patient_id: str):
-        user = actor(request, "doctor", "admin")
+        user = actor(request, "admin", "technician")
         pid = path_id(patient_id)
         may_upload(user, pid)
         study_date, indication = study_fields(request.query_params.get("study_date"), request.query_params.get("indication"))

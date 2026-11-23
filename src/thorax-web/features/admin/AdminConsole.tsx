@@ -10,7 +10,13 @@ import { api, ApiError } from "@/lib/api";
 import type { AdminUser, AuthUser, LabelTaskStatus, UserRole } from "@/lib/contracts";
 import { PatientStudies } from "@/features/worklist/Worklist";
 
-const roleLabel: Record<UserRole, string> = { doctor: "Doctor", annotator: "Annotator", admin: "Administrator" };
+const roleLabel: Record<UserRole, string> = { doctor: "Doctor", technician: "X-ray technician", annotator: "Annotator", admin: "Administrator" };
+export const overviewKey = (actor: number) => ["actor", actor, "admin", "overview"] as const;
+/** Labeling (annotator role) is off unless the backend sets THORAX_LABELING=1. */
+export function useLabelingEnabled(actor: number, enabled = true) {
+  const query = useQuery({ queryKey: overviewKey(actor), queryFn: ({ signal }) => api.adminOverview(signal), enabled });
+  return query.data?.labeling_enabled ?? false;
+}
 const taskLabel: Record<LabelTaskStatus, string> = { open: "Unlabeled", in_progress: "In progress", submitted: "Awaiting review", returned: "Returned", approved: "Approved" };
 const serviceLabel = { up: "Running", down: "Not responding", not_configured: "Not configured" } as const;
 const actionLabel: Record<string, string> = {
@@ -45,7 +51,7 @@ function Stats({ items }: { items: { label: string; value: ReactNode; note?: Rea
 }
 
 export function Overview({ actor, active }: { actor: number; active: boolean }) {
-  const query = useQuery({ queryKey: ["actor", actor, "admin", "overview"], queryFn: ({ signal }) => api.adminOverview(signal), enabled: active, refetchInterval: active ? 30_000 : false });
+  const query = useQuery({ queryKey: overviewKey(actor), queryFn: ({ signal }) => api.adminOverview(signal), enabled: active, refetchInterval: active ? 30_000 : false });
   return <Panel title="System overview" description="Refreshes every 30 seconds." action={<Refresh onClick={() => void query.refetch()} busy={query.isFetching} />}>
     <Loading query={query} label="the overview">{() => {
       const data = query.data!;
@@ -66,7 +72,7 @@ export function Overview({ actor, active }: { actor: number; active: boolean }) 
         <h3>Data and labeling</h3>
         <Stats items={[
           { label: "Patients", value: data.catalog.patients }, { label: "Studies", value: data.catalog.studies }, { label: "Images", value: data.catalog.images },
-          { label: "Awaiting label review", value: data.labeling.submitted }, { label: "Approved labels", value: data.labeling.approved },
+          ...(data.labeling ? [{ label: "Awaiting label review", value: data.labeling.submitted }, { label: "Approved labels", value: data.labeling.approved }] : []),
         ]} />
         <p className="admin-footnote">Backend running since {formatTime(data.backend.started_at)}.</p>
       </div>;
@@ -74,7 +80,7 @@ export function Overview({ actor, active }: { actor: number; active: boolean }) 
   </Panel>;
 }
 
-export function Patients({ actor, active }: { actor: number; active: boolean }) {
+export function Patients({ actor, active, intake = false }: { actor: number; active: boolean; intake?: boolean }) {
   const queryClient = useQueryClient();
   const query = useInfiniteQuery({
     queryKey: ["actor", actor, "admin", "patient-catalog"], initialPageParam: undefined as string | undefined,
@@ -96,7 +102,7 @@ export function Patients({ actor, active }: { actor: number; active: boolean }) 
     setBusy(true); setFeedback(null);
     try {
       const created = await api.adminCreatePatient(body);
-      setFeedback({ tone: "info", text: `Created patient ${created.code}. Grant a doctor access under Assignments.` });
+      setFeedback({ tone: "info", text: intake ? `Created patient ${created.code}. Add the study, then ask an administrator to assign the reading doctor.` : `Created patient ${created.code}. Grant a doctor access under Assignments.` });
       form.reset();
       await refresh();
     } catch (failure) { setFeedback({ tone: "error", text: problem(failure) }); }
@@ -143,6 +149,8 @@ export function UsersAccess({ actor, active, me }: { actor: number; active: bool
   const [resetFor, setResetFor] = useState<AdminUser | null>(null);
   const [resetPassword, setResetPassword] = useState("");
   const [role, setRole] = useState<UserRole>("doctor");
+  const labelingOn = useLabelingEnabled(actor, active);
+  const roles = (Object.keys(roleLabel) as UserRole[]).filter(r => r !== "annotator" || labelingOn);
   const [filter, setFilter] = useState<UserRole | "all">("all");
 
   async function run(action: () => Promise<unknown>, done: string) {
@@ -161,8 +169,8 @@ export function UsersAccess({ actor, active, me }: { actor: number; active: bool
   const users = (query.data?.items ?? []).filter(user => filter === "all" || user.role === filter);
 
   return <div className="admin-stack">
-    <Panel title="Accounts" description="Every doctor, annotator and administrator. Disabling an account or resetting its password also signs it out."
-      action={<label className="admin-inline-field">Show<select aria-label="Filter accounts by role" value={filter} onChange={event => setFilter(event.target.value as UserRole | "all")}><option value="all">All roles</option>{(Object.keys(roleLabel) as UserRole[]).map(r => <option key={r} value={r}>{roleLabel[r]}s</option>)}</select></label>}>
+    <Panel title="Accounts" description="Every doctor, X-ray technician and administrator. Disabling an account or resetting its password also signs it out."
+      action={<label className="admin-inline-field">Show<select aria-label="Filter accounts by role" value={filter} onChange={event => setFilter(event.target.value as UserRole | "all")}><option value="all">All roles</option>{roles.map(r => <option key={r} value={r}>{roleLabel[r]}s</option>)}</select></label>}>
       {feedback && <div className="admin-console-feedback"><Notice tone={feedback.tone}>{feedback.text}</Notice></div>}
       <Loading query={query} label="accounts">{() => <div className="admin-table-wrap"><table className="admin-table">
         <thead><tr><th scope="col">Name</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col">Last sign-in</th><th scope="col">Failed sign-ins (24 h)</th><th scope="col">Actions</th></tr></thead>
@@ -189,7 +197,7 @@ export function UsersAccess({ actor, active, me }: { actor: number; active: bool
       <header className="admin-panel-heading"><h2 id="admin-create-user"><UserPlus size={20} aria-hidden="true" /> Create account</h2><p>Share the initial password privately. Users can change it after signing in.</p></header>
       <fieldset disabled={busy}>
         <label htmlFor="admin-user-role">Role</label>
-        <select id="admin-user-role" value={role} onChange={event => setRole(event.target.value as UserRole)}>{(Object.keys(roleLabel) as UserRole[]).map(r => <option key={r} value={r}>{roleLabel[r]}</option>)}</select>
+        <select id="admin-user-role" value={role} onChange={event => setRole(event.target.value as UserRole)}>{roles.map(r => <option key={r} value={r}>{roleLabel[r]}</option>)}</select>
         <label htmlFor="admin-user-name">Display name</label><input id="admin-user-name" name="name" required maxLength={100} autoComplete="off" />
         <label htmlFor="admin-user-email">Email</label><input id="admin-user-email" name="email" type="email" required maxLength={254} autoComplete="off" />
         <label htmlFor="admin-user-password">Initial password</label><input id="admin-user-password" name="password" type="password" required minLength={12} maxLength={72} autoComplete="new-password" />

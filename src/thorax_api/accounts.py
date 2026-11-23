@@ -19,7 +19,7 @@ from pathlib import Path
 
 from .db import connect, utc_now
 
-ROLES = ("doctor", "admin", "annotator")
+ROLES = ("doctor", "admin", "annotator", "technician")
 # OWASP password-storage minimum for scrypt: N=2^17, r=8, p=1 (about 128 MiB per hash).
 SCRYPT_N, SCRYPT_R, SCRYPT_P, KEY_BYTES = 2**17, 8, 1, 64
 SCRYPT_MAXMEM = 256 * 1024 * 1024
@@ -70,7 +70,7 @@ USERS_TABLE = """CREATE TABLE {name} (
     id INTEGER PRIMARY KEY,
     email TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
-    role TEXT NOT NULL CHECK (role IN ('doctor', 'admin', 'annotator')),
+    role TEXT NOT NULL CHECK (role IN ('doctor', 'admin', 'annotator', 'technician')),
     password_hash TEXT NOT NULL,
     is_active INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL
@@ -84,8 +84,8 @@ class AccountStore:
             existing = db.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'").fetchone()
             if existing is None:
                 db.execute(USERS_TABLE.format(name="users"))
-        if existing is not None and "'annotator'" not in existing[0]:
-            self._add_annotator_role()
+        if existing is not None and "'technician'" not in existing[0]:
+            self._rebuild_users_table()  # databases from before the annotator or technician roles
         with self._connect() as db:
             db.execute("""CREATE TABLE IF NOT EXISTS auth_events (
                 id INTEGER PRIMARY KEY,
@@ -109,7 +109,7 @@ class AccountStore:
                    FROM users u ORDER BY u.role, u.id""", (since,)).fetchall()
         return [{**dict(row), "is_active": bool(row["is_active"])} for row in rows]
 
-    def _add_annotator_role(self) -> None:
+    def _rebuild_users_table(self) -> None:
         """SQLite cannot alter a CHECK constraint: rebuild the table (its documented 12-step procedure)."""
         db = sqlite3.connect(self.path)
         try:
@@ -175,6 +175,7 @@ DEMO_ACCOUNTS = (
     (3, "Demo administrator", "admin@thorax.demo", "admin", "THORAX_DEMO_ADMIN_PASSWORD"),
     (4, "Ana Silva", "annotator@thorax.demo", "annotator", "THORAX_DEMO_ANNOTATOR_PASSWORD"),
     (5, "Ben Carter", "annotator2@thorax.demo", "annotator", "THORAX_DEMO_ANNOTATOR_PASSWORD"),
+    (6, "Sam Tran", "technician@thorax.demo", "technician", "THORAX_DEMO_TECHNICIAN_PASSWORD"),
 )
 
 
@@ -212,10 +213,14 @@ def main(argv: list[str] | None = None) -> int:
             from .catalog import Catalog, seed_demo
             from .storage import LocalImageStore
 
+            from .labeling import labeling_enabled
+
             for user_id, name, email, role, env_name in DEMO_ACCOUNTS:
                 password = os.environ.get(env_name)
-                if not password and role == "annotator":
-                    print(f"skipped {email}: set {env_name} to create the demo annotators")
+                if role == "annotator" and not labeling_enabled():
+                    continue  # labeling is off (THORAX_LABELING); doctors' Gate 1 reviews are the annotations
+                if not password and role in ("annotator", "technician"):
+                    print(f"skipped {email}: set {env_name} to create this demo account")
                     continue
                 if not password:
                     parser.error(f"set {env_name} first")

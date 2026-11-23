@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { PASSWORDS, signIn, syntheticPng } from './accounts';
+import { LABELING_ON, PASSWORDS, signIn, syntheticPng } from './accounts';
 
 const png = (name: string, seed: number) => ({ name, mimeType: 'image/png', buffer: syntheticPng(seed) });
 
@@ -13,10 +13,16 @@ test('doctor reads a study: analyze runs and the review step opens', async ({ pa
   await expect(page.getByRole('button', { name: /Findings review \d+ findings/ })).toBeVisible();
 });
 
-test('doctor uploads, edits, extends and deletes a study before reading it', async ({ page }) => {
+test('technician pushes, edits, extends and deletes a study; the doctor only reads', async ({ page }) => {
   await signIn(page, 'doctor@thorax.demo', PASSWORDS.doctor, /\/worklist$/);
   await page.getByRole('button', { name: 'Show studies for Daniel Morgan' }).click();
-  const studies = page.locator('#patient-studies-4');
+  await expect(page.locator('#patient-studies-4').getByRole('button', { name: 'Add study' })).toHaveCount(0);
+  await page.getByRole('button', { name: /Sign out/ }).click();
+
+  await signIn(page, 'technician@thorax.demo', PASSWORDS.technician, /\/intake$/);
+  await expect(page.getByRole('heading', { name: 'Patient intake' })).toBeVisible();
+  await page.getByRole('row', { name: /PX-1045/ }).getByRole('button', { name: 'Manage studies' }).click();
+  const studies = page.locator('.study-cell');
 
   await studies.getByRole('button', { name: 'Add study' }).click();
   let dialog = page.getByRole('dialog');
@@ -50,6 +56,7 @@ test('doctor uploads, edits, extends and deletes a study before reading it', asy
   await dialog.getByRole('button', { name: 'Delete study', exact: true }).click();
   await expect(studies.getByText('Study deleted.')).toBeVisible();
   await expect(studies.getByRole('row', { name: /E2E upload/ })).toHaveCount(0);
+  await expect(page.getByRole('tab')).toHaveCount(0);  // no admin console, accounts or clinical screens
 });
 
 test('admin creates a patient, adds a study, and sees it in the activity log', async ({ page }) => {
@@ -78,6 +85,7 @@ test('admin creates a patient, adds a study, and sees it in the activity log', a
 });
 
 test('annotator labels an image and submits it for review', async ({ page }) => {
+  test.skip(!LABELING_ON, 'labeling is off by default (THORAX_LABELING)');
   await signIn(page, 'annotator@thorax.demo', PASSWORDS.annotator, /\/labeling$/);
   await page.getByRole('button', { name: /Label next image/ }).click();
   await expect(page).toHaveURL(/\/labeling\/tasks\/\d+$/);
@@ -94,6 +102,7 @@ test('annotator labels an image and submits it for review', async ({ page }) => 
 });
 
 test('a second annotator reviews the submitted labels and approves them', async ({ page }) => {
+  test.skip(!LABELING_ON, 'labeling is off by default (THORAX_LABELING)');
   await signIn(page, 'annotator2@thorax.demo', PASSWORDS.annotator, /\/labeling$/);
   await page.getByRole('link', { name: 'Review', exact: true }).first().click();
   await expect(page).toHaveURL(/\/labeling\/tasks\/\d+$/);
@@ -154,7 +163,7 @@ test('admin pauses AI, the doctor is told, and AI resumes', async ({ browser }) 
 
 test('a user changes their password and signs in with it', async ({ page }) => {
   const next = 'e2e-changed-pass-2';
-  await signIn(page, 'annotator2@thorax.demo', PASSWORDS.annotator, /\/labeling$/);
+  await signIn(page, 'technician@thorax.demo', PASSWORDS.technician, /\/intake$/);
   const change = async (from: string, to: string) => {
     await page.getByRole('button', { name: 'Change password' }).click();
     const dialog = page.getByRole('dialog');
@@ -164,8 +173,8 @@ test('a user changes their password and signs in with it', async ({ page }) => {
     await dialog.getByRole('button', { name: 'Change password' }).click();
     await expect(page.getByText('Your password was changed.')).toBeVisible();
   };
-  await change(PASSWORDS.annotator, next);
+  await change(PASSWORDS.technician, next);
   await page.getByRole('button', { name: /Sign out/ }).click();
-  await signIn(page, 'annotator2@thorax.demo', next, /\/labeling$/);
-  await change(next, PASSWORDS.annotator);  // restore for reruns against the same data
+  await signIn(page, 'technician@thorax.demo', next, /\/intake$/);
+  await change(next, PASSWORDS.technician);  // restore for reruns against the same data
 });

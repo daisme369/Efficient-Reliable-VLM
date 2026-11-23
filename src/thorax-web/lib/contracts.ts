@@ -1,4 +1,4 @@
-export type UserRole = 'doctor' | 'admin' | 'annotator';
+export type UserRole = 'doctor' | 'admin' | 'annotator' | 'technician';
 export type SessionStatus = 'active' | 'findings_approved' | 'final';
 export type StudyStatus = 'new' | 'in_progress' | 'final';
 export type View = 'PA' | 'AP' | 'LAT';
@@ -338,7 +338,8 @@ export interface AdminOverview {
   users: Record<UserRole, { active: number; total: number }>;
   signed_in: number;
   catalog: { patients: number; studies: number; images: number };
-  labeling: Record<LabelTaskStatus, number>;
+  labeling: Record<LabelTaskStatus, number> | null; // null while labeling is off (THORAX_LABELING)
+  labeling_enabled: boolean;
   ai: AiPause & { requests: number; failed: number; model_service: ModelService };
   backend: { status: string; started_at: string };
 }

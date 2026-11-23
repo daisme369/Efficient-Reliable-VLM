@@ -40,6 +40,7 @@ export default defineConfig({
         THORAX_DEMO_DOCTOR_PASSWORD: PASSWORDS.doctor,
         THORAX_DEMO_ADMIN_PASSWORD: PASSWORDS.admin,
         THORAX_DEMO_ANNOTATOR_PASSWORD: PASSWORDS.annotator,
+        THORAX_DEMO_TECHNICIAN_PASSWORD: PASSWORDS.technician,
       },
     },
     {

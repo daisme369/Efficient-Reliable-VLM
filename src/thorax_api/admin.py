@@ -119,12 +119,13 @@ def model_service() -> dict:
         return {"status": "down", "url": url}
 
 
-def register_admin(app: FastAPI, *, accounts: AccountStore, catalog: Catalog, labels: LabelStore, started_at: str,
+def register_admin(app: FastAPI, *, accounts: AccountStore, catalog: Catalog, labels: LabelStore, labeling_on: bool, started_at: str,
                    actor, page, read_body, no_store, invalid, error, path_id, sessions) -> AdminStore:
     """`sessions` exposes signed_in() -> set of user ids and revoke(user_id) from the auth state."""
     store = AdminStore(accounts.path)
     ok = lambda data, status=200: no_store(JSONResponse(data, status_code=status))  # noqa: E731
     admin = lambda request: actor(request, "admin")  # noqa: E731
+    intake = lambda request: actor(request, "admin", "technician")  # noqa: E731  patient register and study intake
 
     async def body_of(request: Request, allowed: set[str]) -> dict:
         body = await read_body(request)
@@ -148,7 +149,8 @@ def register_admin(app: FastAPI, *, accounts: AccountStore, catalog: Catalog, la
             "users": {role: {"active": sum(u["role"] == role and u["is_active"] for u in users), "total": sum(u["role"] == role for u in users)} for role in ROLES},
             "signed_in": len(signed_in & {u["id"] for u in users}),
             "catalog": catalog.counts(),
-            "labeling": labels.queue(0)["counts"],
+            "labeling": labels.queue(0)["counts"] if labeling_on else None,
+            "labeling_enabled": labeling_on,
             "ai": {**store.ai_pause(), "requests": ai["total"], "failed": ai["failed"] + ai["timed_out"], "model_service": await run_in_threadpool(model_service)},
             "backend": {"status": "ok", "started_at": started_at},
         })
@@ -165,6 +167,8 @@ def register_admin(app: FastAPI, *, accounts: AccountStore, catalog: Catalog, la
         body = await body_of(request, {"name", "email", "role", "password"})
         if not all(isinstance(body.get(key), str) and body[key].strip() for key in ("name", "email", "role", "password")) or len(body["name"]) > 100:
             raise invalid("Enter a name, email, role and initial password.")
+        if body["role"] == "annotator" and not labeling_on:
+            raise invalid("Labeling is turned off, so annotator accounts cannot be created.")
         try:
             user = accounts.create(body["email"], body["name"], body["role"], body["password"])
         except ValueError as problem:
@@ -220,7 +224,7 @@ def register_admin(app: FastAPI, *, accounts: AccountStore, catalog: Catalog, la
 
     @app.get("/api/v1/admin/patient-catalog")
     async def patient_catalog(request: Request):
-        me = admin(request)
+        me = intake(request)
         search = (request.query_params.get("search") or "").strip().lower()
         assigned = catalog.assignments()
         rows = [{"id": pid, "code": code, "assigned_doctor_ids": sorted(d for d, p in assigned if p == pid)}
@@ -229,7 +233,7 @@ def register_admin(app: FastAPI, *, accounts: AccountStore, catalog: Catalog, la
 
     @app.post("/api/v1/admin/patients")
     async def create_patient(request: Request):
-        me = admin(request)
+        me = intake(request)
         body = await body_of(request, {"name", "birth_year", "sex"})
         name, birth_year, sex = body.get("name"), body.get("birth_year"), body.get("sex")
         if not isinstance(name, str) or not 1 <= len(name.strip()) <= 120:
@@ -283,11 +287,15 @@ def register_admin(app: FastAPI, *, accounts: AccountStore, catalog: Catalog, la
     @app.get("/api/v1/admin/labeling")
     async def labeling(request: Request):
         admin(request)
+        if not labeling_on:
+            raise error(404, "NOT_FOUND", "Labeling is turned off.")
         return ok(labels.oversight())
 
     @app.post("/api/v1/admin/labeling/export")
     async def export_labels(request: Request):
         me = admin(request)
+        if not labeling_on:
+            raise error(404, "NOT_FOUND", "Labeling is turned off.")
         await body_of(request, set())
         with tempfile.TemporaryDirectory() as directory:
             manifest = labels.export(directory)

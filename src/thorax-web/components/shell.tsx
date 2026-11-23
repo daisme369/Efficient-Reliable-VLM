@@ -107,7 +107,7 @@ export function useAuth() {
   return auth;
 }
 
-export function homeFor(user: AuthUser) { return { admin: '/admin', annotator: '/labeling', doctor: '/worklist' }[user.role]; }
+export function homeFor(user: AuthUser) { return { admin: '/admin', annotator: '/labeling', doctor: '/worklist', technician: '/intake' }[user.role]; }
 
 export function RoleGate({ role, children }: { role: AuthUser['role']; children: (user: AuthUser) => ReactNode }) {
   const auth = useAuth();
@@ -162,7 +162,7 @@ export function AppShell({ children, workspace, onWorklist, onLabelingQueue, onS
   return <div className={workspace ? 'app-shell app-shell-workspace' : 'app-shell'}>
     <a className="skip-link" href="#main-content">Skip to main content</a>
     <header className="app-header">
-      <Brand /><span className="app-descriptor">{user?.role === 'annotator' ? 'Labeling workspace' : 'Chest X-ray Reading Assistant'}</span>
+      <Brand /><span className="app-descriptor">{user?.role === 'annotator' ? 'Labeling workspace' : user?.role === 'technician' ? 'Patient intake' : 'Chest X-ray Reading Assistant'}</span>
       {user && <nav aria-label="Primary navigation" className="main-nav">
         {user.role === 'doctor' ? <Link prefetch={false} href="/worklist" aria-current={pathname === '/worklist' ? 'page' : undefined} onClick={onWorklist ? event => { if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); onWorklist(); } : undefined}>
           {pathname !== '/worklist' && <ArrowLeft size={16} aria-hidden />} Worklist
@@ -174,7 +174,7 @@ export function AppShell({ children, workspace, onWorklist, onLabelingQueue, onS
       </nav>}
       <div className="header-account">
         <LanguageToggle />
-        {user && <><span className="avatar" aria-hidden>{initials}</span><span className="account-name"><strong>{user.name}</strong><span>{{ admin: 'Administrator', annotator: 'Annotator', doctor: 'Doctor' }[user.role]}</span></span></>}
+        {user && <><span className="avatar" aria-hidden>{initials}</span><span className="account-name"><strong>{user.name}</strong><span>{{ admin: 'Administrator', annotator: 'Annotator', doctor: 'Doctor', technician: 'X-ray technician' }[user.role]}</span></span></>}
         {user && backendConnected && <button className="button ghost" onClick={() => setChangingPassword(true)}><KeyRound size={16} aria-hidden /> Change password</button>}
         {user && <button className="button ghost" onClick={() => void leave()} disabled={signingOut}><LogOut size={16} aria-hidden /> {signingOut ? 'Signing out…' : 'Sign out'}</button>}
       </div>

@@ -6,7 +6,9 @@ export const API_PORT = 8300;
 export const MOCK_PORT = 3301;
 
 // Test-only passwords for a throwaway synthetic database; not used anywhere else.
-export const PASSWORDS = { doctor: 'e2e-doctor-pass-1', admin: 'e2e-admin-pass-1', annotator: 'e2e-annotator-pass-1' };
+export const PASSWORDS = { doctor: 'e2e-doctor-pass-1', admin: 'e2e-admin-pass-1', annotator: 'e2e-annotator-pass-1', technician: 'e2e-technician-pass-1' };
+// The annotator workspace is off unless the backend runs with THORAX_LABELING=1.
+export const LABELING_ON = process.env.THORAX_LABELING === '1';
 
 export async function signIn(page: Page, email: string, password: string, landing: RegExp) {
   await page.goto('/login');

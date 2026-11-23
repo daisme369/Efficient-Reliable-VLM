@@ -60,7 +60,7 @@ function AssignedPatients({ actor, localDemo }: { actor: number; localDemo: bool
                 <td className="mono">{patient.code}</td><td className="mono">{patient.birth_year ?? '—'}</td><td>{patient.sex ?? '—'}</td><td className="mono">{patient.study_count}</td>
                 <td className="align-right"><button className="button ghost" aria-expanded={expanded === patient.id} aria-label={`${expanded === patient.id ? 'Hide' : 'Show'} studies for ${patient.name}`} aria-controls={`patient-studies-${patient.id}`} onClick={() => { setExpanded(expanded === patient.id ? null : patient.id); void refresh(true).catch(() => {}); }}>{expanded === patient.id ? <ChevronDown size={17} aria-hidden /> : <ChevronRight size={17} aria-hidden />}{expanded === patient.id ? 'Hide studies' : 'Show studies'}</button></td>
               </tr>
-              {expanded === patient.id && <tr><td colSpan={6} className="study-cell"><PatientStudies key={patient.id} actor={actor} patientId={patient.id} patientLabel={`${patient.name} (${patient.code})`} canUpload={!localDemo} /></td></tr>}
+              {expanded === patient.id && <tr><td colSpan={6} className="study-cell"><PatientStudies key={patient.id} actor={actor} patientId={patient.id} patientLabel={`${patient.name} (${patient.code})`} canUpload={false} /></td></tr>}
             </tbody>)}
           </table>
           <div className="worklist-footer"><span role="status">{rows.length} {rows.length === 1 ? 'patient' : 'patients'} shown</span>{list.hasNextPage && <button className="button" disabled={list.isFetchingNextPage} onClick={() => { touch(); void list.fetchNextPage(); }}>{list.isFetchingNextPage ? 'Loading…' : 'Load more'}</button>}</div>

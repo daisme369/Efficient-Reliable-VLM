@@ -23,6 +23,8 @@ python scripts/serve_api.py
 | `THORAX_VLM_URL` | unset | Model service URL (`scripts/serve_vlm.py`). With `THORAX_VLM_KEY` set too, Analyze and Ask AI call the real model; otherwise they use the fixed demo answers |
 | `THORAX_VLM_KEY` | unset | API key shared with the model service |
 | `THORAX_DEMO_AI_FAULT` | unset | `timeout` or `detector` to simulate AI failures |
+| `THORAX_LABELING` | unset | `1` turns the annotator labeling workspace on. It is off by default: the doctor's Gate 1 review is the annotation (spec FR-017 keeps training-data export for later). While off, annotators cannot sign in or be created, and the labeling routes return 404. |
+| `THORAX_DEMO_TECHNICIAN_PASSWORD` | unset | `seed-demo` creates `technician@thorax.demo` (X-ray technician) when set |
 
 Other commands: `python -m thorax_api.accounts create|disable|enable|reset-password`, `python -m thorax_api.labeling create-tasks|export --out <dir>`.
 

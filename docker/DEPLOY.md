@@ -99,8 +99,9 @@ Wait until you see three lines that end in **Healthy**. Caddy requests the certi
 ```bash
 read -rsp "Doctor password: " THORAX_DEMO_DOCTOR_PASSWORD; echo
 read -rsp "Admin password: " THORAX_DEMO_ADMIN_PASSWORD; echo
-export THORAX_DEMO_DOCTOR_PASSWORD THORAX_DEMO_ADMIN_PASSWORD
-docker compose -f docker/compose.yaml exec -e THORAX_DEMO_DOCTOR_PASSWORD -e THORAX_DEMO_ADMIN_PASSWORD api python -m thorax_api.accounts seed-demo
+read -rsp "X-ray technician password: " THORAX_DEMO_TECHNICIAN_PASSWORD; echo
+export THORAX_DEMO_DOCTOR_PASSWORD THORAX_DEMO_ADMIN_PASSWORD THORAX_DEMO_TECHNICIAN_PASSWORD
+docker compose -f docker/compose.yaml exec -e THORAX_DEMO_DOCTOR_PASSWORD -e THORAX_DEMO_ADMIN_PASSWORD -e THORAX_DEMO_TECHNICIAN_PASSWORD api python -m thorax_api.accounts seed-demo
 ```
 
 Use passwords of at least 12 characters. The typing stays invisible, which is normal. The passwords never go into Git or the image.
@@ -119,6 +120,7 @@ Open `https://<your domain>` and sign in:
 
 - Doctor: `doctor@thorax.demo`
 - Admin: `admin@thorax.demo`
+- X-ray technician: `technician@thorax.demo` (patient intake: registers patients and pushes studies)
 
 ### 11. Turn on backups
 

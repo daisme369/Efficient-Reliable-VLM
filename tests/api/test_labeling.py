@@ -9,7 +9,9 @@ from pathlib import Path
 import sqlite3
 import sys
 import tempfile
+import os
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
@@ -23,6 +25,9 @@ BOX = {"region": "left lower lung zone", "finding": "lung opacity", "state": "po
 @unittest.skipUnless(HAS_API_DEPS, "requires requirements/api.txt (fastapi, httpx)")
 class LabelingTests(unittest.TestCase):
     def setUp(self):
+        patcher = patch.dict(os.environ, {"THORAX_LABELING": "1"})  # the annotator workspace is off by default
+        patcher.start()
+        self.addCleanup(patcher.stop)
         from fastapi.testclient import TestClient
         from thorax_api.accounts import AccountStore
         from thorax_api.app import create_app
@@ -206,6 +211,36 @@ class LabelingTests(unittest.TestCase):
 
 
 @unittest.skipUnless(HAS_API_DEPS, "requires requirements/api.txt (fastapi, httpx)")
+class LabelingOffTests(unittest.TestCase):
+    """Default (THORAX_LABELING unset): the doctor's Gate 1 review is the annotation, so the annotator workspace is closed."""
+
+    def test_annotator_workspace_is_closed_by_default(self):
+        from fastapi.testclient import TestClient
+        from thorax_api.accounts import AccountStore
+        from thorax_api.app import create_app
+
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        db = Path(directory.name) / "thorax.sqlite3"
+        accounts = AccountStore(db)
+        accounts.create("ana@example.test", "Ana", "annotator", PASSWORD, user_id=4)
+        accounts.create("admin@example.test", "Admin", "admin", PASSWORD, user_id=3)
+        with patch.dict(os.environ, {"THORAX_LABELING": ""}):
+            app = create_app(db, [WEB], image_root=str(Path(directory.name) / "images"))
+        annotator = TestClient(app, headers={"Origin": WEB})
+        refused = annotator.post("/api/v1/auth/login", json={"email": "ana@example.test", "password": PASSWORD})
+        self.assertEqual(refused.status_code, 401)  # the same generic error as a wrong password
+        admin = TestClient(app, headers={"Origin": WEB})
+        admin.headers["X-CSRF-Token"] = admin.post("/api/v1/auth/login", json={"email": "admin@example.test", "password": PASSWORD}).json()["csrf_token"]
+        created = admin.post("/api/v1/admin/users", json={"name": "Cara", "email": "cara@example.test", "role": "annotator", "password": PASSWORD})
+        self.assertEqual(created.status_code, 422)
+        self.assertEqual(admin.get("/api/v1/admin/labeling").status_code, 404)
+        overview = admin.get("/api/v1/admin/overview").json()
+        self.assertEqual((overview["labeling_enabled"], overview["labeling"]), (False, None))
+        technician = admin.post("/api/v1/admin/users", json={"name": "Sam", "email": "sam@example.test", "role": "technician", "password": PASSWORD})
+        self.assertEqual((technician.status_code, technician.json()["role"]), (201, "technician"))
+
+
 class RoleMigrationTests(unittest.TestCase):
     def test_existing_database_gains_the_annotator_role_without_losing_users_or_links(self):
         from thorax_api.accounts import AccountStore
