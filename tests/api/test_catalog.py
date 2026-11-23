@@ -64,6 +64,17 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(self.doctor2.get("/api/v1/patients", params={"limit": 4, "cursor": first["next_cursor"]}).status_code, 422)
         self.assertEqual(self.doctor.get("/api/v1/patients", params={"limit": 101}).status_code, 422)
 
+    def test_code_search_and_study_metadata_match_the_fixture(self):
+        from thorax_api.catalog import demo_rows
+        self.assertEqual([p["name"] for p in self.doctor.get("/api/v1/patients", params={"search": "px-1044"}).json()["items"]], ["Marina Chen"])
+        _patients, studies, images, assignments = demo_rows()
+        for doctor, client in ((1, self.doctor), (2, self.doctor2)):
+            for pid in sorted(p for d, p in assignments if d == doctor):
+                expected = sorted(((s[0], s[2], s[3], sum(i[1] == s[0] for i in images)) for s in studies if s[1] == pid), reverse=True)
+                served = client.get(f"/api/v1/patients/{pid}/studies").json()["items"]
+                self.assertEqual(sorted(((s["id"], s["study_date"], s["indication"], s["image_count"]) for s in served), reverse=True),
+                                 expected, pid)
+
     def test_studies_and_study_detail(self):
         studies = self.doctor.get("/api/v1/patients/1/studies").json()["items"]
         self.assertEqual([(s["id"], s["study_date"], s["image_count"], s["status"]) for s in studies],

@@ -124,3 +124,25 @@ test('box source coordinates survive pan and zoom and remain valid while editing
   assert.deepEqual(moveBounds(box, { x: -1000, y: 1000 }, image), [0, 430, 350, 880]);
   assert.deepEqual(resizeBounds(box, { x: 1000, y: 1000 }, 'bottom-right', image), [100, 150, 800, 880]);
 });
+
+test('fit, zoom, pan and device pixel ratio round-trip within 0.5 source pixel (TAS-14)', () => {
+  const points = [[0, 0], [800, 880], [123.4, 567.8], [400, 440], [799.5, 0.5]];
+  for (const viewport of [{ width: 1280 - 420, height: 720 }, { width: 1600, height: 900 }, { width: 333, height: 777 }]) {
+    for (const dpr of [1, 1.25, 1.5, 2, 3]) {
+      for (const zoom of [0.25, 1, 1.7, 4, 8]) {
+        for (const pan of [{ x: 0, y: 0 }, { x: -5000, y: 5000 }, { x: 37.3, y: -91.1 }]) {
+          const transform = imageTransform(image, viewport, clampView(image, viewport, { zoom, pan }));
+          for (const [x, y] of points) {
+            const screen = { x: transform.x + x * transform.scale, y: transform.y + y * transform.scale };
+            const exact = toSource(screen, transform);
+            close(exact.x, x); close(exact.y, y);
+            // A pointer lands on the nearest device pixel; that costs at most half a device pixel.
+            if (transform.scale * dpr < 1) continue;  // below 1:1 a device pixel spans several source pixels
+            const snapped = toSource({ x: Math.round(screen.x * dpr) / dpr, y: Math.round(screen.y * dpr) / dpr }, transform);
+            assert.ok(Math.abs(snapped.x - x) <= 0.5 && Math.abs(snapped.y - y) <= 0.5, `${dpr}x ${zoom} (${x}, ${y})`);
+          }
+        }
+      }
+    }
+  }
+});
