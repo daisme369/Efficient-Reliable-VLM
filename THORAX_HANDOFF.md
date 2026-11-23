@@ -71,6 +71,34 @@ TAS-22, TAS-23 and TAS-24 belong to Cáp Việt Anh; their code is merged here, 
 
 The fake service proves the software chain, not model quality. Re-run it against the real GPU service and record the model ID, adapter hash and latency.
 
+## Trained model bundle (M1 v2, 20 November 2026) — use this one
+
+The team Drive (`CapstoneA/models/M1/m1-v2-blackwell-max-throughput.rar`, 779,822,288 bytes, SHA-256 `42ce4d65…08ee1`) holds the M1 v2 adapter.
+
+**Model:**
+- BF16 LoRA r=16, alpha=32, on the language projections of `google/medgemma-1.5-4b-it`, revision `91850547…`.
+- 29.8 M trainable parameters.
+- Objective: VQA, region boxes and impressions.
+- Training: 378,832 samples, 4,510 steps, 9.9 GPU-hours, final selection-fold validation loss 0.621.
+
+**Not measured yet:** M1 was **not evaluated**. There are no VQA or grounding metrics and no fitted risk model, so abstention stays unavailable until an M1 `evaluate` run produces `metrics.json` with `selectivity`.
+
+**Local verification (23 November):**
+- Only the adapter and the run metadata were extracted, outside the repository. The archive holds no row-level predictions.
+- All 8 adapter files pass `verify_artifacts`, and the adapter SHA-256 is `2c78d53b686a6ef0cef360681e269db3aa940b55cb2ee0c4d815232c0dad89d8`.
+- The training config is the `config` field of the bundle's `run.json`. Its fingerprint equals the adapter identity (`8ad93a5b…`), so `scripts/serve_vlm.py` accepts it.
+- That config contains `m1_performance`, which the trainer's uncommitted code added. This branch now parses it with unchanged fingerprints for older configs, and refuses to train with it.
+
+**Serving it** needs only an inference GPU allowed by `docs/agents/GPU-DOCKER.md` and gated MedGemma access:
+
+```bash
+python -c "import json; json.dump(json.load(open('run.json'))['config'], open('m1-config.json', 'w'))"
+THORAX_VLM_KEY=<random 16+ chars> THORAX_VLM_ADAPTER=/private/models/m1-v2/adapter \
+THORAX_VLM_CONFIG=/private/models/m1-v2/m1-config.json python scripts/serve_vlm.py
+```
+
+**Risk:** the run was trained from commit `27ad688` with local, uncommitted changes (`git_dirty: true`). Ask the trainer to commit them, and confirm that `REGION_PROMPT` and the prompt handling in `src/cxr_research/data/m1.py` and `evaluation/m1.py` match their training code, before trusting the region answers.
+
 ## Trained model bundle (B1, 31 October 2026)
 
 The team's bundle `2026-10-31-b1-posttrain.zip` holds the final B1 adapter. It is BF16 LoRA r=8, alpha=16, on the language projections of `google/medgemma-1.5-4b-it`, revision `91850547d9f0b2fdd21aa7c5f4f3d1a8a52c243b`, with 14.9 M trainable parameters. The bundle also holds 8 checkpoints and the aggregate metrics.
