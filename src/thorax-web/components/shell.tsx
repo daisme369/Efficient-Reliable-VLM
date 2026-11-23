@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { api, ApiError, authLostEvent, clearApiAuth } from '@/lib/api';
+import { LanguageToggle, Translator } from '@/lib/i18n';
 import { Badge, Confirm, EmptyState, Notice, Skeleton } from './ui';
 
 type AuthUser = Awaited<ReturnType<typeof api.me>>;
@@ -19,7 +20,7 @@ const authContext = createContext<{
 
 export function Providers({ children, backendConnected }: { children: ReactNode; backendConnected: boolean }) {
   const [queryClient] = useState(() => new QueryClient({ defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false, gcTime: 0 } } }));
-  return <QueryClientProvider client={queryClient}><AuthProvider backendConnected={backendConnected}>{children}</AuthProvider></QueryClientProvider>;
+  return <QueryClientProvider client={queryClient}><AuthProvider backendConnected={backendConnected}>{children}</AuthProvider><Translator /></QueryClientProvider>;
 }
 
 function AuthProvider({ children, backendConnected }: { children: ReactNode; backendConnected: boolean }) {
@@ -172,6 +173,7 @@ export function AppShell({ children, workspace, onWorklist, onLabelingQueue, onS
         {user.role === 'doctor' && pathname.startsWith('/patients/') && <><ChevronRight size={14} aria-hidden /><span>{pathname.endsWith('/report') ? 'Final report' : 'Study workspace'}</span></>}
       </nav>}
       <div className="header-account">
+        <LanguageToggle />
         {user && <><span className="avatar" aria-hidden>{initials}</span><span className="account-name"><strong>{user.name}</strong><span>{{ admin: 'Administrator', annotator: 'Annotator', doctor: 'Doctor' }[user.role]}</span></span></>}
         {user && backendConnected && <button className="button ghost" onClick={() => setChangingPassword(true)}><KeyRound size={16} aria-hidden /> Change password</button>}
         {user && <button className="button ghost" onClick={() => void leave()} disabled={signingOut}><LogOut size={16} aria-hidden /> {signingOut ? 'Signing out…' : 'Sign out'}</button>}

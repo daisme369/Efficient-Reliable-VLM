@@ -1,0 +1,34 @@
+# Thorax AI backend API (src/thorax_api), run by docker/compose.yaml.
+
+# Same pinned base as Dockerfile.gpu: Linux/amd64 digest for python:3.12.12-slim-bookworm.
+FROM python:3.12.12-slim-bookworm@sha256:2986c55feb36e6cae00fa1fefb454283e4b33f35e75ff8bdd123b134130be301
+
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app/src \
+    THORAX_API_HOST=0.0.0.0 \
+    THORAX_DB_PATH=/data/thorax.sqlite3 \
+    THORAX_IMAGE_ROOT=/data/images
+
+COPY requirements/api.txt /tmp/api.txt
+RUN pip install --requirement /tmp/api.txt \
+    && pip check \
+    && rm /tmp/api.txt \
+    && useradd --create-home --uid 10001 thorax \
+    && mkdir -p /data \
+    && chown thorax:thorax /data
+
+WORKDIR /app
+COPY configs/labeling_vocabulary.json configs/
+COPY scripts/serve_api.py scripts/
+COPY src/thorax_api src/thorax_api
+# Synthetic images for `python -m thorax_api.accounts seed-demo` (catalog.DEMO_ASSETS).
+COPY src/thorax-web/lib/server/assets/*.png src/thorax-web/lib/server/assets/
+
+USER thorax
+EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=4)"]
+CMD ["python", "scripts/serve_api.py"]

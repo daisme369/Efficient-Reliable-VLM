@@ -98,6 +98,7 @@ input, textarea, select { min-width: 0; }
 .main-nav a { min-height: 44px; display: inline-flex; align-items: center; gap: 6px; border-radius: 6px; padding: 0 6px; font-weight: 650; }
 .main-nav a:hover { background: var(--primary-bg); }
 .header-account { margin-left: auto; display: flex; gap: 12px; align-items: center; }
+.login-header .language-toggle { margin-left: auto; }
 .avatar { display: inline-grid; place-items: center; width: 36px; height: 36px; flex: 0 0 36px; border-radius: 6px; background: var(--primary-bg); color: #0a536a; font-size: 14px; font-weight: 650; }
 .account-name { display: grid; font-size: 14px; line-height: 1.35; white-space: nowrap; }
 .account-name span { color: var(--muted); }
@@ -154,3 +155,14 @@ input, textarea, select { min-width: 0; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; } }
 .password-fields { display: grid; gap: 12px; min-width: min(360px, 80vw); }
 .password-error { color: var(--error-text); font-size: 14px; }
+.upload-fields { display: grid; gap: 12px; min-width: 0; }
+.upload-view { grid-template-columns: minmax(0, 1fr) 120px; align-items: center; font-weight: 400; }
+.upload-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upload-permit { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; line-height: 1.45; }
+.upload-permit input { width: 18px; height: 18px; margin-top: 2px; flex: none; }
+.study-list-heading .button { margin-left: auto; }
+.upload-images { display: grid; gap: 6px; list-style: none; padding: 0; margin: 0; font-weight: 400; }
+.upload-images li { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.upload-delete { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 14px; }
+.study-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.danger-text { color: var(--error-text); }

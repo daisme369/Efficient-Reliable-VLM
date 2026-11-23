@@ -82,6 +82,19 @@ class IOConfig:
 
 
 @dataclass(frozen=True)
+class M1PerformanceConfig:
+    """Options recorded by the M1 v2 training run (20 Nov 2026), whose trainer code is not on this branch.
+
+    shortcut: parsed so that run's adapter can be identified and served; training with non-default
+    values is refused here. Replace with the trainer's own implementation once it is committed.
+    """
+    brightness: float = 0.0
+    contrast: float = 0.0
+    compact_logits: bool = False
+    reuse_image_processing: bool = False
+
+
+@dataclass(frozen=True)
 class ExperimentConfig:
     run_id: str
     task: str
@@ -97,6 +110,7 @@ class ExperimentConfig:
     medgemma: MedGemmaConfig = field(default_factory=MedGemmaConfig)
     io: IOConfig = field(default_factory=IOConfig)
     runtime_profile: str = "cu130"
+    m1_performance: M1PerformanceConfig = field(default_factory=M1PerformanceConfig)
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -106,6 +120,9 @@ class ExperimentConfig:
         payload = self.as_dict()
         for key in ("run_id", "output_root", "device", "jira_issue", "protocol"):
             payload.pop(key)
+        # Configs written before this field existed keep their fingerprints.
+        if self.m1_performance == M1PerformanceConfig():
+            payload.pop("m1_performance")
         return digest(payload)
 
 
@@ -128,7 +145,8 @@ def config_from_dict(raw: dict) -> ExperimentConfig:
         raise ContractError("configuration must be an object")
     raw = dict(raw)
     for key, cls in (("data", DataConfig), ("train", TrainingConfig),
-                     ("unet", UNetConfig), ("medgemma", MedGemmaConfig), ("io", IOConfig)):
+                     ("unet", UNetConfig), ("medgemma", MedGemmaConfig), ("io", IOConfig),
+                     ("m1_performance", M1PerformanceConfig)):
         raw[key] = _construct(cls, raw.get(key, {}))
     config = _construct(ExperimentConfig, raw)
     validate_config(config)

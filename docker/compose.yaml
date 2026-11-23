@@ -1,0 +1,49 @@
+# Thorax AI on one server: caddy (HTTPS, ports 80/443) -> web (Next.js) -> api (FastAPI + SQLite).
+# Usage and settings: docker/README.md, "Deploy the app".
+name: thorax
+
+services:
+  caddy:
+    image: caddy:2.11.9-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      THORAX_DOMAIN: ${THORAX_DOMAIN:?Set THORAX_DOMAIN in docker/.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.web
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    restart: unless-stopped
+    environment:
+      THORAX_WEB_ORIGINS: https://${THORAX_DOMAIN:?Set THORAX_DOMAIN in docker/.env}
+      # The API port is not published: only web and caddy can reach it, so their X-Forwarded-For is trusted.
+      THORAX_TRUST_PROXY: "1"
+      THORAX_VLM_URL: ${THORAX_VLM_URL:-}
+      THORAX_VLM_KEY: ${THORAX_VLM_KEY:-}
+    volumes:
+      - thorax-data:/data
+
+volumes:
+  thorax-data:
+  caddy-data:
+  caddy-config:

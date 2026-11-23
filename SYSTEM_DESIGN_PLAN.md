@@ -12,9 +12,9 @@ Tài liệu thiết kế luồng end-to-end từ model đã fine-tune đến gia
 |---|---|---|---|
 | Frontend | React + Vite, gọi API RunPod khác origin | Next.js 15 App Router + TanStack Query. Next rewrite `/api/v1` tới `THORAX_API_ORIGIN`, nên trình duyệt chỉ gọi cùng origin; không cần CORS | 3, 11.1, 11.3 |
 | Người dùng | Bác sĩ và y tá, cùng quyền | `doctor`, `admin`, `annotator`; không có y tá. Có admin UI | 2, 8.1 |
-| Đăng nhập | Username; bearer token giữ trong memory | Email; cookie HttpOnly `thorax_session` + header `X-CSRF-Token` + kiểm tra Origin. Idle 30 phút, tuyệt đối 2 giờ, một login active mỗi account, token hash trong RAM. Giới hạn 10 lần sai/15 phút mỗi account và 5 lần/phút mỗi địa chỉ. Người dùng tự đổi mật khẩu được | 8.1, 11.3 |
+| Đăng nhập | Username; bearer token giữ trong memory | Email; cookie HttpOnly `thorax_session` + header `X-CSRF-Token` + kiểm tra Origin. Idle 30 phút, tuyệt đối 2 giờ, một login active mỗi account. Chỉ lưu hash của token, trong SQLite, nên restart backend không đăng xuất người dùng. Giới hạn 10 lần sai/15 phút mỗi account và 5 lần/phút mỗi địa chỉ. Người dùng tự đổi mật khẩu được | 8.1, 11.3 |
 | Hash mật khẩu | Argon2id (thêm dependency) | scrypt của thư viện chuẩn (N=2^17, r=8, p=1) | 8.1 |
-| Luồng chính | Upload một ảnh, hỏi đáp tạm thời | Worklist bệnh nhân được phân công → study → Analyze lấy báo cáo sơ bộ, findings và vùng → Clinical Discussion để trao đổi, rồi duyệt Findings ở Gate 1 → soạn Report → ký ở Gate 2. Có audit log. Không có upload ảnh | 4, 5 |
+| Luồng chính | Upload một ảnh, hỏi đáp tạm thời | Worklist bệnh nhân được phân công → study → Analyze lấy báo cáo sơ bộ, findings và vùng → Clinical Discussion để trao đổi, rồi duyệt Findings ở Gate 1 → soạn Report → ký ở Gate 2. Có audit log. Admin tạo bệnh nhân; admin và bác sĩ (với bệnh nhân được phân công) tạo study kèm ảnh PNG/JPEG upload, phải xác nhận ảnh là synthetic hoặc được phép dùng. Server giải mã toàn bộ ảnh, giới hạn 10 MiB và 16 megapixel, mã hóa lại sang PNG để bỏ metadata. Ảnh của study bị khóa khi đã có phiên đọc | 4, 5 |
 | Lưu trữ | Chỉ `users` trong SQLite; ảnh và hội thoại chỉ trong RAM | SQLite lưu accounts, patients, studies, images, phân công, phiên đọc, findings có version, vùng, tin nhắn, report, audit event, AI job, idempotency receipt, nhãn và nhật ký admin. File ảnh trên đĩa (`thorax-images/`), có interface để chuyển S3. Lý do: report được ký và audit nên phải lưu bền | 8.2 |
 | AI | GPU child process, FIFO trong RAM, polling job | `POST /sessions/{id}/ai-requests` với 3 thao tác `analyze`, `ask`, `draft_report`, frontend polling theo request ID, hạn 60 giây. Hiện trả câu trả lời giả lập cố định. Admin có thể tạm dừng AI (`503 AI_PAUSED`); bác sĩ vẫn sửa và ký tay được | 5, 7 |
 | Model service | Trong cùng Pod với API | Chưa xây. `THORAX_VLM_URL` hiện chỉ dùng để admin xem health của một service riêng | 3, 6.1 |
@@ -499,7 +499,7 @@ Không tạo thêm Jira issue trong lượt lập plan. Các work package dùng 
 | Runtime/precision/VRAM của bundle | Nhận từ team model; phải đo full pipeline trên 4090, không tự đổi để làm vừa |
 | Multi-turn calibration | Evidence chưa có; label theo scope, không tái hiệu chuẩn trong task hệ thống |
 | Ngân sách RunPod và giờ chạy | Chưa cấp; chưa có GPU được thuê; chốt trước deployment paid |
-| Nguồn ảnh demo | Chưa chốt bộ cụ thể; Cáp xác minh non-MIMIC, license và quyền trình chiếu |
+| Nguồn ảnh demo | Đề xuất 17/11/2026: Random Sample of NIH Chest X-ray Dataset trên Kaggle (CC0, NIH Clinical Center, không phải MIMIC); chờ Gia Khánh review. Xem `docs/demo-data/README.md` |
 | Tham số TTL/input/watchdog | Đã đề xuất trong phần 7; team có thể điều chỉnh sau smoke test |
 | Frontend library versions | Chọn và pin khi triển khai; plan không cài dependency |
 | RTX 3090 | Chưa đủ gate theo policy repo; 4090 là đường triển khai chính |

@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Brand, DemoBadge, homeFor, useAuth } from '@/components/shell';
 import { Notice, Skeleton, Spinner } from '@/components/ui';
 import { api, ApiError } from '@/lib/api';
+import { LanguageToggle } from '@/lib/i18n';
 
 export function Login() {
   const auth = useAuth();
@@ -52,7 +53,7 @@ export function Login() {
 
   return <div className="login-shell">
     <a className="skip-link" href="#main-content">Skip to main content</a>
-    <header className="login-header"><Brand /><span className="app-descriptor">Chest X-ray Reading Assistant</span></header>
+    <header className="login-header"><Brand /><span className="app-descriptor">Chest X-ray Reading Assistant</span><LanguageToggle /></header>
     <main className="login-main" id="main-content">
       <section className="login-card surface" aria-labelledby="login-heading">
         {auth.loading || auth.user ? <Skeleton label="Checking session" rows={4} /> : <>

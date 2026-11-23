@@ -45,6 +45,8 @@ export interface StudyDTO {
   status: StudyStatus;
   own_session_id: number | null;
   own_session_status: SessionStatus | null;
+  /** Thorax backend only: an uploaded study nothing depends on yet, so it can be edited or deleted. */
+  editable?: boolean;
 }
 
 export interface ImageDTO {
@@ -281,7 +283,7 @@ export interface FixtureStatus {
 }
 
 export interface MutationReceipt {
-  resource_type: 'doctor' | 'assignment' | 'fixture' | 'box' | 'findings' | 'report';
+  resource_type: 'doctor' | 'assignment' | 'fixture' | 'box' | 'findings' | 'report' | 'patient';
   resource_id: number | string;
   session_revision?: number;
 }
@@ -348,5 +350,5 @@ export interface AdminAi {
   model_service: ModelService;
 }
 export interface AnnotatorStats { id: number; name: string; is_active: boolean; in_progress: number; labeled: number; approved: number; times_returned: number; reviews: number; review_edits: number }
-export interface AdminLabeling { counts: Record<LabelTaskStatus, number>; annotators: AnnotatorStats[]; approved_with_reviewer_changes: number; vocabulary: { version: string; verified: boolean } }
-export interface AdminEvent { id: number; action: string; detail: string; created_at: string; admin_name: string }
+export interface AdminLabeling { counts: Record<LabelTaskStatus, number>; annotators: AnnotatorStats[]; approved_with_reviewer_changes: number; vocabulary: { version: string; verified: boolean; status: string } }
+export interface AdminEvent { id: number; action: string; detail: string; created_at: string; actor_name: string; actor_role: UserRole }

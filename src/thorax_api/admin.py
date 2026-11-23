@@ -8,6 +8,7 @@ import os
 import sqlite3
 import tempfile
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -61,7 +62,7 @@ class AdminStore:
 
     def events(self, limit: int = 100) -> list[dict]:
         with connect(self.path) as db:
-            rows = db.execute("""SELECT e.id, e.action, e.detail, e.created_at, u.name AS admin_name FROM admin_events e
+            rows = db.execute("""SELECT e.id, e.action, e.detail, e.created_at, u.name AS actor_name, u.role AS actor_role FROM admin_events e
                                  JOIN users u ON u.id = e.admin_id ORDER BY e.id DESC LIMIT ?""", (limit,)).fetchall()
         return [dict(row) for row in rows]
 
@@ -226,6 +227,21 @@ def register_admin(app: FastAPI, *, accounts: AccountStore, catalog: Catalog, la
                 for pid, code in catalog.patient_codes() if search in code.lower()]
         return page(request, me, rows)
 
+    @app.post("/api/v1/admin/patients")
+    async def create_patient(request: Request):
+        me = admin(request)
+        body = await body_of(request, {"name", "birth_year", "sex"})
+        name, birth_year, sex = body.get("name"), body.get("birth_year"), body.get("sex")
+        if not isinstance(name, str) or not 1 <= len(name.strip()) <= 120:
+            raise invalid("Enter the patient's name (1–120 characters).")
+        if birth_year is not None and (not isinstance(birth_year, int) or isinstance(birth_year, bool) or not 1900 <= birth_year <= datetime.now(timezone.utc).year):
+            raise invalid("Enter a birth year between 1900 and this year, or leave it empty.")
+        if sex not in (None, "Female", "Male", "Other"):
+            raise invalid("Choose Female, Male or Other, or leave it empty.")
+        created = catalog.create_patient(name.strip(), birth_year, sex)
+        store.log(me.id, "patient_created", created["code"])
+        return ok({"resource_type": "patient", "resource_id": created["id"], "code": created["code"]}, 201)
+
     @app.post("/api/v1/admin/assignments")
     async def assign(request: Request):
         me = admin(request)
@@ -287,15 +303,6 @@ def register_admin(app: FastAPI, *, accounts: AccountStore, catalog: Catalog, la
     return store
 
 
-def sessions_view(state, revoke, clock) -> SimpleNamespace:
-    """Adapter over the in-memory auth state, so admin code never touches tokens."""
-    def signed_in() -> set[int]:
-        with state.lock:
-            return {user_id for user_id, token_hash in state.active_login.items() if state.logins[token_hash].expires() > clock()}
-
-    def revoke_user(user_id: int) -> None:
-        with state.lock:
-            token_hash = state.active_login.get(user_id)
-            if token_hash:
-                revoke(token_hash)
-    return SimpleNamespace(signed_in=signed_in, revoke=revoke_user)
+def sessions_view(sessions, clock) -> SimpleNamespace:
+    """Adapter over the session store, so admin code never touches tokens."""
+    return SimpleNamespace(signed_in=lambda: sessions.signed_in(clock()), revoke=sessions.revoke_user)

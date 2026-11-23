@@ -1,7 +1,7 @@
 import type {
   AdminDoctor, AdminPatient, AICommand, AIRequest, AIStatus, AuditEvent, AuthUser, BoxCreate,
   BoxPatch, ErrorDetail, FindingsEdit, FixtureStatus, MessageDTO, MutationReceipt, Page, PatientSummary,
-  AdminAi, AdminEvent, AdminLabeling, AdminOverview, AdminUser, AiPause, LabelBox, LabelQueue, LabelTask, LabelVocabulary, ReportNarrative, StudyDetail, StudyDTO, Workspace,
+  AdminAi, AdminEvent, AdminLabeling, AdminOverview, AdminUser, AiPause, LabelBox, LabelQueue, LabelTask, LabelVocabulary, ReportNarrative, StudyDetail, StudyDTO, View, Workspace,
 } from './contracts';
 
 export class ApiError extends Error {
@@ -41,6 +41,7 @@ export interface MutationOptions {
 interface RequestOptions {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   body?: object;
+  file?: Blob; // sent as the raw request body with its own media type (image uploads)
   revision?: number;
   key?: string;
   activity?: boolean;
@@ -48,10 +49,11 @@ interface RequestOptions {
 }
 
 async function send(path: string, options: RequestOptions = {}): Promise<Response> {
-  const { method = 'GET', body, revision, key, activity, signal } = options;
+  const { method = 'GET', body, file, revision, key, activity, signal } = options;
   const started = authEpoch;
   const headers = new Headers();
   if (body !== undefined) headers.set('Content-Type', 'application/json');
+  if (file) headers.set('Content-Type', file.type);
   if (method !== 'GET' && csrfToken) headers.set('X-CSRF-Token', csrfToken);
   if (revision !== undefined) headers.set('If-Match', `"${revision}"`);
   if (key) headers.set('Idempotency-Key', key);
@@ -62,7 +64,7 @@ async function send(path: string, options: RequestOptions = {}): Promise<Respons
     response = await fetch(`/api/v1${path}`, {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: file ?? (body === undefined ? undefined : JSON.stringify(body)),
       credentials: 'same-origin',
       cache: 'no-store',
       signal,
@@ -146,6 +148,19 @@ export const api = {
   adminLabeling: (signal?: AbortSignal) => json<AdminLabeling>('/admin/labeling', { signal }),
   adminExportLabels: () => json<{ manifest: Record<string, string | number>; labels_jsonl: string }>('/admin/labeling/export', { method: 'POST' }),
   adminEvents: (signal?: AbortSignal) => json<{ items: AdminEvent[] }>('/admin/events', { signal }),
+  adminCreatePatient: (body: { name: string; birth_year: number | null; sex: string | null }) =>
+    json<MutationReceipt & { code: string }>('/admin/patients', { method: 'POST', body }),
+  // Uploads (real backend only): admins for any patient, doctors for their assigned patients.
+  // `permitted=yes` records that the uploader confirmed the image is synthetic or permitted.
+  createStudy: (patientId: number, study: { study_date: string; indication: string; view: View }, file: Blob) =>
+    json<StudyDetail>(`/patients/${patientId}/studies?${new URLSearchParams({ ...study, permitted: 'yes' })}`, { method: 'POST', file }),
+  editStudy: (studyId: number, body: { study_date: string; indication: string }) =>
+    json<StudyDetail>(`/studies/${studyId}`, { method: 'PATCH', body }),
+  deleteStudy: (studyId: number) => json<void>(`/studies/${studyId}`, { method: 'DELETE' }),
+  deleteStudyImage: (studyId: number, imageId: number) =>
+    json<StudyDetail>(`/studies/${studyId}/images/${imageId}`, { method: 'DELETE' }),
+  addStudyImage: (studyId: number, view: View, file: Blob) =>
+    json<StudyDetail>(`/studies/${studyId}/images?${new URLSearchParams({ view, permitted: 'yes' })}`, { method: 'POST', file }),
   // Labeling (annotator role). Served by the real backend only; the local demo API has no labeling.
   labelVocabulary: (signal?: AbortSignal) => json<LabelVocabulary>('/labeling/vocabulary', { signal }),
   labelQueue: (signal?: AbortSignal) => json<LabelQueue>('/labeling/queue', { signal }),

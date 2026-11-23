@@ -10,3 +10,6 @@
 !/lib/**
 **/__pycache__/
 *.py[cod]
+/test-results/
+/playwright-report/
+/playwright-report-mock/

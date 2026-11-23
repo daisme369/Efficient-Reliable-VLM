@@ -6,3 +6,20 @@
 !requirements/
 !requirements/gpu-cu130.txt
 !requirements/gpu-runtime.txt
+# App images (docker/Dockerfile.api, docker/Dockerfile.web).
+!requirements/api.txt
+!configs/labeling_vocabulary.json
+!scripts/serve_api.py
+!src/thorax_api/
+!src/thorax-web/
+# Never send local builds, dependencies, demo state, test output or secrets (.env.local) into an image.
+src/thorax-web/node_modules
+src/thorax-web/.next
+src/thorax-web/.next-build
+src/thorax-web/.thorax-demo
+src/thorax-web/test-results
+src/thorax-web/playwright-report*
+src/thorax-web/next-env.d.ts
+src/thorax-web/*.tsbuildinfo
+src/thorax-web/.env*
+**/__pycache__

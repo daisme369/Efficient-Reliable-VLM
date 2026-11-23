@@ -2,6 +2,8 @@
 
 These templates are development settings, not approved research protocols. `medgemma_b0.json` and `medgemma_b1.json` share BF16 unquantized base weights and the same model/prompt settings; B1 adds language-only LoRA. `unet.json` describes a binary anatomical segmentation pilot with augmentation disabled initially.
 
+Record each run in the experiment registry, then regenerate result charts from it; see [EXPERIMENT_REGISTRY.md](EXPERIMENT_REGISTRY.md).
+
 ## MedGemma BF16 LoRA profile
 
 The B0/B1 templates explicitly set `train.precision: "bf16"` and

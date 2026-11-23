@@ -3,13 +3,12 @@
 Implements the contract the web app already speaks (src/thorax-web/app/api/v1/[...path]/route.ts):
 an opaque 256-bit session token in an HttpOnly cookie, a CSRF token derived from it for
 every non-GET request, an Origin check, generic login errors and login rate limits.
-From SYSTEM_DESIGN_PLAN.md it adds: SQLite accounts, token hashes held only in RAM,
-a 2-hour absolute login lifetime, one active login per account, and an account
-re-check against the database on every request.
+From SYSTEM_DESIGN_PLAN.md it adds: SQLite accounts, token hashes stored in SQLite (sessions.py)
+so a restart keeps users signed in, a 2-hour absolute login lifetime, one active login per
+account, and an account re-check against the database on every request.
 
-Run:  THORAX_DB_PATH=thorax.sqlite3 THORAX_WEB_ORIGINS=http://127.0.0.1:3000 \
-      uvicorn --app-dir src --factory thorax_api.app:create_app --host 127.0.0.1 --port 8000 --workers 1
-(One worker: login state lives in this process's memory.)
+Run:  python scripts/serve_api.py
+(One worker: sign-in rate-limit counters live in this process's memory.)
 """
 
 from __future__ import annotations
@@ -18,6 +17,7 @@ import hashlib
 import hmac
 import ipaddress
 import json
+import logging
 import os
 import secrets
 import threading
@@ -33,12 +33,15 @@ from starlette.concurrency import run_in_threadpool
 
 from .accounts import ROLES, AccountStore, User, password_matches, valid_password
 from .admin import register_admin, sessions_view
-from .catalog import Catalog
+from .catalog import MAX_UPLOAD_BYTES, Catalog, normalize_upload
 from .reading import ReadingStore, register_reading
+from .sessions import Login, SessionStore
+from .vlm import VlmClient
 from .db import utc_now
 from .labeling import LabelError, LabelStore
 from .storage import LocalImageStore
 
+log = logging.getLogger("thorax_api")
 COOKIE = "thorax_session"
 GENERIC_LOGIN_ERROR = "Email or password is incorrect."
 UNAVAILABLE = "This resource is unavailable."
@@ -56,21 +59,9 @@ def invalid(message: str) -> ApiError:
 
 
 @dataclass
-class Login:
-    user_id: int
-    idle_expires: float
-    absolute_expires: float
-
-    def expires(self) -> float:
-        return min(self.idle_expires, self.absolute_expires)
-
-
-@dataclass
 class AuthState:
-    secret: bytes = field(default_factory=lambda: secrets.token_bytes(32))
-    logins: dict[str, Login] = field(default_factory=dict)  # sha256(token) -> login; tokens themselves are never stored
-    active_login: dict[int, str] = field(default_factory=dict)  # user id -> token hash
-    attempts: dict[str, list[float]] = field(default_factory=dict)
+    secret: bytes
+    attempts: dict[str, list[float]] = field(default_factory=dict)  # rate-limit counters; reset on restart
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
@@ -102,8 +93,12 @@ def create_app(
     store = AccountStore(db_path)
     catalog = Catalog(db_path, LocalImageStore(image_root or os.environ.get("THORAX_IMAGE_ROOT", "thorax-images")))
     labels = LabelStore(db_path)
+    per_address = int(os.environ.get("THORAX_SIGNIN_PER_ADDRESS_PER_MINUTE", "5"))
+    # Set only when the API port is reachable solely through the site's own proxy (docker/compose.yaml).
+    trust_proxy = os.environ.get("THORAX_TRUST_PROXY") == "1"
     origins = web_origins if web_origins is not None else [o.strip().rstrip("/") for o in os.environ.get("THORAX_WEB_ORIGINS", "http://127.0.0.1:3000,http://localhost:3000").split(",") if o.strip()]
-    state = AuthState()
+    sessions = SessionStore(db_path)
+    state = AuthState(sessions.secret())
     app = FastAPI(title="Thorax AI API", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.auth = state
     app.state.accounts = store
@@ -133,30 +128,23 @@ def create_app(
     def client_address(request: Request) -> str:
         peer = request.client.host if request.client else ""
         forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
-        # Trust X-Forwarded-For only from a proxy on this machine (the Next.js server).
-        return forwarded if forwarded and _is_loopback(peer) else peer or "unknown"
-
-    def revoke(token_hash: str) -> None:
-        login = state.logins.pop(token_hash, None)
-        if login and state.active_login.get(login.user_id) == token_hash:
-            del state.active_login[login.user_id]
+        # Trust X-Forwarded-For only from a proxy on this machine (the Next.js server), or from any peer with THORAX_TRUST_PROXY=1.
+        return forwarded if forwarded and (trust_proxy or _is_loopback(peer)) else peer or "unknown"
 
     def authenticate(request: Request) -> tuple[User, Login, str, str] | None:
         token = request.cookies.get(COOKIE, "")
         if len(token) != 64 or any(c not in "0123456789abcdef" for c in token):
             return None
         token_hash = _token_hash(token)
-        with state.lock:
-            login = state.logins.get(token_hash)
-            if login is None:
-                return None
-            if login.expires() <= clock():
-                revoke(token_hash)
-                return None
+        login = sessions.get(token_hash)
+        if login is None:
+            return None
+        if login.expires() <= clock():
+            sessions.revoke(token_hash)
+            return None
         user = store.by_id(login.user_id)  # re-read so a disabled account loses access immediately
         if user is None or not user.is_active:
-            with state.lock:
-                revoke(token_hash)
+            sessions.revoke(token_hash)
             return None
         return user, login, token, token_hash
 
@@ -176,16 +164,37 @@ def create_app(
         response.headers["Cache-Control"] = "no-store"
         return response
 
+    def request_id(request: Request) -> str:
+        if not hasattr(request.state, "request_id"):
+            request.state.request_id = secrets.token_hex(8)
+        return request.state.request_id
+
+    @app.middleware("http")
+    async def request_log(request: Request, call_next):
+        """One line per request with the route template, never the raw path, query, body or user."""
+        started = time.perf_counter()
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id(request)
+        route = getattr(request.scope.get("route"), "path", "unmatched")
+        log.info("%s %s %s %.0fms id=%s", request.method, route, response.status_code, (time.perf_counter() - started) * 1000, request_id(request))
+        return response
+
     @app.exception_handler(ApiError)
-    async def api_error(_request: Request, error: ApiError):
+    async def api_error(request: Request, error: ApiError):
         headers = {"Retry-After": str(error.retry_after)} if error.retry_after else None
-        body = {"error": {"code": error.code, "message": error.message, "request_id": secrets.token_hex(8), "details": []}}
+        body = {"error": {"code": error.code, "message": error.message, "request_id": request_id(request), "details": []}}
         return no_store(JSONResponse(body, status_code=error.status, headers=headers))
 
     @app.exception_handler(Exception)
-    async def internal_error(_request: Request, _error: Exception):
-        body = {"error": {"code": "INTERNAL_ERROR", "message": "The request could not be completed. Try again.", "request_id": secrets.token_hex(8), "details": []}}
-        return no_store(JSONResponse(body, status_code=500))
+    async def internal_error(request: Request, error: Exception):
+        # Type and location only: the traceback's local values could hold request content.
+        frame = error.__traceback__
+        while frame and frame.tb_next:
+            frame = frame.tb_next
+        where = f"{frame.tb_frame.f_code.co_filename.rsplit(os.sep, 1)[-1]}:{frame.tb_lineno}" if frame else "unknown"
+        log.error("unhandled %s at %s id=%s", type(error).__name__, where, request_id(request))
+        body = {"error": {"code": "INTERNAL_ERROR", "message": "The request could not be completed. Try again.", "request_id": request_id(request), "details": []}}
+        return no_store(JSONResponse(body, status_code=500, headers={"X-Request-ID": request_id(request)}))
 
     @app.get("/api/v1/health")
     async def health():
@@ -208,8 +217,9 @@ def create_app(
         now = clock()
         account_key = hmac.new(state.secret, f"login:{email}".encode(), hashlib.sha256).hexdigest()
         address_key = hmac.new(state.secret, f"login-address:{client_address(request)}".encode(), hashlib.sha256).hexdigest()
-        # Per account: 10 failures / 15 min. Per address: 5 attempts / min, successful or not.
-        scopes = ((account_key, 15 * 60, 10, True), (address_key, 60, 5, False))
+        # Per account: 10 failures / 15 min. Per address: 5 attempts / min (THORAX_SIGNIN_PER_ADDRESS_PER_MINUTE),
+        # successful or not; raise it when many users share one public address, such as a clinic network.
+        scopes = ((account_key, 15 * 60, 10, True), (address_key, 60, per_address, False))
         with state.lock:
             for key, window, limit, _ in scopes:
                 recent = [at for at in state.attempts.get(key, []) if now - at < window]
@@ -229,15 +239,9 @@ def create_app(
                     state.attempts[key].append(now)
             if not ok or user is None:
                 raise ApiError(401, "UNAUTHENTICATED", GENERIC_LOGIN_ERROR)
-            # One active login per account: a new sign-in revokes the previous one.
-            previous = state.active_login.get(user.id)
-            if previous:
-                revoke(previous)
-            token = secrets.token_hex(32)
-            token_hash = _token_hash(token)
-            session = Login(user.id, now + idle_seconds, now + absolute_seconds)
-            state.logins[token_hash] = session
-            state.active_login[user.id] = token_hash
+        token = secrets.token_hex(32)
+        session = Login(user.id, now + idle_seconds, now + absolute_seconds)
+        sessions.start(_token_hash(token), session, now)  # replaces this account's previous sign-in
         response = JSONResponse(payload(user, token, session))
         response.headers["Set-Cookie"] = cookie_header(origin, token)
         return no_store(response)
@@ -247,9 +251,10 @@ def create_app(
         auth = authenticate(request)
         if auth is None:
             raise ApiError(401, "UNAUTHENTICATED", UNAVAILABLE)
-        user, session, token, _ = auth
+        user, session, token, token_hash = auth
         if request.headers.get("x-user-activity") == "1":  # polling and background checks do not extend the login
             session.idle_expires = clock() + idle_seconds
+            sessions.touch(token_hash, session.idle_expires)
         return no_store(JSONResponse(payload(user, token, session)))
 
     @app.post("/api/v1/auth/logout")
@@ -265,8 +270,7 @@ def create_app(
             raise ApiError(403, "CSRF_INVALID", CSRF_MESSAGE)
         if await read_body(request):
             raise invalid("Unexpected request field.")
-        with state.lock:
-            revoke(token_hash)
+        sessions.revoke(token_hash)
         response = Response(status_code=204)
         response.headers["Set-Cookie"] = cookie_header(origin, clear=True)
         return no_store(response)
@@ -348,18 +352,18 @@ def create_app(
 
     @app.get("/api/v1/patients/{patient_id}/studies")
     async def patient_studies(request: Request, patient_id: str):
-        user = doctor(request)
+        user = actor(request, "doctor", "admin")  # admins see studies to manage uploads
         pid = path_id(patient_id)
-        if not catalog.is_assigned(user.id, pid):  # unassigned and nonexistent look the same
-            raise missing()
+        may_upload(user, pid)  # a doctor sees only assigned patients; unassigned and nonexistent look the same
         return page(request, user, catalog.studies_for_patient(pid, user.id))
 
     @app.get("/api/v1/studies/{study_id}")
     async def study(request: Request, study_id: str):
-        user = doctor(request)
+        user = actor(request, "doctor", "admin")
         found = catalog.study(path_id(study_id), user.id)
-        if found is None or not catalog.is_assigned(user.id, found["patient_id"]):
+        if found is None:
             raise missing()
+        may_upload(user, found["patient_id"])
         return no_store(JSONResponse(found))
 
     @app.get("/api/v1/images/{image_id}/content")
@@ -378,14 +382,122 @@ def create_app(
 
     app.state.admin = register_admin(
         app, accounts=store, catalog=catalog, labels=labels, started_at=utc_now(), actor=actor, page=page, read_body=read_body,
-        no_store=no_store, invalid=invalid, error=ApiError, path_id=path_id, sessions=sessions_view(state, revoke, clock))
+        no_store=no_store, invalid=invalid, error=ApiError, path_id=path_id, sessions=sessions_view(sessions, clock))
+
+    # --- uploads: admins for any patient, doctors for their assigned patients ------------------
+    def may_upload(user: User, patient_id: int) -> None:
+        if not catalog.patient_exists(patient_id) or (user.role == "doctor" and not catalog.is_assigned(user.id, patient_id)):
+            raise missing()  # unassigned and nonexistent look the same
+
+    def study_fields(study_date, indication) -> tuple[str, str]:
+        if not isinstance(study_date, str) or not isinstance(indication, str):
+            raise invalid("Enter the study date and indication.")
+        try:
+            day = datetime.strptime(study_date, "%Y-%m-%d").date()
+        except ValueError:
+            raise invalid("Enter the study date as YYYY-MM-DD.") from None
+        if not datetime(1900, 1, 1).date() <= day <= datetime.fromtimestamp(clock(), timezone.utc).date():
+            raise invalid("The study date cannot be in the future.")
+        if not 1 <= len(indication.strip()) <= 200:
+            raise invalid("Enter the indication (1–200 characters).")
+        return study_date, indication.strip()
+
+    def managed_study(request: Request, study_id: str) -> tuple[User, dict]:
+        """Admin, or a doctor assigned to the study's patient."""
+        user = actor(request, "doctor", "admin")
+        found = catalog.study(path_id(study_id))
+        if found is None:
+            raise missing()
+        may_upload(user, found["patient_id"])
+        return user, found
+
+    locked = ApiError(409, "STUDY_LOCKED", "This study can no longer be changed: a reading or labeling has started, or it is part of the demo set.")
+
+    async def upload(request: Request) -> tuple[str, tuple[bytes, int, int]]:
+        """Checks the attestation and view, then reads and normalizes the raw image body (no multipart)."""
+        query = request.query_params
+        if query.get("permitted") != "yes":
+            raise invalid("Confirm the image is synthetic or permitted for this demo. Restricted datasets such as MIMIC are not allowed.")
+        view = query.get("view", "")
+        if view not in ("PA", "AP", "LAT"):
+            raise invalid("Choose the view: PA, AP or LAT.")
+        if request.headers.get("content-type", "").split(";")[0].strip() not in ("image/png", "image/jpeg"):
+            raise ApiError(415, "UNSUPPORTED_MEDIA_TYPE", "Upload a PNG or JPEG image.")
+        too_large = ApiError(413, "UPLOAD_TOO_LARGE", "Upload an image of 10 MiB or less.")
+        declared = request.headers.get("content-length", "")
+        if declared.isdigit() and int(declared) > MAX_UPLOAD_BYTES:
+            raise too_large
+        data = bytearray()
+        async for chunk in request.stream():
+            data += chunk
+            if len(data) > MAX_UPLOAD_BYTES:
+                raise too_large
+        try:
+            return view, await run_in_threadpool(normalize_upload, bytes(data))
+        except ValueError as problem:
+            raise invalid(str(problem)) from None
+
+    @app.post("/api/v1/patients/{patient_id}/studies")
+    async def create_study(request: Request, patient_id: str):
+        user = actor(request, "doctor", "admin")
+        pid = path_id(patient_id)
+        may_upload(user, pid)
+        study_date, indication = study_fields(request.query_params.get("study_date"), request.query_params.get("indication"))
+        view, image = await upload(request)
+        sid = await run_in_threadpool(catalog.create_study, pid, study_date, indication, view, image, user.id)
+        app.state.admin.log(user.id, "study_uploaded", f"{dict(catalog.patient_codes())[pid]} study {sid} ({view}), confirmed permitted")
+        return no_store(JSONResponse(catalog.study(sid, user.id), status_code=201))
+
+    @app.post("/api/v1/studies/{study_id}/images")
+    async def add_study_image(request: Request, study_id: str):
+        user, found = managed_study(request, study_id)
+        view, image = await upload(request)
+        image_id = await run_in_threadpool(catalog.add_image, found["id"], view, image, user.id)
+        if image_id is None:
+            raise ApiError(409, "STUDY_IN_READING", "This study already has a reading, so its images are fixed. Add a new study instead.")
+        app.state.admin.log(user.id, "image_uploaded", f"study {found['id']} image {image_id} ({view}), confirmed permitted")
+        return no_store(JSONResponse(catalog.study(found["id"], user.id), status_code=201))
+
+    @app.patch("/api/v1/studies/{study_id}")
+    async def edit_study(request: Request, study_id: str):
+        user, found = managed_study(request, study_id)
+        body = await read_body(request)
+        if set(body) - {"study_date", "indication"}:
+            raise invalid("Unexpected request field.")
+        study_date, indication = study_fields(body.get("study_date"), body.get("indication"))
+        if not catalog.update_study(found["id"], study_date, indication):
+            raise locked
+        app.state.admin.log(user.id, "study_edited", f"study {found['id']}")
+        return no_store(JSONResponse(catalog.study(found["id"], user.id)))
+
+    @app.delete("/api/v1/studies/{study_id}")
+    async def delete_study(request: Request, study_id: str):
+        user, found = managed_study(request, study_id)
+        if not await run_in_threadpool(catalog.delete_study, found["id"]):
+            raise locked
+        app.state.admin.log(user.id, "study_deleted", f"{dict(catalog.patient_codes())[found['patient_id']]} study {found['id']} ({found['image_count']} images)")
+        return no_store(Response(status_code=204))
+
+    @app.delete("/api/v1/studies/{study_id}/images/{image_id}")
+    async def delete_study_image(request: Request, study_id: str, image_id: str):
+        user, found = managed_study(request, study_id)
+        outcome = await run_in_threadpool(catalog.delete_image, found["id"], path_id(image_id))
+        if outcome == "missing":
+            raise missing()
+        if outcome == "locked":
+            raise locked
+        if outcome == "last":
+            raise ApiError(409, "LAST_IMAGE", "A study needs at least one image. Delete the study instead.")
+        app.state.admin.log(user.id, "image_deleted", f"study {found['id']} image {image_id}")
+        return no_store(JSONResponse(catalog.study(found["id"], user.id)))
 
     def doctor_still_allowed(doctor_id: int, patient_id: int) -> bool:
         user = store.by_id(doctor_id)
         return bool(user and user.is_active and catalog.is_assigned(doctor_id, patient_id))
 
     readings = ReadingStore(db_path, clock=clock, secret=state.secret, is_allowed=doctor_still_allowed,
-                            ai_paused=app.state.admin.ai_paused, record_ai=app.state.admin.record_ai_request)
+                            ai_paused=app.state.admin.ai_paused, record_ai=app.state.admin.record_ai_request,
+                            vlm=VlmClient.from_env(), image_png=lambda image_id: catalog.image_bytes(catalog.image(image_id)))
     app.state.readings = readings
     register_reading(app, store=readings, catalog=catalog, actor=actor, path_id=path_id, read_body=read_body, no_store=no_store, error=ApiError)
 
