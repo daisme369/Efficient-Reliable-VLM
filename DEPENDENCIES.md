@@ -36,6 +36,8 @@ The direct projects use Apache-2.0, BSD-family, MIT-family, PSF-compatible, or M
 
 ## Deferred packages
 
+The model server uses the official image `vllm/vllm-openai:v0.11.0` (Apache-2.0), pinned by digest `sha256:014a95f21c9edf6abe0aea6b07353f96baa4ec291c427bb1176dc7c93a85845c` and run only on the GPU host (`docker/DEPLOY.md`, "Model server"). Approved by the user on 23 November 2026; it is not installed in any Python requirements file. Version 0.11.0 serves Gemma 3 image-text models and returns per-token log-probabilities, which the calibrated abstention needs.
+
 Do not add `flash-attn`, `xformers`, DeepSpeed, vLLM, or another CUDA-specific package to the base requirements. Add one only after the backbone and measured bottleneck justify it, then lock it in a platform-specific profile. Do not move bitsandbytes into the cross-platform base requirements.
 
 ## Install and verify

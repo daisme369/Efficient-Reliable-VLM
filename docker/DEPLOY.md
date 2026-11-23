@@ -126,6 +126,44 @@ Open `https://<your domain>` and sign in:
 
 In Lightsail, open your instance, go to the **Snapshots** tab and turn on **Automatic snapshots**. A snapshot includes the Docker volumes. To restore, create a new instance from a snapshot and move the static IP to it.
 
+## AWS EC2 + RDS (current deployment)
+
+The deployment for 6 December replaces Lightsail with an EC2 app server and Amazon RDS for PostgreSQL in one VPC (architecture: https://claude.ai/artifact/W3TmWLViuGFfjaSkjmNo3X). Everything is in ap-southeast-2 and tagged `project=thorax`:
+
+| Resource | Name | Notes |
+| --- | --- | --- |
+| VPC | `thorax`, 10.20.0.0/16 | public subnet 2a; private subnets 2a + 2b without an internet route |
+| Security groups | `thorax-web`, `thorax-db`, `thorax-gpu` | 80/443 from the internet; 5432 only from `thorax-web`; no SSH anywhere |
+| EC2 | `thorax-app`, t3.small | Elastic IP 3.105.14.132, IAM role `thorax-app` (Session Manager, read `/thorax/*`) |
+| RDS | `thorax-db`, PostgreSQL 18.3, db.t4g.micro | not public, encrypted, deletion protection; the Free plan allows 1 day of backups |
+| Parameter Store | `/thorax/domain`, `/thorax/db/{host,user,password}`, optional `/thorax/vlm/{url,key,model,calibration}` | the password is a SecureString and never leaves AWS except into `docker/.env` on the server |
+
+Deploy or update: open the instance in the EC2 console, **Connect → Session Manager**, then run `sudo bash /opt/thorax/docker/aws-deploy.sh`. It pulls `vietanh`, writes `docker/.env` from Parameter Store (root-only), and rebuilds the containers. The same command runs through Systems Manager **Run Command** without opening a shell.
+
+Moving from Lightsail: stop the Lightsail `api` container, copy its `thorax-data` volume (database and `images/`) to the new server, put the images into the new volume, and run `docker compose -f docker/compose.yaml exec api python -m thorax_api.migrate --source <copied thorax.sqlite3>`. Then set `/thorax/domain` to the DuckDNS name, point DuckDNS at 3.105.14.132, and run the deploy script again.
+
+The AWS Free plan refuses non-free instance types at launch ("not eligible for Free Tier"), so the GPU model server runs outside AWS (below).
+
+## Model server (vLLM)
+
+The backend calls vLLM's OpenAI-compatible API. On the GPU host (24 GB GPU, Linux, CUDA):
+
+1. Merge the adapter: `python scripts/gpu/merge_m1_adapter.py --config <run>/config.json --adapter <run>/checkpoint --out /models/medgemma-m1`. It prints the served model name.
+2. Start vLLM, pinned by digest:
+
+   ```bash
+   docker run --gpus all -p 127.0.0.1:8000:8000 -v /models:/models \
+     vllm/vllm-openai:v0.11.0@sha256:014a95f21c9edf6abe0aea6b07353f96baa4ec291c427bb1176dc7c93a85845c \
+     --model /models/medgemma-m1 --served-model-name <printed name> --api-key "$THORAX_VLM_KEY" \
+     --dtype bfloat16 --max-model-len 4096 --limit-mm-per-prompt '{"image": 1}'
+   ```
+
+3. Reach it only over HTTPS or an SSH tunnel, never on an open port without TLS.
+4. Store `/thorax/vlm/url`, `/thorax/vlm/key` (SecureString) and `/thorax/vlm/model` in Parameter Store, and optionally the `selectivity` part of M1's `metrics.json` as `/thorax/vlm/calibration`. Then rerun the deploy script.
+5. Before relying on it, compare its answers with `scripts/serve_vlm.py` on the same validation images.
+
+Delete the four `/thorax/vlm/*` parameters and redeploy to return to the fixed demo answers.
+
 ## Run it
 
 | Task | Command or step |

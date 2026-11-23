@@ -47,6 +47,8 @@ SCHEMA = (
         active INTEGER NOT NULL,
         PRIMARY KEY (doctor_id, patient_id)
     )""",
+    """CREATE TABLE IF NOT EXISTS fixture_imports (
+        fixture_key TEXT PRIMARY KEY, checksum TEXT NOT NULL, imported_at TEXT NOT NULL)""",
 )
 
 
@@ -411,8 +413,6 @@ def seed_demo(catalog: Catalog, assets: Path = DEMO_ASSETS, bundle: dict | None 
     bundle = bundle or demo_bundle(assets)
     checksum = bundle_checksum(bundle)
     with connect(catalog.path) as db:
-        db.execute("""CREATE TABLE IF NOT EXISTS fixture_imports (
-            fixture_key TEXT PRIMARY KEY, checksum TEXT NOT NULL, imported_at TEXT NOT NULL)""")
         receipt = db.execute("SELECT checksum FROM fixture_imports WHERE fixture_key = ?", (FIXTURE_KEY,)).fetchone()
         has_patients = db.execute("SELECT COUNT(*) FROM patients").fetchone()[0] > 0
         doctor_ids = {row[0] for row in db.execute("SELECT id FROM users WHERE role = 'doctor'")}
