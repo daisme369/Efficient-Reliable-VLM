@@ -1,0 +1,52 @@
+[security]
+idle_minutes = 30
+password_min_bytes = 12
+password_max_bytes = 72
+bcrypt_rounds = 12
+token_bytes = 32
+secret_min_chars = 32
+login_attempts = 5
+login_window_seconds = 60
+idempotency_min_chars = 16
+idempotency_max_chars = 128
+cookie_name = "thorax_session"
+
+[limits]
+history_reports = 5
+context_messages = 10
+question_chars = 2000
+history_chars = 8000
+context_message_chars = 20000
+finding_count = 50
+finding_chars = 2000
+location_chars = 200
+report_chars = 8000
+label_chars = 200
+note_chars = 2000
+image_bytes = 20971520
+image_pixels = 40000000
+image_side = 8192
+page_size = 25
+page_max = 100
+message_page_max = 50
+name_chars = 100
+email_chars = 254
+search_chars = 100
+payload_bytes = 8388608
+
+[jobs]
+deadline_seconds = 60
+lease_seconds = 15
+heartbeat_seconds = 5
+poll_seconds = 1
+
+[report]
+normal_statement = "No abnormal findings confirmed by the reviewing doctor."
+prompt_version = "report-v1"
+
+[inference]
+prompt_version = "cxr-v1"
+preprocessing_version = "canonical-v1"
+
+[fixtures]
+allowed_keys = ["thorax-demo-v1", "thorax-public-radiographs-v1"]

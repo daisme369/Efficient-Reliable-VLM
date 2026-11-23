@@ -98,6 +98,7 @@ input, textarea, select { min-width: 0; }
 .main-nav a { min-height: 44px; display: inline-flex; align-items: center; gap: 6px; border-radius: 6px; padding: 0 6px; font-weight: 650; }
 .main-nav a:hover { background: var(--primary-bg); }
 .header-account { margin-left: auto; display: flex; gap: 12px; align-items: center; }
+.login-header .language-toggle { margin-left: auto; }
 .avatar { display: inline-grid; place-items: center; width: 36px; height: 36px; flex: 0 0 36px; border-radius: 6px; background: var(--primary-bg); color: #0a536a; font-size: 14px; font-weight: 650; }
 .account-name { display: grid; font-size: 14px; line-height: 1.35; white-space: nowrap; }
 .account-name span { color: var(--muted); }

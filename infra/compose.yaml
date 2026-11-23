@@ -1,0 +1,130 @@
+name: thorax-demo
+
+x-backend-build: &backend
+  image: thorax-demo-backend
+  build:
+    context: ..
+    dockerfile: infra/backend.Dockerfile
+  networks: [private]
+
+x-inference-env: &inference-env
+  THORAX_POLICY_PATH: /thorax/apps/api/policy.toml
+  AI_PROVIDER_MODE: mock
+  INFERENCE_BASE_URL: http://inference:8101
+  INFERENCE_SERVICE_TOKEN: ${INFERENCE_SERVICE_TOKEN:?set in env file}
+
+x-api-env: &api-env
+  <<: *inference-env
+  DATABASE_URL: postgresql+psycopg://thorax_runtime:${THORAX_DB_RUNTIME_PASSWORD:?set in env file}@db:5432/thorax
+  SESSION_SECRET: ${SESSION_SECRET:?set in env file}
+  IDEMPOTENCY_HASH_SECRET: ${IDEMPOTENCY_HASH_SECRET:?set in env file}
+  APP_ORIGIN: http://127.0.0.1:${THORAX_WEB_PORT:-3100}
+  ALLOW_INSECURE_LOOPBACK_COOKIE: "true"
+  IMAGE_STORAGE_ROOT: /data/images
+  FIXTURE_ROOT: /data/fixtures
+
+x-probe: &probe
+  interval: 15s
+  timeout: 8s
+  retries: 5
+  start_period: 15s
+
+x-service: &service
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  db:
+    <<: *service
+    image: postgres:16.15-bookworm@sha256:5264710be20f409750ac6dc4e5706dcef929c87e241605463f0f9aefa932a8d9
+    environment:
+      POSTGRES_USER: thorax_owner
+      POSTGRES_DB: thorax
+      POSTGRES_PASSWORD: ${THORAX_DB_OWNER_PASSWORD:?set in env file}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [private]
+    healthcheck:
+      <<: *probe
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+
+  init:
+    <<: *backend
+    environment:
+      <<: *api-env
+      THORAX_MIGRATION_URL: postgresql+psycopg://thorax_owner:${THORAX_DB_OWNER_PASSWORD:?set in env file}@db:5432/thorax
+      THORAX_ADMIN_PASSWORD: ${THORAX_ADMIN_PASSWORD:?set in env file}
+      THORAX_DOCTOR_PASSWORD: ${THORAX_DOCTOR_PASSWORD:?set in env file}
+      THORAX_MOCK_RESPONSES_PATH: /data/fixtures/mock-responses.json
+    volumes:
+      - images:/data/images
+      - fixtures:/data/fixtures
+    depends_on:
+      db: { condition: service_healthy }
+    command: ["python", "scripts/integration/deployment.py", "--api-root", "apps/api", "seed", "--config", "infra/local.integration.toml", "--source", "/demo/demo.json", "--assets", "/demo/assets"]
+
+  inference:
+    <<: [*backend, *service]
+    environment:
+      <<: *inference-env
+      THORAX_MOCK_RESPONSES_PATH: /data/fixtures/mock-responses.json
+    volumes:
+      - fixtures:/data/fixtures:ro
+    depends_on:
+      init: { condition: service_completed_successfully }
+    command: ["python", "-m", "uvicorn", "thorax.inference.api:create_app", "--factory", "--host", "0.0.0.0", "--port", "8101", "--no-access-log"]
+    healthcheck:
+      <<: *probe
+      test: ["CMD", "python", "scripts/integration/deployment.py", "--api-root", "apps/api", "inference-ready"]
+
+  api:
+    <<: [*backend, *service]
+    networks: [private, edge]
+    environment: *api-env
+    volumes:
+      - images:/data/images:ro
+      - fixtures:/data/fixtures:ro
+    depends_on:
+      db: { condition: service_healthy }
+      init: { condition: service_completed_successfully }
+      inference: { condition: service_healthy }
+    command: ["python", "-m", "uvicorn", "thorax.presentation.api:create_app", "--factory", "--host", "0.0.0.0", "--port", "8100", "--no-access-log"]
+    healthcheck:
+      <<: *probe
+      test: ["CMD", "python", "scripts/integration/deployment.py", "--api-root", "apps/api", "api-ready", "--api-url", "http://127.0.0.1:8100"]
+
+  worker:
+    <<: [*backend, *service]
+    environment: *api-env
+    volumes:
+      - images:/data/images:ro
+      - fixtures:/data/fixtures:ro
+    depends_on:
+      api: { condition: service_healthy }
+    command: ["python", "-m", "thorax.worker.main"]
+    stop_grace_period: 65s
+
+  web:
+    <<: *service
+    build:
+      context: ..
+      dockerfile: infra/web.Dockerfile
+    networks: [edge]
+    depends_on:
+      api: { condition: service_healthy }
+    ports:
+      - "127.0.0.1:${THORAX_WEB_PORT:-3100}:3100"
+
+networks:
+  private:
+    internal: true
+  edge:
+
+volumes:
+  pgdata:
+  images:
+  fixtures:

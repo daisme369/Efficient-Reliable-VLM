@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 from pathlib import Path
+import unicodedata
 
 from .db import connect, utc_now
 from .storage import ImageStore
@@ -302,23 +304,154 @@ def demo_history(patient_id: int) -> list[tuple]:
              else "Synthetic prior report. No acute cardiopulmonary finding was described.") for i, month in enumerate(months)]
 
 
-def seed_demo(catalog: Catalog, assets: Path = DEMO_ASSETS) -> None:
+FIXTURE_KEY = "thorax-demo-v1"
+# shortcut: fixed demo limits, not values from the spec; revisit if real-size radiographs are imported.
+MAX_IMAGE_BYTES = 20 * 1024 * 1024
+MAX_IMAGE_PIXELS = 40_000_000
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+# Text and EXIF chunks can carry identity; fixtures must arrive with metadata stripped.
+PNG_METADATA_CHUNKS = {b"tEXt", b"zTXt", b"iTXt", b"eXIf", b"tIME"}
+
+
+class FixtureError(ValueError):
+    """The fixture bundle is invalid or conflicts with data already imported; nothing was written."""
+
+
+def demo_bundle(assets: Path = DEMO_ASSETS) -> dict:
     patients, studies, images, assignments = demo_rows()
-    hashes = {}
-    for view in ("pa", "ap", "lat"):
-        data = (assets / f"{view}.png").read_bytes()
-        catalog.images.put(f"demo/{view}.png", data)
-        hashes[f"demo/{view}.png"] = hashlib.sha256(data).hexdigest()
+    files = {key: (assets / Path(key).name).read_bytes() for key in sorted({row[-1] for row in images})}
+    history = [row for patient in patients for row in demo_history(patient[0])]
+    return {"patients": patients, "studies": studies, "images": images, "assignments": assignments,
+            "history": history, "files": files}
+
+
+def image_problem(data: bytes, media_type: str, width: int, height: int) -> str | None:
+    """Check the real format from the bytes, size, pixel limits, recorded dimensions and metadata."""
+    if len(data) > MAX_IMAGE_BYTES:
+        return "image exceeds the size limit"
+    if width * height > MAX_IMAGE_PIXELS:
+        return "image exceeds the pixel limit"
+    if media_type == "image/png" and data.startswith(PNG_SIGNATURE):
+        offset, chunks = 8, []
+        while offset + 8 <= len(data):
+            length = int.from_bytes(data[offset:offset + 4], "big")
+            chunks.append((data[offset + 4:offset + 8], data[offset + 8:offset + 8 + length]))
+            offset += 12 + length
+        if not chunks or chunks[0][0] != b"IHDR" or chunks[-1][0] != b"IEND" or offset != len(data):
+            return "image is not a complete PNG"
+        if (int.from_bytes(chunks[0][1][:4], "big"), int.from_bytes(chunks[0][1][4:8], "big")) != (width, height):
+            return "image dimensions do not match the fixture"
+        if any(kind in PNG_METADATA_CHUNKS for kind, _ in chunks):
+            return "image contains metadata"
+        return None
+    if media_type == "image/jpeg" and data.startswith(b"\xff\xd8"):
+        offset = 2
+        while offset + 4 <= len(data) and data[offset] == 0xFF:
+            marker, length = data[offset + 1], int.from_bytes(data[offset + 2:offset + 4], "big")
+            if marker in (0xE1, 0xFE):  # EXIF/XMP and comments
+                return "image contains metadata"
+            if marker in (0xC0, 0xC1, 0xC2):
+                size = (int.from_bytes(data[offset + 7:offset + 9], "big"), int.from_bytes(data[offset + 5:offset + 7], "big"))
+                return None if size == (width, height) else "image dimensions do not match the fixture"
+            offset += 2 + length
+        return "image is not a complete JPEG"
+    return "image bytes do not match the declared media type"
+
+
+def bundle_problems(bundle: dict, doctor_ids: set[int]) -> list[str]:
+    """Return every reason the bundle cannot be imported; an empty list means it is valid."""
+    problems = []
+    patient_ids = {row[0] for row in bundle["patients"]}
+    study_ids = {row[0] for row in bundle["studies"]}
+    for name, rows in (("patients", bundle["patients"]), ("studies", bundle["studies"]),
+                       ("images", bundle["images"]), ("history", bundle["history"])):
+        if len({row[0] for row in rows}) != len(rows):
+            problems.append(f"{name} has duplicate IDs")
+    if len({row[1] for row in bundle["patients"]}) != len(bundle["patients"]):
+        problems.append("patients has duplicate codes")
+    problems += [f"study {row[0]} references a missing patient" for row in bundle["studies"] if row[1] not in patient_ids]
+    problems += [f"history {row[0]} references a missing patient" for row in bundle["history"] if row[1] not in patient_ids]
+    problems += [f"assignment references missing doctor {d}" for d, _ in bundle["assignments"] if d not in doctor_ids]
+    problems += [f"assignment references missing patient {p}" for _, p in bundle["assignments"] if p not in patient_ids]
+    for image_id, study_id, _view, width, height, media_type, key in bundle["images"]:
+        if study_id not in study_ids:
+            problems.append(f"image {image_id} references a missing study")
+        elif key not in bundle["files"]:
+            problems.append(f"image {image_id} references a missing file")
+        elif problem := image_problem(bundle["files"][key], media_type, width, height):
+            problems.append(f"image {image_id}: {problem}")
+    # Narratives must never repeat a patient's name or code (identity guard, implementation_plan.md).
+    identities = {_normal(text) for row in bundle["patients"] for text in (row[1], row[2])}
+    texts = [(f"study {row[0]}", row[3]) for row in bundle["studies"]] + [(f"history {row[0]}", row[3]) for row in bundle["history"]]
+    problems += [f"{where} contains patient identity text" for where, text in texts
+                 if any(identity in _normal(text) for identity in identities)]
+    return problems
+
+
+def _normal(text: str) -> str:
+    return unicodedata.normalize("NFKC", text).casefold()
+
+
+def bundle_checksum(bundle: dict) -> str:
+    rows = {name: bundle[name] for name in ("patients", "studies", "images", "assignments", "history")}
+    rows["files"] = {key: hashlib.sha256(data).hexdigest() for key, data in sorted(bundle["files"].items())}
+    return hashlib.sha256(json.dumps(rows, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def _stored_rows(db) -> dict:
+    query = {"patients": "SELECT id, code, name, birth_year, sex FROM patients ORDER BY id",
+             "studies": "SELECT id, patient_id, study_date, indication FROM studies ORDER BY id",
+             "images": "SELECT id, study_id, view, width, height, media_type, storage_key FROM images ORDER BY id"}
+    return {name: [tuple(row) for row in db.execute(sql)] for name, sql in query.items()}
+
+
+def seed_demo(catalog: Catalog, assets: Path = DEMO_ASSETS, bundle: dict | None = None) -> str:
+    """Insert-only import of the synthetic fixture: same checksum is a no-op, a different one is refused."""
+    bundle = bundle or demo_bundle(assets)
+    checksum = bundle_checksum(bundle)
     with connect(catalog.path) as db:
-        # Prior reports were added later; seed them on databases created before that too.
+        db.execute("""CREATE TABLE IF NOT EXISTS fixture_imports (
+            fixture_key TEXT PRIMARY KEY, checksum TEXT NOT NULL, imported_at TEXT NOT NULL)""")
+        receipt = db.execute("SELECT checksum FROM fixture_imports WHERE fixture_key = ?", (FIXTURE_KEY,)).fetchone()
+        has_patients = db.execute("SELECT COUNT(*) FROM patients").fetchone()[0] > 0
+        doctor_ids = {row[0] for row in db.execute("SELECT id FROM users WHERE role = 'doctor'")}
+    if receipt is not None:
+        if receipt[0] != checksum:
+            raise FixtureError("fixture checksum differs from the imported bundle; existing records are never overwritten")
+        return "unchanged"
+    if problems := bundle_problems(bundle, doctor_ids):
+        raise FixtureError("fixture is invalid: " + "; ".join(problems))
+    hashes = {key: hashlib.sha256(data).hexdigest() for key, data in bundle["files"].items()}
+    for key, data in bundle["files"].items():
+        _put_once(catalog.images, key, data)
+    with connect(catalog.path) as db:
+        if has_patients:
+            # Databases seeded before receipts existed: accept only if every fixture row is stored unchanged.
+            # Rows added later (admin-created patients, uploaded studies) are not fixture rows and are ignored.
+            expected = {name: sorted(tuple(row) for row in bundle[name]) for name in ("patients", "studies", "images")}
+            stored = {name: [row for row in rows if row[0] in {r[0] for r in expected[name]}] for name, rows in _stored_rows(db).items()}
+            if stored != expected:
+                raise FixtureError("existing patients differ from the fixture; existing records are never overwritten")
+        else:
+            db.executemany("INSERT INTO patients (id, code, name, birth_year, sex) VALUES (?, ?, ?, ?, ?)", bundle["patients"])
+            db.executemany("INSERT INTO studies (id, patient_id, study_date, indication) VALUES (?, ?, ?, ?)", bundle["studies"])
+            db.executemany("INSERT INTO images (id, study_id, view, width, height, media_type, storage_key, sha256) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                           [(*row, hashes[row[-1]]) for row in bundle["images"]])
+            db.executemany("INSERT INTO assignments (doctor_id, patient_id, active) VALUES (?, ?, 1)", bundle["assignments"])
+        # Prior reports were added after the first seeds; older databases receive them here.
         db.executemany("INSERT OR IGNORE INTO history_reports (id, patient_id, report_date, text) VALUES (?, ?, ?, ?)",
-                       [row for patient in patients for row in demo_history(patient[0])]) if db.execute("SELECT COUNT(*) FROM patients").fetchone()[0] else None
-        if db.execute("SELECT COUNT(*) FROM patients").fetchone()[0]:
-            return
-        db.executemany("INSERT INTO patients (id, code, name, birth_year, sex) VALUES (?, ?, ?, ?, ?)", patients)
-        db.executemany("INSERT INTO studies (id, patient_id, study_date, indication) VALUES (?, ?, ?, ?)", studies)
-        db.executemany("INSERT INTO images (id, study_id, view, width, height, media_type, storage_key, sha256) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                       [(*row, hashes[row[-1]]) for row in images])
-        db.executemany("INSERT INTO assignments (doctor_id, patient_id, active) VALUES (?, ?, 1)", assignments)
-        db.executemany("INSERT OR IGNORE INTO history_reports (id, patient_id, report_date, text) VALUES (?, ?, ?, ?)",
-                       [row for patient in patients for row in demo_history(patient[0])])
+                       bundle["history"])
+        db.execute("INSERT INTO fixture_imports (fixture_key, checksum, imported_at) VALUES (?, ?, ?)",
+                   (FIXTURE_KEY, checksum, utc_now()))
+    return "imported"
+
+
+def _put_once(images: ImageStore, key: str, data: bytes) -> None:
+    """Image files are immutable: an identical file is reused, a different one is a conflict."""
+    try:
+        existing = images.get(key)
+    except FileNotFoundError:
+        images.put(key, data)
+        return
+    if existing != data:
+        raise FixtureError("a stored image differs from the fixture; existing images are never overwritten")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import os
 from pathlib import Path
@@ -134,6 +135,16 @@ class ReadingTests(unittest.TestCase):
         late = self.write("patch", f"/api/v1/sessions/{sid}/reports/{report['id']}", {"comparison": "x"}, revision=ws["session"]["revision"], key=False, who=doctor)
         self.assertEqual(late.json()["error"]["code"], "FINAL_READ_ONLY")
 
+        # PX-1042 is shared: doctor 1's final reading does not lock doctor 2's independent reading.
+        other = self.client("doctor2@example.test", restarted)
+        shared = other.get("/api/v1/patients/1/studies").json()["items"][0]
+        self.assertEqual((shared["id"], shared["status"], shared["own_session_status"]), (2411, "final", None))
+        opened = other.post("/api/v1/studies/2411/sessions")
+        self.assertEqual(opened.status_code, 201, opened.text)
+        self.assertNotEqual(opened.json()["session"]["id"], sid)
+        self.assertNotEqual(opened.json()["session"]["status"], "final")
+        self.assertIn("ANALYSIS_REQUIRED", [b["code"] for b in opened.json()["blockers"]])
+
     def test_analysis_boxes_follow_image_view(self):
         for study_id, view, count in ((2431, "AP", 1), (2411, "LAT", 0)):
             with self.subTest(view=view):
@@ -208,6 +219,156 @@ class ReadingTests(unittest.TestCase):
         self.assertEqual([m["role"] for m in ws["messages"]["items"]], ["user", "assistant"])
         logged = self.app.state.admin.ai_requests()["items"]
         self.assertEqual([(r["operation"], r["status"]) for r in logged], [("ask", "succeeded"), ("analyze", "succeeded")])
+
+    # --- SW2 acceptance checks (TAS-18..21); helpers keep the revision chain explicit -------------
+    def ask(self, ws, image_id, question, box_id=None, revision=None):
+        body = {"operation": "ask", "image_id": image_id, "question": question, **({"box_id": box_id} if box_id else {})}
+        return self.write("post", f"/api/v1/sessions/{ws['session']['id']}/ai-requests", body, revision=revision or ws["session"]["revision"])
+
+    def save_findings(self, ws, items, normal):
+        return self.write("patch", f"/api/v1/sessions/{ws['session']['id']}/findings",
+                          {"items": items, "no_abnormality_confirmed": normal}, revision=ws["session"]["revision"], key=False)
+
+    def test_chat_keeps_last_ten_messages_labels_images_and_excludes_failures(self):  # TAS-18
+        ws = self.open()
+        self.assertEqual(self.ask(ws, 24110, "Any effusion?").json()["error"]["code"], "ANALYSIS_REQUIRED")
+        ws = self.analyze(ws)
+        for turn in range(6):  # 12 messages, alternating the PA and LAT images of a multi-image study
+            image = (24110, 24111)[turn % 2]
+            self.assertEqual(self.ask(ws, image, f"Question {turn}?").status_code, 202)
+            ws = self.settle(ws)
+        messages = ws["messages"]["items"]
+        self.assertEqual(len(messages), 12)
+        self.assertEqual([m["image_id"] for m in messages], [24110, 24110, 24111, 24111] * 3)
+        with patch.dict(os.environ, {"THORAX_DEMO_AI_FAULT": "timeout"}):
+            self.assertEqual(self.ask(ws, 24110, "Will this time out?").status_code, 202)
+            self.now += 61
+            ws = self.doctor.get(f"/api/v1/sessions/{ws['session']['id']}").json()
+        self.assertEqual(ws["latest_ai_request"]["status"], "timed_out")
+        self.assertEqual(len(ws["messages"]["items"]), 12)  # a failed request adds nothing to the chat or later context
+        request = self.ask(ws, 24111, "Final question?").json()
+        self.assertEqual(request["provenance"]["message_ids"], [m["id"] for m in messages[-10:]])  # last 10 messages, not 10 turns
+        ws = self.settle(ws)
+        restarted = self.client("doctor@example.test", self.make_app())
+        reopened = restarted.get(f"/api/v1/sessions/{ws['session']['id']}").json()["messages"]["items"]
+        self.assertEqual([(m["id"], m["image_id"], m["text"]) for m in reopened], [(m["id"], m["image_id"], m["text"]) for m in ws["messages"]["items"]])
+
+    def test_roi_bounds_image_binding_and_answer_snapshot_survive_box_changes(self):  # TAS-19
+        ws = self.analyze(self.open())
+        sid = ws["session"]["id"]
+        boxes = f"/api/v1/sessions/{sid}/boxes"
+        for bad in ([0, 0, 9999, 10], [50, 50, 10, 10], [1, 2, 3], [-1, 0, 10, 10]):
+            self.assertEqual(self.write("post", boxes, {"image_id": 24110, "bbox_xyxy": bad}, revision=ws["session"]["revision"]).status_code, 422, bad)
+        # httpx refuses to encode NaN, so send the raw JSON a buggy client could produce.
+        nan = self.doctor.post(boxes, content='{"image_id":24110,"bbox_xyxy":[NaN,1,50,50]}', headers={
+            "Content-Type": "application/json", "If-Match": f'"{ws["session"]["revision"]}"', "Idempotency-Key": uuid.uuid4().hex})
+        self.assertEqual(nan.status_code, 422, nan.text)
+        self.assertEqual(self.write("post", boxes, {"image_id": 25210, "bbox_xyxy": [1, 1, 5, 5]}, revision=ws["session"]["revision"]).status_code, 404)
+        made = self.write("post", boxes, {"image_id": 24110, "bbox_xyxy": [100.5, 120.25, 300, 310], "label": "Doctor ROI"}, revision=ws["session"]["revision"])
+        self.assertEqual(made.status_code, 201, made.text)
+        box_id, rev = made.json()["resource_id"], made.json()["session_revision"]
+        self.assertEqual(self.ask(ws, 24111, "What is here?", box_id, rev).status_code, 404)  # region belongs to another image
+        self.assertEqual(self.ask(ws, 24110, "What is here?", box_id, rev).status_code, 202)
+        ws = self.settle(ws)
+        answer = ws["messages"]["items"][-1]
+        self.assertEqual((answer["box_id"], answer["box_snapshot"]["bbox_xyxy"]), (box_id, [100.5, 120.25, 300, 310]))
+        moved = self.write("patch", f"{boxes}/{box_id}", {"bbox_xyxy": [10, 10, 60, 60]}, revision=ws["session"]["revision"], key=False)
+        deleted = self.write("delete", f"{boxes}/{box_id}", revision=moved.json()["session_revision"], key=False)
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+        ws = self.doctor.get(f"/api/v1/sessions/{sid}").json()
+        self.assertEqual([m["box_snapshot"]["bbox_xyxy"] for m in ws["messages"]["items"]], [[100.5, 120.25, 300, 310]] * 2)
+        self.assertTrue(next(b for b in ws["boxes"] if b["id"] == box_id)["deleted_at"])
+        image = self.doctor.get("/api/v1/images/24110/content").content
+        self.assertEqual(hashlib.sha256(image).hexdigest(), ws["images"][0]["sha256"])  # the original is never altered
+
+    def test_gate1_blocks_pending_bypass_and_contradictions_and_signs_once(self):  # TAS-20
+        from thorax_api.db import connect
+        ws = self.analyze(self.open())
+        sid = ws["session"]["id"]
+        ai_items, box = ws["latest_findings"]["items"], ws["boxes"][0]
+        approve = lambda revision: self.write("post", f"/api/v1/sessions/{sid}/findings/approve", {"findings_version": 1}, revision=revision)
+        self.assertEqual(approve(ws["session"]["revision"]).json()["error"]["code"], "UNRESOLVED_REVIEW")
+        rejected = [{**item, "action": "rejected"} for item in ai_items]
+        self.assertEqual(self.save_findings(ws, rejected[:1], False).status_code, 422)  # dropping an AI finding is not a bypass
+        self.assertEqual(self.save_findings(ws, [{**ai_items[0], "action": "accepted"}, rejected[1]], True).status_code, 422)  # contradictory normal
+        linked = {**rejected[1], "action": "edited", "text": "Edited", "box_ids": [box["id"]], "image_id": 24111}
+        self.assertEqual(self.save_findings(ws, [rejected[0], linked], False).status_code, 422)  # image changed / cross-image link
+        saved = self.save_findings(ws, rejected, False)
+        ws = self.doctor.get(f"/api/v1/sessions/{sid}").json()
+        codes = [b["code"] for b in ws["blockers"] if b["gate"] == "gate1"]
+        self.assertIn("NORMAL_CONFIRMATION_REQUIRED", codes)
+        self.assertIn("UNRESOLVED_REVIEW", codes)  # the AI region is still pending
+        self.assertEqual(approve(saved.json()["session_revision"]).json()["error"]["code"], "UNRESOLVED_REVIEW")
+        rev = self.write("patch", f"/api/v1/sessions/{sid}/boxes/{box['id']}", {"review_action": "rejected"}, revision=ws["session"]["revision"], key=False).json()["session_revision"]
+        ws = self.doctor.get(f"/api/v1/sessions/{sid}").json()
+        # A rejected region can no longer be linked as evidence, so the final save drops the link.
+        rev = self.save_findings(ws, [{**item, "box_ids": []} for item in rejected], True).json()["session_revision"]
+        headers = {"If-Match": f'"{rev}"', "Idempotency-Key": uuid.uuid4().hex}
+        first = self.doctor.post(f"/api/v1/sessions/{sid}/findings/approve", json={"findings_version": 1}, headers=headers)
+        replay = self.doctor.post(f"/api/v1/sessions/{sid}/findings/approve", json={"findings_version": 1}, headers=headers)  # double click
+        again = approve(first.json()["session_revision"])  # a second, separate approval of the same version
+        self.assertEqual((first.status_code, replay.status_code, again.status_code), (200, 200, 200), first.text)
+        self.assertEqual(replay.json(), first.json())
+        events = [e["type"] for e in self.doctor.get(f"/api/v1/sessions/{sid}/events").json()["items"]]
+        self.assertEqual(events.count("gate1_approved"), 1)
+        reopened = self.write("post", f"/api/v1/sessions/{sid}/boxes", {"image_id": 24110, "bbox_xyxy": [1, 1, 9, 9]}, revision=first.json()["session_revision"])
+        self.assertEqual(reopened.status_code, 201)
+        with connect(self.db) as db:
+            rows = [dict(r) for r in db.execute("SELECT version, status, annotation_snapshot FROM findings_versions WHERE session_id = ? ORDER BY version", (sid,))]
+        self.assertEqual([(r["version"], r["status"]) for r in rows], [(1, "approved"), (2, "in_review")])
+        self.assertTrue(rows[0]["annotation_snapshot"])  # the signed version keeps its evidence snapshot
+
+    def test_gate2_needs_gate1_rejects_stale_and_identity_edits_and_locks_final(self):  # TAS-21
+        ws = self.analyze(self.open())
+        sid = ws["session"]["id"]
+        url = f"/api/v1/sessions/{sid}"
+        draft = lambda revision, version: self.write("post", f"{url}/ai-requests", {"operation": "draft_report", "findings_version": version}, revision=revision)
+        self.assertEqual(draft(ws["session"]["revision"], 1).json()["error"]["code"], "GATE1_REQUIRED")
+        self.assertEqual(self.write("post", f"{url}/reports", {"findings_version": 1}, revision=ws["session"]["revision"]).json()["error"]["code"], "GATE1_REQUIRED")
+        rev = self.write("patch", f"{url}/boxes/{ws['boxes'][0]['id']}", {"review_action": "accepted"}, revision=ws["session"]["revision"], key=False).json()["session_revision"]
+        ws = self.doctor.get(url).json()
+        items = [{**ws["latest_findings"]["items"][0], "action": "accepted"}, {**ws["latest_findings"]["items"][1], "action": "rejected"}]
+        rev = self.save_findings(ws, items, False).json()["session_revision"]
+        rev = self.write("post", f"{url}/findings/approve", {"findings_version": 1}, revision=rev).json()["session_revision"]
+        self.assertEqual(draft(rev, 1).status_code, 202)
+        ws = self.settle(ws)
+        report = ws["reports"][0]
+        self.assertEqual((report["findings_version"], report["content"]["source_item_ids"]), (1, [items[0]["id"]]))
+        reports = f"{url}/reports/{report['id']}"
+        self.assertEqual(self.write("patch", reports, {"patient": {"name": "Someone else"}}, revision=ws["session"]["revision"], key=False).status_code, 422)
+        rev = self.write("patch", reports, {"impression": " "}, revision=ws["session"]["revision"], key=False).json()["session_revision"]
+        self.assertEqual(self.write("post", f"{reports}/approve", {"findings_version": 1}, revision=rev).status_code, 422)  # required sections
+        rev = self.write("patch", reports, {"impression": "Left basilar opacity."}, revision=rev, key=False).json()["session_revision"]
+        rev = self.write("post", f"{url}/boxes", {"image_id": 24110, "bbox_xyxy": [1, 1, 9, 9]}, revision=rev).json()["session_revision"]
+        stale = self.write("post", f"{reports}/approve", {"findings_version": 1}, revision=rev)
+        self.assertEqual(stale.json()["error"]["code"], "REPORT_STALE")
+        self.assertEqual(self.doctor.get(url).json()["reports"][0]["status"], "stale")
+        rev = self.write("post", f"{url}/findings/approve", {"findings_version": 2}, revision=rev).json()["session_revision"]
+        created = self.write("post", f"{url}/reports", {"findings_version": 2}, revision=rev)
+        self.assertEqual(created.status_code, 201, created.text)
+        new_report, rev = created.json()["resource_id"], created.json()["session_revision"]
+        signed = self.write("post", f"{url}/reports/{new_report}/approve", {"findings_version": 2}, revision=rev)
+        self.assertEqual(signed.status_code, 200, signed.text)
+        rev = signed.json()["session_revision"]
+        events = [e["type"] for e in self.doctor.get(f"{url}/events").json()["items"]]
+        self.assertEqual((events.count("gate1_approved"), events.count("gate2_approved")), (2, 1))  # two gates, signed separately
+        for path, body in ((f"{url}/ai-requests", {"operation": "ask", "image_id": 24110, "question": "Anything else?"}),
+                           (f"{url}/boxes", {"image_id": 24110, "bbox_xyxy": [1, 1, 9, 9]})):
+            self.assertEqual(self.write("post", path, body, revision=rev).json()["error"]["code"], "FINAL_READ_ONLY", path)
+
+    def test_concurrent_opens_create_one_session_bound_to_the_url_study(self):
+        from concurrent.futures import ThreadPoolExecutor
+        store = self.app.state.readings
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(lambda _: store.open_reading(2411, 1, (None, None)), range(8)))
+        self.assertEqual(sorted(status for _, status in results), [200] * 7 + [201])
+        self.assertEqual({ws["session"]["id"] for ws, _ in results}, {results[0][0]["session"]["id"]})
+        # The binding comes from the URL and the signed-in doctor only; a body cannot redirect it.
+        forged = self.doctor.post("/api/v1/studies/2411/sessions", json={"patient_id": 3, "doctor_id": 2})
+        self.assertEqual(forged.status_code, 422)
+        ws = self.doctor.post("/api/v1/studies/2411/sessions").json()
+        self.assertEqual((ws["session"]["patient_id"], ws["session"]["study_id"], ws["session"]["doctor_id"]), (1, 2411, 1))
+        self.assertEqual(ws["session"]["id"], results[0][0]["session"]["id"])
 
     def test_access_rules(self):
         ws = self.open()

@@ -36,6 +36,15 @@ def main(argv=None):
     sweep = commands.add_parser("sweep", help="train each YAML variant and seed sequentially")
     sweep.add_argument("--config", type=Path, required=True)
     sweep.add_argument("--dry-run", action="store_true", help="validate and list runs without training or writes")
+    registry = commands.add_parser("registry", help="check experiment records, gate completion, redraw charts")
+    registry_commands = registry.add_subparsers(dest="registry_command", required=True)
+    for name in ("check", "complete", "charts"):
+        sub = registry_commands.add_parser(name)
+        sub.add_argument("--registry", type=Path, required=True)
+        if name == "complete":
+            sub.add_argument("--experiment-id", required=True)
+        if name == "charts":
+            sub.add_argument("--output", type=Path, required=True)
     for command in ("validate", "train", "evaluate"):
         sub = commands.add_parser(command)
         sub.add_argument("--config", type=Path, required=True)
@@ -65,6 +74,17 @@ def main(argv=None):
                 print(json.dumps(plan.preview()))
                 return 0
             return run_sweep(plan, repository)
+        if args.command == "registry":
+            from cxr_research.experiments import registry as experiment_registry
+            if args.registry_command == "complete":
+                print(json.dumps(experiment_registry.mark_complete(args.registry, args.experiment_id)))
+                return 0
+            if args.registry_command == "charts":
+                print(json.dumps(experiment_registry.render_charts(args.registry, args.output)))
+                return 0
+            problems = experiment_registry.check_registry(experiment_registry.load_registry(args.registry))
+            print(json.dumps({"valid": not problems, "problems": problems}))
+            return 1 if problems else 0
         if args.command == "synthetic":
             from cxr_research.data.synthetic import create_fixture
             create_fixture(args.output)

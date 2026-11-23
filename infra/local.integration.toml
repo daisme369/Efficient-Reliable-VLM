@@ -1,0 +1,41 @@
+[network]
+host = "127.0.0.1"
+web_port = 3100
+api_port = 8100
+inference_port = 8101
+database_port = 54329
+
+[runtime]
+directory = ".runtime-new-images"
+postgres_bin = "../postgresql-portable/pgsql/bin"
+web_directory = "src/thorax-web"
+policy_file = "apps/api/policy.toml"
+node = "node"
+frontend_command = "start"
+provider_mode = "mock"
+startup_seconds = 30
+shutdown_seconds = 10
+
+[database]
+name = "thorax_demo"
+owner = "thorax_owner"
+runtime_role = "thorax_runtime"
+
+[demo]
+fixture_key = "thorax-demo-v1"
+supplemental_bundle = "public-radiographs"
+admin_email = "admin@thorax.demo"
+admin_name = "Demo administrator"
+doctor_email = "doctor@thorax.demo"
+doctor_name = "Demo doctor"
+second_doctor_email = "doctor2@thorax.demo"
+second_doctor_name = "Second demo doctor"
+
+[mock]
+empty_views = ["LAT"]
+artifact_version = "synthetic-integration-v1"
+finding = "Synthetic demonstration observation for doctor review."
+region_label = "synthetic-region"
+bbox_xyxy = [91.0, 246.0, 217.0, 381.0]
+answer = "Synthetic demonstration response. Review the image and record your own assessment."
+impression = "Synthetic demonstration summary based on doctor-reviewed findings."
