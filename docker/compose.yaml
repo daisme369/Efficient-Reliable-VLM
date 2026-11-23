@@ -40,10 +40,14 @@ services:
       THORAX_TRUST_PROXY: "1"
       # Empty: SQLite on the thorax-data volume. On AWS: postgresql://…@<RDS endpoint>:5432/thorax?sslmode=require
       THORAX_DATABASE_URL: ${THORAX_DATABASE_URL:-}
+      # Model served by vLLM (docker/DEPLOY.md, "Model server"); all empty: fixed demo answers.
       THORAX_VLM_URL: ${THORAX_VLM_URL:-}
       THORAX_VLM_KEY: ${THORAX_VLM_KEY:-}
+      THORAX_VLM_MODEL: ${THORAX_VLM_MODEL:-thorax-m1}
+      THORAX_VLM_CALIBRATION: ${THORAX_VLM_CALIBRATION:-}
     volumes:
       - thorax-data:/data
+      - ./calibration:/calibration:ro  # M1 metrics.json for calibrated abstention; empty folder when unused
 
 volumes:
   thorax-data:

@@ -236,6 +236,8 @@ __marimo__/
 !/docs/implementation_plan.md
 # Clinical workflow review and revised intake flow.
 !/docs/workflow-review.md
+# Implementation plans.
+!/docs/superpowers/
 
 # Data
 /data
@@ -276,3 +278,6 @@ thorax-images/
 
 # Trained model bundles (large; kept outside version control)
 /*-posttrain.zip
+
+# Model calibration copied onto the server by docker/aws-deploy.sh
+/docker/calibration/

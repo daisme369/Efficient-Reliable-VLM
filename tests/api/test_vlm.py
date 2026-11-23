@@ -1,4 +1,5 @@
-"""Model service (scripts/serve_vlm.py, fake model) and the backend's real-model path, on synthetic data only."""
+"""The backend's vLLM client against scripts/fake_vllm.py, the legacy model service (scripts/serve_vlm.py), and the
+real-model reading path, on synthetic data only."""
 
 from __future__ import annotations
 
@@ -21,6 +22,13 @@ HAS_API_DEPS = all(importlib.util.find_spec(name) for name in ("fastapi", "httpx
 WEB = "http://127.0.0.1:3000"
 KEY = "test-key-0123456789"
 PASSWORD = "synthetic-pass-123"
+
+
+def load_script(name):
+    spec = importlib.util.spec_from_file_location(name, ROOT / "scripts" / f"{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def load_service():
@@ -91,19 +99,79 @@ class ModelServiceTests(unittest.TestCase):
 
 
 
-class InProcessClient:
-    """Stands in for VlmClient: runs the service's real answer path on the fake model, without HTTP."""
-    def __init__(self, service, calibration=None, error=None):
-        self.service, self.calibration, self.error = service, calibration, error
+@unittest.skipUnless(HAS_API_DEPS, "requires requirements/api.txt (fastapi, httpx, pillow)")
+class VllmClientTests(unittest.TestCase):
+    """The real HTTP client against a stand-in that speaks vLLM's OpenAI-compatible API."""
+    def setUp(self):
+        self.server, self.url = load_script("fake_vllm").start_in_background(KEY)
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+
+    def test_answers_boxes_and_confidence_over_the_openai_api(self):
+        from thorax_api.vlm import VlmClient, model_version
+        body = VlmClient(self.url, KEY, model="medgemma-m1-abc").answer(png(), ["Is there a pleural effusion?", "Is there a pneumothorax?"], regions=True)
+        effusion, pneumothorax = body["results"]
+        self.assertEqual((effusion["answer"], effusion["region_status"]), ("Yes.", "found"))
+        self.assertEqual(effusion["boxes_xyxy"], [[30.0, 55.0, 90.0, 90.0]])  # grid (150,550,450,900) on 200x100
+        self.assertAlmostEqual(effusion["confidence"], 0.8)
+        self.assertAlmostEqual(effusion["box_confidence"], 0.6)
+        self.assertEqual(pneumothorax["answer"], "No.")
+        self.assertEqual(effusion["risk"]["status"], "unavailable")
+        self.assertEqual(model_version(body["model"]), "medgemma-m1-abc")
+        alone = VlmClient(self.url, KEY).answer(png(), ["Is there a pleural effusion?"], regions=False)["results"][0]
+        self.assertEqual((alone["region_status"], alone["boxes_xyxy"]), ("not_requested", []))
+
+    def test_wrong_key_is_not_retryable(self):
+        from thorax_api.vlm import VlmClient, VlmError
+        with self.assertRaises(VlmError) as caught:
+            VlmClient(self.url, "wrong-key-0123456").answer(png(), ["Is there a pleural effusion?"], regions=False)
+        self.assertFalse(caught.exception.retryable)
+
+    def test_calibrated_abstention_matches_the_m1_logistic(self):
+        from thorax_api.vlm import decide
+        calibration = {"method": "answer_signal", "weights": [-2.0, 4.0], "threshold": 0.7, "target_risk": 0.1}
+        answered = decide(calibration, 0.8, 0.0)  # sigmoid(-2 + 3.2) = 0.769
+        self.assertAlmostEqual(answered["probability_correct"], 0.7685, places=3)
+        self.assertFalse(answered["abstain"])
+        self.assertTrue(decide(calibration, 0.5, 0.0)["abstain"])
+        self.assertTrue(decide({**calibration, "threshold": None}, 0.99, 0.0)["abstain"])
+        joint = {"method": "joint", "weights": [0.0, 1.0, 1.0], "threshold": 0.5, "target_risk": 0.1}
+        self.assertAlmostEqual(decide(joint, 0.5, 0.5)["probability_correct"], 0.7311, places=3)
+
+    def test_calibration_file_must_be_complete(self):
+        from thorax_api.vlm import load_calibration
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "metrics.json"
+            path.write_text(json.dumps({"selectivity": {"status": "complete", "target_risk": 0.1, "signal_ablations_same_adapter": {
+                "answer_signal": {"weights": [0.0, 1.0], "threshold": 0.6}}}}))
+            self.assertEqual(load_calibration(str(path), "answer_signal")["threshold"], 0.6)
+            path.write_text(json.dumps({"selectivity": {"status": "insufficient_calibration_or_report_population"}}))
+            with self.assertRaises(ValueError):
+                load_calibration(str(path), "answer_signal")
+        self.assertIsNone(load_calibration(None, "answer_signal"))
+
+    def test_box_parser_and_prompts_match_the_training_code(self):
+        from thorax_api import vlm
+        cases = ["[[1,2,3,4]]", "[[1,2,3,4],[1,2,3,4]]", "[]", "[[3,2,1,4]]", "[[0,0,1001,5]]", "[[1.5,2,3,4]]", "not json", "{}"]
+        self.assertEqual([vlm.parse_boxes(c) for c in cases],
+                         [[(1, 2, 3, 4)], [(1, 2, 3, 4)], [], None, None, None, None, None])
+        try:
+            from cxr_research.data.m1 import GRID, REGION_PROMPT
+            from cxr_research.evaluation.m1 import parse_boxes
+            from cxr_research.experiments.config import MedGemmaConfig
+        except Exception as problem:  # the research stack (torch) is optional in the API environment
+            self.skipTest(f"cxr_research not importable: {problem}")
+        self.assertEqual((vlm.GRID, vlm.REGION_PROMPT), (GRID, REGION_PROMPT))
+        self.assertEqual((vlm.SYSTEM_PROMPT, vlm.MAX_NEW_TOKENS), (MedGemmaConfig().prompt, MedGemmaConfig().max_new_tokens))
+        self.assertEqual([vlm.parse_boxes(c) for c in cases], [parse_boxes(c) for c in cases])
+
+
+class FailingClient:
+    def __init__(self, error):
+        self.error = error
 
     def answer(self, data: bytes, questions, *, regions):
-        from PIL import Image
-        if self.error:
-            raise self.error
-        image = Image.open(io.BytesIO(data)).convert("RGB")
-        model = self.service.FakeModel()
-        return {"results": [self.service.answer_one(model, self.calibration, image, q, regions) for q in questions],
-                "latency_ms": 321, "model": model.info}
+        raise self.error
 
 
 @unittest.skipUnless(HAS_API_DEPS, "requires requirements/api.txt (fastapi, httpx, pillow)")
@@ -122,8 +190,11 @@ class RealModelReadingTests(unittest.TestCase):
             accounts.create(f"doctor{user_id}@example.test", f"Doctor {user_id}", "doctor", PASSWORD, user_id=user_id)
         self.app = create_app(db, [WEB], image_root=str(Path(self.directory.name) / "images"))
         seed_demo(self.app.state.catalog)
-        self.service = load_service()
-        self.app.state.readings.vlm = InProcessClient(self.service)
+        self.server, self.url = load_script("fake_vllm").start_in_background(KEY)
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        from thorax_api.vlm import VlmClient
+        self.app.state.readings.vlm = VlmClient(self.url, KEY, model="fake")
         self.doctor = TestClient(self.app, headers={"Origin": WEB})
         response = self.doctor.post("/api/v1/auth/login", json={"email": "doctor1@example.test", "password": PASSWORD})
         self.doctor.headers["X-CSRF-Token"] = response.json()["csrf_token"]
@@ -160,7 +231,8 @@ class RealModelReadingTests(unittest.TestCase):
 
     def test_abstained_answers_are_withheld(self):
         # Calibrated so that confidence 0.8 falls below the threshold: everything is withheld.
-        self.app.state.readings.vlm = InProcessClient(self.service, {"method": "answer_signal", "weights": [-2.0, 1.0], "threshold": 0.9, "target_risk": 0.1})
+        from thorax_api.vlm import VlmClient
+        self.app.state.readings.vlm = VlmClient(self.url, KEY, model="fake", calibration={"method": "answer_signal", "weights": [-2.0, 1.0], "threshold": 0.9, "target_risk": 0.1})
         workspace = self.submit({"operation": "analyze", "image_id": self.image["id"]})
         self.assertEqual(workspace["latest_findings"]["items"], [])
         screening = workspace["latest_ai_request"]["output"]["screening"]
@@ -176,9 +248,10 @@ class RealModelReadingTests(unittest.TestCase):
         self.submit({"operation": "analyze", "image_id": self.image["id"]})
         self.submit({"operation": "ask", "image_id": self.image["id"], "question": "Is there a pleural effusion?"})
         last = self.doctor.get(f"/api/v1/sessions/{self.sid}/messages").json()["items"][-1]
-        self.assertEqual((last["role"], last["text"], last["latency_ms"]), ("assistant", "Yes.", 321))
+        self.assertEqual((last["role"], last["text"]), ("assistant", "Yes."))
+        self.assertIsInstance(last["latency_ms"], int)
         from thorax_api.vlm import VlmError
-        self.app.state.readings.vlm = InProcessClient(self.service, error=VlmError("The model service did not respond in time."))
+        self.app.state.readings.vlm = FailingClient(VlmError("The model service did not respond in time."))
         failed = self.submit({"operation": "ask", "image_id": self.image["id"], "question": "Is there a pneumothorax?"})["latest_ai_request"]
         self.assertEqual((failed["status"], failed["error"]["code"], failed["error"]["retryable"]), ("failed", "AI_UNAVAILABLE", True))
 
