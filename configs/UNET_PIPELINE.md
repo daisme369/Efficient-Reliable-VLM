@@ -6,6 +6,10 @@ lung classes, lesions or VQA answers. CheXmask targets are anatomical pseudo-lab
 Dice/IoU against those targets measure agreement with the source masks, not
 clinical accuracy or independent lesion grounding.
 
+The user-selected full MIMIC plus NIH run is documented under
+[Local MIMIC and NIH training](#local-mimic-and-nih-training). The 32/8 limits below
+belong to the earlier engineering pilot, not the available training population.
+
 Run commands from the source checkout on C. Keep real inputs, masks, manifests,
 transfer inventories, configs and checkpoints under the private data directory
 on E. Commit source, templates, documentation and synthetic tests only.
@@ -106,8 +110,9 @@ checkout, private selected assets and configs in the paths recorded by the
 Linux config. Keep original relative image paths. Run in the verified Linux
 Docker environment as `researcher` with one visible H100, H200 or RTX PRO 6000 Blackwell and a driver of
 release 580 or newer. Record the actual immutable image ID in
-`CXR_CONTAINER_IMAGE_ID`. Current policy does not authorize real U-Net training
-on RTX 3060, RTX 4090 or RTX 5090. RTX PRO 6000 Blackwell is approved for both
+`CXR_CONTAINER_IMAGE_ID`. The dated local U-Net exception below permits the
+exact RTX 3060 through a separate profile. Standard training still rejects
+RTX 3060, RTX 4090 and RTX 5090. RTX PRO 6000 Blackwell supports both
 training and inference, subject to the normal preflight.
 
 ```bash
@@ -164,3 +169,92 @@ Stage explicit reviewed source paths. Do not stage `.env`, data, row-level
 manifests, inventories, masks, weights or checkpoints. Include the new adapter,
 script, template and tests together. Review staged contents and run the staged
 repository check before creating a commit.
+
+## Local MIMIC and NIH training
+
+UNET-LOCAL-2026-10-30 records the user's request to train locally, followed by
+their choice to use MIMIC plus NIH and defer VinDr until patient grouping exists.
+The local audit found no patient, study or SOP identity in any of 18,000 VinDr
+DICOM headers. Image IDs must not be substituted for patient IDs.
+
+`scripts/gpu/unet.py prepare-pool --spec <private-spec.json>` prepares the full
+MIMIC/NIH population. The spec fixes `datasets` to
+`["mimic-cxr", "nih-chestxray14"]`, `purpose` to `training`,
+`image_limit_per_split` to `null`, and `split_policy` to
+`mimic-official+nih-patient-hash-v1`. It retains the original source/access fields
+and adds `sources.nih_images`, `nih_validation_fraction: 0.1` and
+`nih_split_seed: 42`. The catalog report and exports must match their pinned hashes.
+
+MIMIC retains its official split and union source-VQA test-patient seal. NIH
+retains its official test. SHA-256 of seed, namespace and patient assigns each
+NIH `train_val` patient to one development split. The audit covers the entire
+included source population before view, RCA or mask filtering. It rejects
+patient/path conflicts and duplicate image bytes across development splits.
+
+The manifest stores `mask_format: chexmask_rle` and a bounded byte reference
+instead of writing a PNG for every mask. The source CSV hash is verified once
+per load, and every source image has its own verified hash. During loading,
+the reference must match the source image ID and original dimensions. Both
+lungs must be nonempty. The loader decodes their union with the existing
+one-based row-major decoder, then applies the same paired letterbox as the PNG
+path. No test mask or QA payload is decoded during preparation. Full pixel
+decoding happens during training, so an invalid selected RLE/image still stops
+the run rather than being silently dropped.
+
+Fully opaque RGBA PNGs use the existing QC rule: discard alpha only when its
+entire range is 255, then convert to grayscale. Non-opaque alpha and unsupported
+bit depths stop preparation/loading. A spec may select
+`publisher_hash_policy: verify_at_train_boundary` to retain the pinned publisher
+hash while assembling the manifest. The files backend still hashes every image
+and CSV before GPU/model startup. Images without publisher hashes are hashed
+during preparation. A completed preparation is not a passed training data gate.
+
+Use the `files` I/O backend for these references. PNG shard packing rejects RLE
+references before writing output. The added sample fields also change per-sample
+shard identities; retain old caches with their source version or regenerate them.
+
+The approved local protocol selects `hardware_profile: local-unet-rtx3060`.
+The runner verifies U-Net `S1`, then invokes `--role train-unet-local`, requiring
+exactly NVIDIA GeForce RTX 3060 and `sm86`. All Linux, driver, CUDA and dependency
+checks remain active. The normal training role and MedGemma permissions do not
+change. The initial full run is bounded to one epoch, seed 42, width 32,
+256 pixels, FP16, batch 2 and learning rate 0.0002. The explicit user request is
+the execution authorization; do not invent a lead's approval or completed review.
+
+Mount source and input data read-only, outputs separately, and disable container
+networking. Record the immutable image ID and the actual source worktree state.
+`progress.json` reports aggregate batch progress every 100 batches and after the
+first batch. Epoch checkpoints, `history.json`, `best.json`, `metrics.json` and
+`run.json` retain their existing meanings. A running job has no completed
+validation result until an epoch finishes. One-seed results measure exploratory
+agreement with anatomical pseudo-labels.
+
+For a slow Windows bind mount, prepare lossless indexed input shards on CPU:
+
+```powershell
+.venv/Scripts/python.exe scripts/gpu/unet.py cache --config <private-local-config.json> --output <new-private-cache-directory>
+```
+
+The default stops on any empty lung target. QC-UNET-2026-10-30 records the
+user's approval to exclude exactly 45 MIMIC training examples with both lungs
+empty. For that specific cohort, add `--empty-mask-policy exclude-both-empty
+--expected-exclusions 45 --qc-decision QC-UNET-2026-10-30`. One empty side,
+other sources/splits and a mismatched exclusion count still fail. The retained
+cohort has 306,302 training and 10,790 validation images. Validation is unchanged.
+
+The cache hashes source assets, decodes only development examples, uses the
+existing paired PIL letterbox, then stores the valid rectangle as lossless PNG.
+It verifies the image, mask and valid pixels after re-letterboxing for every
+pair, including PNG round-trip. The index fixes size and geometry; a loader
+with another resolution is rejected. Select `webdataset` with `decoder: pil`
+and bind the child manifest, provenance and index hashes to a new run protocol.
+Keep the original canonical preparation and all failed attempts.
+
+For local Docker training, copy completed shards into a private Linux volume,
+verify every target checksum, mount inputs and source read-only, and run the
+full shard validation before training. The local one-shot supervisor records
+cache, copy, validation and training phases in its private `pipeline.json`.
+Only actual batch progress proves that optimization has started. An approved
+source export can use `CXR_SOURCE_SNAPSHOT` and `CXR_SOURCE_ARCHIVE`; the runner
+checks the archive and every exported file against the protocol and retains
+the original Git commit and dirty state in `run.json`.

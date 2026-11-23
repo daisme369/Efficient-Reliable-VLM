@@ -252,6 +252,18 @@ class ContractTests(unittest.TestCase):
             self.assertEqual(evidence["driver_release_min"], 580)
             self.assertEqual(evidence["driver_versions"], ["580.95.05"])
 
+    def test_local_gpu_profile_cannot_authorize_medgemma(self):
+        from cxr_research.experiments.environment import gpu_preflight
+        protocol = self.root / "local-profile.json"
+        protocol.write_text(json.dumps({"status": "approved", "hardware_profile": "local-unet-rtx3060"}))
+        config = replace(self.config, task="medgemma", baseline="B1", device="cuda", protocol=str(protocol),
+                         data=replace(self.data, synthetic=False))
+        with patch("cxr_research.experiments.environment.Path.exists", return_value=True), \
+                patch("cxr_research.experiments.environment.subprocess.run") as run:
+            with self.assertRaisesRegex(ContractError, "U-Net S1"):
+                gpu_preflight(config, "train", self.root)
+            run.assert_not_called()
+
     def test_cli_never_echoes_row_values(self):
         self.write_manifest([self.row(), self.row(sample_id="second", split="validation")])
         path = self.root / "config.json"

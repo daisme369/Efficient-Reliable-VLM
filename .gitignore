@@ -227,6 +227,11 @@ __marimo__/
 /docs/*
 !/docs/LOCAL_INTEGRATION.md
 !/docs/agents/
+!/docs/VAST_GROUNDING_TRAINING.md
+# Thorax AI app specification (TAS-6): product, frontend and REST contracts.
+!/docs/spec.md
+!/docs/frontend_des.md
+!/docs/implementation_plan.md
 
 # Data
 /data
@@ -259,3 +264,11 @@ AGENTS.md
 /infra/.env.compose
 /scripts/integration/fixtures/public-radiographs/*.png
 /scripts/integration/fixtures/public-radiographs/*.jpg
+
+# Thorax API account database (local)
+thorax.sqlite3
+thorax.sqlite3-journal
+thorax-images/
+
+# Trained model bundles (large; kept outside version control)
+/*-posttrain.zip

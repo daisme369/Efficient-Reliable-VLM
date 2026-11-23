@@ -45,7 +45,20 @@ Copy [io_webdataset.example.yaml](io_webdataset.example.yaml) into the sweep's
 an absolute path and `shard_index_sha256` to the checksum printed by `pack`.
 On CPU use `decoder: pil`. On the approved Linux CUDA environment use `dali`.
 Training uses H100, H200 or RTX PRO 6000 Blackwell under the existing GPU preflight.
-The RTX 3060/4090 U-Net training exception remains pending; RTX 5090 is inference-only.
+The approved `local-unet-rtx3060` protocol permits this local U-Net `S1` run on
+the exact RTX 3060 under `train-unet-local`. RTX 4090 has no training exception;
+RTX 5090 is inference-only. See `UNET-LOCAL-2026-10-30` in the action plan.
+
+For original CheXmask RLE references, use the U-Net `cache` command described in
+[UNET_PIPELINE.md](UNET_PIPELINE.md). It creates fixed-resolution grayscale PNG
+shards and checks image, mask and valid-pixel equivalence for every pair. This
+cache requires the same U-Net resolution and geometry at runtime. The local
+run uses PIL decoding in the locked Linux image and a private Docker volume.
+Its one-shot supervisor waits for cache completion, verifies copied shard
+hashes, binds the approved cohort and protocol, validates all shards, and starts
+one training epoch. It records each phase and stops on any failed gate. Source
+code is a read-only export whose bytes and parent Git identity are bound to the
+protocol and verified before the run directory is created.
 
 ```bash
 PYTHONPATH=src python -m cxr_research validate --config /private/project/b1.json

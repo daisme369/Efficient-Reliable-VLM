@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type {
   AIRequest, AuditEvent, BoxDTO, FindingsDTO, MessageDTO, MutationReceipt, ReportDTO,
-  SessionDTO, UserDTO,
+  SessionDTO, UserDTO, Workspace,
 } from '../contracts';
 import { patients } from './fixtures';
 
@@ -46,6 +46,7 @@ export interface MockSession {
 
 export interface MockJob {
   request: AIRequest;
+  result?: { preliminary_report: NonNullable<Workspace['preliminary_report']> };
   context: string;
   submittedAt: number;
   failure?: 'timeout' | 'detector';

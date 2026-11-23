@@ -12,7 +12,7 @@ Next.js 15 App Router, React, TypeScript, Tailwind and TanStack Query, as specif
 
 ## Users
 
-Doctors review assigned chest X-ray studies and approve their own readings. Administrators manage demo accounts, assignments and allowlisted fixtures.
+Doctors review assigned chest X-ray studies and approve their own readings. Annotators draw region boxes on chest X-rays in a separate labeling workspace, and a second annotator reviews, fixes and approves each image; annotators never see patient names. Administrators manage accounts of every role and patient assignments, monitor and pause the AI, and oversee labeling. With the local demo API, the administrator console is limited to doctor accounts, assignments and fixtures, and labeling is unavailable.
 
 ## Product Purpose
 
@@ -20,7 +20,7 @@ Thorax AI is an academic demonstration of chest X-ray reading assistance. A read
 
 ## Capabilities and Constraints
 
-The MVP uses English. The full desktop layout targets 1280 CSS pixels or more; the local integration also supports compact browser panels from 768 px, using the existing study-context drawer and a narrower two-column workspace. Images are immutable PNG or JPEG assets. The browser uses the same-origin REST contract. The local demo uses synthetic fixtures. The supplied real inference artifacts and backend are separate integration inputs.
+The MVP uses English and supports desktop browser widths of 1280 CSS pixels or more. Images are immutable PNG or JPEG assets. The browser uses the same-origin REST contract. The local demo uses synthetic fixtures. The supplied real inference artifacts and backend are separate integration inputs.
 
 ## Evidence on Hand
 

@@ -22,7 +22,7 @@
 .context-section > p { font-size: 14px; }
 .context-details { display: grid; gap: 10px; font-size: 14px; }
 .context-details dd { font-weight: 600; overflow-wrap: anywhere; }
-.progress-list, .history-list, .audit-list, .analysis-results, .region-review-list { padding: 0; list-style: none; margin: 0; }
+.progress-list, .history-list, .audit-list, .region-review-list { padding: 0; list-style: none; margin: 0; }
 .progress-list { display: grid; gap: 2px; }
 .progress-list button { width: 100%; min-height: 52px; display: grid; grid-template-columns: 27px minmax(0, 1fr) 14px; align-items: center; gap: 8px; border-radius: 6px; text-align: left; padding: 6px 4px; font-size: 14px; }
 .progress-list button:hover { background: var(--canvas); }
@@ -45,13 +45,14 @@
 .audit-list li { display: grid; }
 
 .review { display: flex; flex-direction: column; }
-.review-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-bottom: 1px solid var(--line); padding: 0 8px; }
+.discussion-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.review-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-bottom: 1px solid var(--line); padding: 0 8px; }
 .review-tabs button { min-height: 52px; display: flex; justify-content: center; align-items: center; gap: 6px; padding: 0 4px; border-bottom: 2px solid transparent; color: var(--muted); font-size: 14px; font-weight: 650; }
 .review-tabs button:hover { background: var(--canvas); }
 .review-tabs button[aria-selected="true"] { border-bottom-color: var(--primary); color: var(--primary); background: #f4fafd; }
 .review-tabs button:focus-visible { outline-offset: -4px; }
 .review-scroll { flex: 1; overflow: auto; min-height: 0; scrollbar-gutter: stable; }
-.review-scroll > [role="tabpanel"]:not([hidden]) { min-height: 100%; display: flex; }
+.review-scroll > :is([role="tabpanel"], #panel-report):not([hidden]) { min-height: 100%; display: flex; }
 .panel-content { width: 100%; padding: 18px 16px 20px; display: flex; flex-direction: column; gap: 14px; overflow-wrap: anywhere; }
 .panel-content > p { font-size: 14px; }
 .panel-heading { display: flex; gap: 8px; justify-content: space-between; align-items: center; }
@@ -68,10 +69,10 @@
 .analysis-sources div { display: grid; gap: 2px; font-size: 14px; }
 .analysis-sources div + div { border-left: 1px solid var(--line); padding-left: 12px; }
 .analysis-sources span { color: var(--muted); }
-.analysis-results { display: grid; gap: 12px; }
-.analysis-results li, .unlinked-box { padding: 10px 0; display: grid; justify-items: start; gap: 6px; }
-.analysis-results li + li { border-top: 1px solid var(--line); }
-.analysis-results small { color: var(--muted); font-size: 14px; }
+.preliminary-report { padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
+.preliminary-report summary { cursor: pointer; font-weight: 650; }
+.preliminary-report > :not(summary) { margin-top: 8px; }
+.preliminary-report p { white-space: pre-wrap; }
 .source-details { border-top: 1px solid var(--line); font-size: 14px; }
 .source-details summary::after { content: '+'; margin-left: auto; color: var(--muted); font-size: 17px; }
 .source-details[open] summary::after { content: '−'; }
@@ -130,19 +131,11 @@
 .report-signature { display: flex; gap: 12px; align-items: center; padding: 14px; background: var(--approved-bg); border-radius: 6px; color: #056447; }
 .report-signature p { font-size: 14px; }
 
-@media (max-width: 1439px) {
+@media (min-width: 1280px) and (max-width: 1439px) {
   .workspace-grid { grid-template-columns: minmax(560px, 1fr) 420px; }
   .context-rail { display: none; }
   .context-toggle { display: inline-flex; }
   .context-drawer { display: block; position: absolute; z-index: 3; top: 12px; bottom: 12px; left: 12px; width: 240px; overflow: auto; box-shadow: 0 4px 20px #0f172a20; }
   .identity-strip > dl > div { padding-inline: 9px; }
   .identity-strip > dl > div:first-child { padding-left: 0; }
-}
-
-@media (max-width: 1279px) {
-  .workspace-grid { grid-template-columns: minmax(0, 1fr) 360px; }
-  .identity-strip { flex-wrap: wrap; padding: 10px 16px; gap: 8px; }
-  .identity-strip > dl { flex-basis: 100%; flex-wrap: wrap; gap: 8px 0; }
-  .identity-strip > dl > div { flex: 1 1 25%; border: 0; padding: 0 8px 0 0; }
-  .identity-end { flex-wrap: wrap; }
 }

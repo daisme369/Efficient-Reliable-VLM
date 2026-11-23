@@ -4,6 +4,9 @@ For AWS sources configured in `.env`, use [the B1 pipeline](../configs/B1_PIPELI
 for metadata/selected-image downloads, mapped supervision, BF16 config drafts
 and aggregate monitoring. The existing-local-data route below remains available.
 
+For a teammate starting from an empty volume on Vast.ai, use the
+[grounding and clinical-context runbook](../docs/VAST_GROUNDING_TRAINING.md).
+
 Run source commands from the C checkout. Keep restricted inputs and generated
 outputs under the E data root. Nothing in this procedure provisions a machine,
 uploads data, accepts model terms, approves a protocol, or publishes an image.

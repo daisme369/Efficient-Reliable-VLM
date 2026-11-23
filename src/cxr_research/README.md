@@ -1,6 +1,6 @@
 # Research package architecture
 
-This package implements the development paths for MedGemma 1.5 B0/B1 and an exploratory binary anatomical U-Net. It does not implement the app, B2/B3/M1, or a final paper evaluation protocol.
+This package implements development runs for MedGemma 1.5 B0/B1, exploratory M1, and a binary anatomical U-Net. Use the [Vast.ai runbook](../../docs/VAST_GROUNDING_TRAINING.md#7-chạy-m1-trên-tập-phát-triển) for the M1 entry point. Independent B2/B3 runs and final test evaluation still require implementation.
 
 ## Ownership
 

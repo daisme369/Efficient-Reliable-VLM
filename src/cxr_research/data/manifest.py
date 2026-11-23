@@ -30,6 +30,8 @@ class Sample:
     primary: bool = False
     mask: str = ""
     mask_sha256: str = ""
+    mask_format: str = "png"
+    mask_reference: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -161,6 +163,18 @@ def load_manifest(config: DataConfig, *, verify_files: bool = True) -> Manifest:
                 if sample.answer_type not in {"closed", "open"}:
                     raise ContractError("answer type must come from the recorded taxonomy")
             else:
+                if sample.mask_format not in {"png", "chexmask_rle"}:
+                    raise ContractError("unsupported anatomical mask format")
+                if sample.mask_format == "chexmask_rle":
+                    ref = sample.mask_reference
+                    if (sample.patient_namespace not in {"mimic-cxr", "nih-chestxray14"}
+                            or not isinstance(ref, dict)
+                            or set(ref) != {"byte_offset", "byte_length", "height", "width"}
+                            or any(type(v) is not int or v <= 0 for v in ref.values())
+                            or ref["height"] * ref["width"] > 100_000_000):
+                        raise ContractError("invalid CheXmask source reference")
+                elif sample.mask_reference is not None:
+                    raise ContractError("PNG masks cannot carry CSV references")
                 verify_asset(local_file(root, sample.mask, must_exist=verify_files), sample.mask_sha256)
             samples.append(sample)
     if not samples or after != len(samples):

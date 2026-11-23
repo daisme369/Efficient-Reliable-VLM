@@ -98,6 +98,7 @@ input, textarea, select { min-width: 0; }
 .main-nav a { min-height: 44px; display: inline-flex; align-items: center; gap: 6px; border-radius: 6px; padding: 0 6px; font-weight: 650; }
 .main-nav a:hover { background: var(--primary-bg); }
 .header-account { margin-left: auto; display: flex; gap: 12px; align-items: center; }
+.login-header .language-toggle { margin-left: auto; }
 .avatar { display: inline-grid; place-items: center; width: 36px; height: 36px; flex: 0 0 36px; border-radius: 6px; background: var(--primary-bg); color: #0a536a; font-size: 14px; font-weight: 650; }
 .account-name { display: grid; font-size: 14px; line-height: 1.35; white-space: nowrap; }
 .account-name span { color: var(--muted); }
@@ -142,16 +143,6 @@ input, textarea, select { min-width: 0; }
 .study-list { display: grid; gap: 12px; }
 .study-list .nested-table { border: 1px solid var(--line); background: var(--surface); }
 .worklist-footer { border-top: 1px solid var(--line); padding: 12px 24px; color: var(--muted); font-size: 14px; min-height: 49px; }
-.worklist-table { overflow-x: auto; }
-
-@media (max-width: 1279px) {
-  .page-wrap { width: calc(100% - 32px); }
-  .worklist .page-heading { align-items: flex-start; flex-wrap: wrap; }
-  .worklist-toolbar { flex-wrap: wrap; padding: 16px; }
-  .worklist-search { max-width: 100%; }
-  .data-table th, .data-table td { padding-inline: 12px; }
-  .data-table .study-cell { padding: 12px; }
-}
 
 @media (max-width: 900px) {
   .app-descriptor, .account-name { display: none; }
@@ -162,3 +153,5 @@ input, textarea, select { min-width: 0; }
 }
 @media (max-width: 440px) { .header-account .avatar { display: none; } .login-card { padding: 24px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; } }
+.password-fields { display: grid; gap: 12px; min-width: min(360px, 80vw); }
+.password-error { color: var(--error-text); font-size: 14px; }

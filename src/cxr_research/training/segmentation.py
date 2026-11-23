@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import time
 from pathlib import Path
 import torch
 from torch.utils.data import DataLoader
@@ -46,6 +47,7 @@ def train(config, manifest, directory: Path, *, resume: Path | None = None, stop
         raise ContractError("checkpoint already reached the configured epoch budget")
     validation_loader = SegmentationLoader(config, manifest, "validation", store=store)
     history = []
+    started = time.monotonic()
     for epoch in range(start, config.train.epochs):
         loader = SegmentationLoader(config, manifest, "train", epoch=epoch, store=store,
                                     decoder=validation_loader.decoder)
@@ -67,6 +69,12 @@ def train(config, manifest, directory: Path, *, resume: Path | None = None, stop
                 scaler.step(optimizer)
                 scaler.update()
                 optimizer.zero_grad(set_to_none=True)
+            if index == 0 or (index + 1) % 100 == 0 or index + 1 == len(loader):
+                write_json(directory / "progress.json", {"phase": "training", "epoch": epoch + 1,
+                    "epochs": config.train.epochs, "batch": index + 1, "batches": len(loader),
+                    "samples_completed": min((index + 1) * config.train.batch_size, training_count),
+                    "training_samples": training_count, "loss": float(loss.detach()) * window_samples / len(image),
+                    "elapsed_seconds": time.monotonic() - started})
         metrics = evaluate_model(model, validation_loader, config)
         improved = metrics["dice"] > best
         best = max(best, metrics["dice"])
@@ -76,6 +84,8 @@ def train(config, manifest, directory: Path, *, resume: Path | None = None, stop
             write_json(directory / "best.json", {"checkpoint": best_path, "validation_dice": best})
         history.append({"epoch": epoch+1, **metrics, "checkpoint": checkpoint.name})
         write_json(directory / "history.json", history)
+        write_json(directory / "progress.json", {"phase": "epoch_complete", "epoch": epoch + 1,
+            "epochs": config.train.epochs, "validation": metrics, "elapsed_seconds": time.monotonic() - started})
         if stop_after_epoch is not None and epoch+1 >= stop_after_epoch:
             break
     result = {"epochs_completed": history[-1]["epoch"], "validation": history[-1],
