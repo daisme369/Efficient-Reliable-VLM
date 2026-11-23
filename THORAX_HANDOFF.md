@@ -40,8 +40,8 @@ Never restore over a live demo.
 | TAS-7 Compose stack | Done by Cáp Việt Anh's deploy work | [`docker/DEPLOY.md`](docker/DEPLOY.md). Not run on this machine (no Docker) |
 | TAS-9 fixtures and insert-only import | Done | `tests/api/test_fixtures.py` (also keeps admin-created patients and uploads) |
 | TAS-12 worklist | Done | `tests/api/test_catalog.py`; shared-study check in `test_full_reading_to_signed_report_and_it_survives_a_restart` |
-| TAS-13 reading session | Done | `test_concurrent_opens_create_one_session_bound_to_the_url_study` |
-| TAS-14 viewer | Done (code and unit tests) | `src/thorax-web/tests/image-viewport.test.cjs` round-trip test |
+| TAS-13 reading session | Done | `test_concurrent_opens_create_one_session_bound_to_the_url_study`; browser check 23 Nov: switching from PX-1042 to PX-1053 through the worklist shows only the new patient's data and history, and a mismatched URL (`/patients/1/studies/2521`) shows "This study is unavailable" |
+| TAS-14 viewer | Done | `src/thorax-web/tests/image-viewport.test.cjs` round-trip test; browser check 23 Nov at 1440 px: all 8 viewer tools are 44×44 px, the C and V keys switch tools on the focused viewport, zoom works, and Draw region stays disabled with "Analyze this study first." before analysis |
 | TAS-18 chat context | Done | `test_chat_keeps_last_ten_messages_labels_images_and_excludes_failures`; journey step "ask" |
 | TAS-19 ROI questions | Done | `test_roi_bounds_image_binding_and_answer_snapshot_survive_box_changes`; journey step "ask about region" |
 | TAS-20 Gate 1 | Done | `test_gate1_blocks_pending_bypass_and_contradictions_and_signs_once`; journey |
