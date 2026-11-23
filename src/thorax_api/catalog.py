@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 from pathlib import Path
 import unicodedata
@@ -49,12 +50,25 @@ SCHEMA = (
 )
 
 
+# A study can be edited or deleted only while it is made of uploaded images (never the seeded
+# synthetic set) and nothing depends on it yet: no reading by any doctor and no labeling task.
+EDITABLE = """(EXISTS (SELECT 1 FROM images i WHERE i.study_id = s.id)
+    AND NOT EXISTS (SELECT 1 FROM images i WHERE i.study_id = s.id AND i.uploaded_by IS NULL)
+    AND NOT EXISTS (SELECT 1 FROM reading_sessions r WHERE r.study_id = s.id)
+    AND NOT EXISTS (SELECT 1 FROM label_tasks t JOIN images i ON i.id = t.image_id WHERE i.study_id = s.id))"""
+
+
 class Catalog:
     def __init__(self, path: str | Path, images: ImageStore):
         self.path, self.images = str(path), images
         with connect(self.path) as db:
             for statement in SCHEMA:
                 db.execute(statement)
+            # Upload provenance, added after the first release; NULL for seeded synthetic images.
+            columns = {row[1] for row in db.execute("PRAGMA table_info(images)")}
+            for column, kind in (("uploaded_by", "INTEGER REFERENCES users (id)"), ("uploaded_at", "TEXT")):
+                if column not in columns:
+                    db.execute(f"ALTER TABLE images ADD COLUMN {column} {kind}")
 
     def is_assigned(self, doctor_id: int, patient_id: int) -> bool:
         with connect(self.path) as db:
@@ -106,11 +120,50 @@ class Catalog:
                            CASE WHEN EXISTS (SELECT 1 FROM reading_sessions r WHERE r.study_id = s.id AND r.status = 'final') THEN 'final'
                                 WHEN EXISTS (SELECT 1 FROM reading_sessions r WHERE r.study_id = s.id) THEN 'in_progress' ELSE 'new' END AS status,
                            (SELECT r.id FROM reading_sessions r WHERE r.study_id = s.id AND r.doctor_id = ?) AS own_session_id,
-                           (SELECT r.status FROM reading_sessions r WHERE r.study_id = s.id AND r.doctor_id = ?) AS own_session_status
+                           (SELECT r.status FROM reading_sessions r WHERE r.study_id = s.id AND r.doctor_id = ?) AS own_session_status,
+                           {EDITABLE} AS editable
                     FROM studies s WHERE {where} ORDER BY s.study_date DESC, s.id DESC""",
                 (actor_id, actor_id, *params),
             ).fetchall()
-        return [dict(row) for row in rows]
+        return [{**dict(row), "editable": bool(row["editable"])} for row in rows]
+
+    def update_study(self, study_id: int, study_date: str, indication: str) -> bool:
+        """Returns False when the study is not editable (see EDITABLE)."""
+        with connect(self.path) as db:
+            return db.execute(f"UPDATE studies SET study_date = ?, indication = ? WHERE id IN (SELECT s.id FROM studies s WHERE s.id = ? AND {EDITABLE})",
+                              (study_date, indication, study_id)).rowcount == 1
+
+    def delete_study(self, study_id: int) -> bool:
+        with connect(self.path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            if not db.execute(f"SELECT 1 FROM studies s WHERE s.id = ? AND {EDITABLE}", (study_id,)).fetchone():
+                return False
+            keys = [row[0] for row in db.execute("SELECT storage_key FROM images WHERE study_id = ?", (study_id,))]
+            db.execute("DELETE FROM images WHERE study_id = ?", (study_id,))
+            db.execute("DELETE FROM studies WHERE id = ?", (study_id,))
+            self._drop_unused_files(db, keys)
+        return True
+
+    def delete_image(self, study_id: int, image_id: int) -> str:
+        """Returns 'deleted', 'locked' (study not editable), 'last' (delete the study instead) or 'missing'."""
+        with connect(self.path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT storage_key FROM images WHERE id = ? AND study_id = ?", (image_id, study_id)).fetchone()
+            if row is None:
+                return "missing"
+            if not db.execute(f"SELECT 1 FROM studies s WHERE s.id = ? AND {EDITABLE}", (study_id,)).fetchone():
+                return "locked"
+            if db.execute("SELECT COUNT(*) FROM images WHERE study_id = ?", (study_id,)).fetchone()[0] == 1:
+                return "last"
+            db.execute("DELETE FROM images WHERE id = ?", (image_id,))
+            self._drop_unused_files(db, [row[0]])
+        return "deleted"
+
+    def _drop_unused_files(self, db, keys: list[str]) -> None:
+        # Uploads are stored by content hash, so another image may share the same file.
+        for key in set(keys):
+            if not db.execute("SELECT 1 FROM images WHERE storage_key = ?", (key,)).fetchone():
+                self.images.delete(key)
 
     def studies_for_patient(self, patient_id: int, actor_id: int = 0) -> list[dict]:
         return self._study_rows("s.patient_id = ?", (patient_id,), actor_id)
@@ -135,6 +188,78 @@ class Catalog:
         if hashlib.sha256(data).hexdigest() != image["sha256"]:
             raise ValueError("stored image does not match its recorded checksum")
         return data
+
+    # --- write side: admin-created patients, uploaded studies and images ---
+    def create_patient(self, name: str, birth_year: int | None, sex: str | None) -> dict:
+        with connect(self.path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            pid = db.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM patients").fetchone()[0]
+            code = f"PX-{1041 + pid:04d}"  # the demo's code scheme, so codes stay unique and ordered
+            db.execute("INSERT INTO patients (id, code, name, birth_year, sex) VALUES (?, ?, ?, ?, ?)", (pid, code, name, birth_year, sex))
+        return {"id": pid, "code": code}
+
+    def patient_exists(self, patient_id: int) -> bool:
+        with connect(self.path) as db:
+            return db.execute("SELECT 1 FROM patients WHERE id = ?", (patient_id,)).fetchone() is not None
+
+    def _store_upload(self, png: bytes) -> tuple[str, str]:
+        digest = hashlib.sha256(png).hexdigest()
+        key = f"uploads/{digest}.png"
+        self.images.put(key, png)
+        return key, digest
+
+    def create_study(self, patient_id: int, study_date: str, indication: str, view: str, upload: tuple[bytes, int, int], user_id: int) -> int:
+        """A study is created together with its first image, so no study is ever empty."""
+        png, width, height = upload
+        key, digest = self._store_upload(png)
+        with connect(self.path) as db:
+            cursor = db.execute("INSERT INTO studies (patient_id, study_date, indication) VALUES (?, ?, ?)", (patient_id, study_date, indication))
+            self._insert_image(db, cursor.lastrowid, view, width, height, digest, key, user_id)
+        return cursor.lastrowid
+
+    def add_image(self, study_id: int, view: str, upload: tuple[bytes, int, int], user_id: int) -> int | None:
+        """Returns None when the study already has a reading: its image list is fixed once reading starts."""
+        png, width, height = upload
+        key, digest = self._store_upload(png)
+        with connect(self.path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            if db.execute("SELECT 1 FROM reading_sessions WHERE study_id = ?", (study_id,)).fetchone():
+                return None
+            return self._insert_image(db, study_id, view, width, height, digest, key, user_id)
+
+    @staticmethod
+    def _insert_image(db, study_id, view, width, height, digest, key, user_id) -> int:
+        return db.execute("""INSERT INTO images (study_id, view, width, height, sha256, media_type, storage_key, uploaded_by, uploaded_at)
+                             VALUES (?, ?, ?, ?, ?, 'image/png', ?, ?, ?)""",
+                          (study_id, view, width, height, digest, key, user_id, utc_now())).lastrowid
+
+
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+MAX_UPLOAD_PIXELS = 16_000_000
+
+
+def normalize_upload(data: bytes) -> tuple[bytes, int, int]:
+    """Fully decodes a PNG or JPEG and re-encodes it as PNG, which drops EXIF and text metadata
+    (they can carry patient details) and applies the EXIF orientation. Raises ValueError with a user message."""
+    from PIL import Image, ImageOps
+
+    try:
+        with Image.open(io.BytesIO(data)) as image:
+            if image.format not in ("PNG", "JPEG"):
+                raise ValueError("Upload a PNG or JPEG image.")
+            if getattr(image, "n_frames", 1) != 1:
+                raise ValueError("Animated images are not supported.")
+            if image.width * image.height > MAX_UPLOAD_PIXELS:
+                raise ValueError("Upload an image of at most 16 megapixels.")
+            image.load()
+            image = ImageOps.exif_transpose(image)
+            if image.mode not in ("L", "RGB", "I;16", "I"):  # keep grayscale and 16-bit radiographs as they are
+                image = image.convert("RGB")
+            out = io.BytesIO()
+            image.save(out, format="PNG")
+    except (OSError, SyntaxError, Image.DecompressionBombError):
+        raise ValueError("The file is not a readable PNG or JPEG image.") from None
+    return out.getvalue(), image.width, image.height
 
 
 # --- Synthetic demo seed: the same patients, studies, images and assignments as the web mock (thorax-demo-v1). ---
@@ -301,9 +426,11 @@ def seed_demo(catalog: Catalog, assets: Path = DEMO_ASSETS, bundle: dict | None 
         _put_once(catalog.images, key, data)
     with connect(catalog.path) as db:
         if has_patients:
-            # Databases seeded before receipts existed: accept only if they hold this same bundle.
+            # Databases seeded before receipts existed: accept only if every fixture row is stored unchanged.
+            # Rows added later (admin-created patients, uploaded studies) are not fixture rows and are ignored.
             expected = {name: sorted(tuple(row) for row in bundle[name]) for name in ("patients", "studies", "images")}
-            if _stored_rows(db) != expected:
+            stored = {name: [row for row in rows if row[0] in {r[0] for r in expected[name]}] for name, rows in _stored_rows(db).items()}
+            if stored != expected:
                 raise FixtureError("existing patients differ from the fixture; existing records are never overwritten")
         else:
             db.executemany("INSERT INTO patients (id, code, name, birth_year, sex) VALUES (?, ?, ?, ?, ?)", bundle["patients"])

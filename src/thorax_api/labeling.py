@@ -266,7 +266,7 @@ class LabelStore:
         return {"counts": {status: counts.get(status, 0) for status in STATUSES},
                 "annotators": [{**dict(row), "is_active": bool(row["is_active"])} for row in people],
                 "approved_with_reviewer_changes": edited,
-                "vocabulary": {"version": self.vocabulary["version"], "verified": not self.vocabulary["status"].startswith("UNVERIFIED")}}
+                "vocabulary": {"version": self.vocabulary["version"], "verified": self.vocabulary["status"].startswith("VERIFIED"), "status": self.vocabulary["status"]}}
 
     # --- export ----------------------------------------------------------------------------
     def export(self, out_dir: str | Path) -> dict:

@@ -135,9 +135,19 @@ class FixtureImportTests(unittest.TestCase):
             db.executemany("INSERT INTO studies VALUES (?, ?, ?, ?)", bundle["studies"])
             db.executemany("INSERT INTO images (id, study_id, view, width, height, media_type, storage_key, sha256) "
                            "VALUES (?, ?, ?, ?, ?, ?, ?, 'x')", bundle["images"])
+            # An admin-created patient with an uploaded study (added after the seed) is not a conflict.
+            db.execute("INSERT INTO patients VALUES (13, 'PX-1054', 'Uploaded Patient', 1980, 'Male')")
+            db.execute("INSERT INTO studies VALUES (9001, 13, '2026-11-18', 'Uploaded study')")
         self.assertEqual(seed_demo(self.catalog), "imported")
         self.assertEqual(seed_demo(self.catalog), "unchanged")
         self.assertGreater(self.count("history_reports"), 0)
+
+    def test_database_missing_or_changing_a_fixture_row_is_refused(self):
+        with contextlib.closing(sqlite3.connect(self.db)) as db, db:
+            db.executemany("INSERT INTO patients VALUES (?, ?, ?, ?, ?)", [(1, "PX-1042", "Someone Else", 1958, "Female")])
+        with self.assertRaisesRegex(FixtureError, "existing patients differ"):
+            seed_demo(self.catalog)
+        self.assertEqual(self.count("fixture_imports"), 0)
 
 
 if __name__ == "__main__":

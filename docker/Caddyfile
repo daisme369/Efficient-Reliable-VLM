@@ -1,0 +1,6 @@
+# HTTPS for THORAX_DOMAIN: Caddy gets and renews a Let's Encrypt certificate itself (a local one for "localhost").
+# Caddy replaces any client-sent X-Forwarded-For with the real client address, which the API's sign-in limit uses.
+{$THORAX_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy web:3000
+}

@@ -16,6 +16,7 @@ import hashlib
 import hmac
 import json
 import os
+import threading
 import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,6 +26,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 
 from .db import connect
+from .vlm import SCREENING, VlmClient, VlmError, is_yes, model_version
 
 SCHEMA = (
     "CREATE TABLE IF NOT EXISTS id_sequence (name TEXT PRIMARY KEY, value INTEGER NOT NULL)",
@@ -179,9 +181,13 @@ def box_snapshot(box: dict) -> dict:
 
 class ReadingStore:
     def __init__(self, path: str | Path, *, clock: Callable[[], float], secret: bytes, is_allowed: Callable[[int, int], bool],
-                 ai_paused: Callable[[], bool], record_ai: Callable[..., None]):
+                 ai_paused: Callable[[], bool], record_ai: Callable[..., None],
+                 vlm: VlmClient | None = None, image_png: Callable[[int], bytes] | None = None):
         self.path, self.clock, self.secret = str(path), clock, secret
         self.is_allowed, self.ai_paused, self.record_ai = is_allowed, ai_paused, record_ai
+        # With a model service, analyze and ask run in a background thread; results wait here until the next poll.
+        # ponytail: in memory, so a restart loses in-flight results and those jobs time out (retryable) at the deadline.
+        self.vlm, self.image_png, self._vlm_results = vlm, image_png, {}
         with connect(self.path) as db:
             for statement in SCHEMA:
                 db.execute(statement)
@@ -280,7 +286,7 @@ class ReadingStore:
 
     @staticmethod
     def _history(db, study: dict) -> list[dict]:
-        rows = db.execute("SELECT id, report_date, text FROM history_reports WHERE patient_id = ? AND report_date < ? ORDER BY id LIMIT 5",
+        rows = db.execute("SELECT id, report_date, text FROM history_reports WHERE patient_id = ? AND report_date < ? ORDER BY report_date DESC, id DESC LIMIT 5",
                           (study["patient_id"], study["study_date"])).fetchall()
         return [dict(row) for row in rows]
 
@@ -363,7 +369,8 @@ class ReadingStore:
             "latest_ai_request": live["request"] if live else (reading["jobs"][-1]["request"] if reading["jobs"] else None),
             "initial_analysis": initial, "preliminary_report": dict(preliminary) if preliminary else None,
             "blockers": self._gate1(reading) + self._gate2(reading),
-            "capabilities": {"provider_mode": "mock", "can_detect": True, "can_ask_roi": True, "model_artifacts": MODEL_ARTIFACTS},
+            "capabilities": {"provider_mode": "real" if self.vlm else "mock", "can_detect": True, "can_ask_roi": True,
+                             "model_artifacts": [] if self.vlm else MODEL_ARTIFACTS},  # real artifacts come with each result
         }
 
     # --- paging (signed offset cursors, like the mock) ----------------------------------------
@@ -404,10 +411,24 @@ class ReadingStore:
         request, elapsed = job["request"], now_ms - job["submitted_at"]
         data = request["submitted_input"]
         session = reading["session"]
+        real = request["provenance"]["provider_mode"] == "real"
+        outcome = self._vlm_results.pop(request["request_id"], None) if real else None
+        model = None
         if not self.is_allowed(session["doctor_id"], session["patient_id"]):
             request["status"] = "cancelled"
             request["error"] = {"code": "AUTHORIZATION_REVOKED", "message": "Access to this study was revoked.", "retryable": False}
-        elif job["failure"] != "timeout" and elapsed >= ANALYZE_MS:
+        elif outcome is not None and outcome[0] == "error":
+            request["status"] = "failed"
+            request["error"] = {"code": "AI_UNAVAILABLE", "message": f"{outcome[1].message} No suggestions were saved.", "retryable": outcome[1].retryable}
+        elif outcome is not None:
+            result, model = outcome[1], outcome[1]["model"]
+            request["provenance"]["vlm_artifact"] = {"id": str(model.get("id")), "version": model_version(model), "sha256": model.get("adapter_sha256") or ""}
+            if data["operation"] == "analyze":
+                request["output_refs"] = self._complete_real_analysis(db, reading, request, data["image_id"], result)
+            else:
+                request["output_refs"] = self._complete_real_answer(db, reading, request, data, result)
+            request["status"] = "succeeded"
+        elif not real and job["failure"] != "timeout" and elapsed >= ANALYZE_MS:
             if job["failure"] == "detector":
                 request["status"] = "failed"
                 request["error"] = {"code": "AI_UNAVAILABLE", "message": "The mock detector did not finish. No suggestions were saved.", "retryable": True}
@@ -430,15 +451,21 @@ class ReadingStore:
             return False
         request["provenance"]["started_at"] = request["provenance"].get("started_at") or self._iso_ms(job["submitted_at"] + RUNNING_MS)
         request["provenance"]["completed_at"] = self.now_iso()
-        latency = ANALYZE_MS if request["status"] == "succeeded" else round(elapsed)
+        if model:
+            latency = result["latency_ms"]  # the service's inference time
+        elif request["status"] == "succeeded":
+            latency = ANALYZE_MS  # the mock's fixed delay
+        else:
+            latency = round(elapsed)
         request["provenance"]["latency_ms"] = latency
+        version = model_version(model) if model else None if real else MODEL_ARTIFACTS[0]["version"]
         self._record_edit(reading, f"ai_request_{request['status']}", {
-            "request_id": request["request_id"], "operation": request["operation"], "provider_mode": "mock",
-            **({"image_id": data["image_id"]} if "image_id" in data else {}), "model_version": MODEL_ARTIFACTS[0]["version"],
+            "request_id": request["request_id"], "operation": request["operation"], "provider_mode": request["provenance"]["provider_mode"],
+            **({"image_id": data["image_id"]} if "image_id" in data else {}), "model_version": version,
             "output_refs": request["output_refs"], "error_code": (request["error"] or {}).get("code"),
         })
         request["session_revision"] = session["revision"]
-        self.record_ai(session["doctor_id"], request["operation"], request["status"], model_version=MODEL_ARTIFACTS[0]["version"],
+        self.record_ai(session["doctor_id"], request["operation"], request["status"], model_version=version,
                        error_code=(request["error"] or {}).get("code"), latency_ms=latency, db=db)
         return True
 
@@ -483,6 +510,76 @@ class ReadingStore:
         question = {**context, "id": self._next_id(db), "role": "user", "text": data["question"], "model_version": None, "latency_ms": None}
         response = {**context, "id": self._next_id(db), "role": "assistant", "text": answer, "model_version": MODEL_ARTIFACTS[0]["version"], "latency_ms": ANALYZE_MS}
         reading["messages"].extend([question, response])
+        return {"message_ids": [question["id"], response["id"]]}
+
+    def _run_vlm(self, request_id: int, operation: str, image_id: int, question: str | None) -> None:
+        """Background thread: one call to the model service. Never touches the database."""
+        try:
+            questions = list(SCREENING.values()) if operation == "analyze" else [question]
+            self._vlm_results[request_id] = ("ok", self.vlm.answer(self.image_png(image_id), questions, regions=True))
+        except VlmError as problem:
+            self._vlm_results[request_id] = ("error", problem)
+        except Exception:  # noqa: BLE001 - any failure must end the job now instead of at the deadline
+            self._vlm_results[request_id] = ("error", VlmError("The model request failed."))
+
+    @staticmethod
+    def _withheld(item: dict) -> bool:
+        """Selective answering: an answer below the calibrated threshold is not shown (SYSTEM_DESIGN_PLAN 9.1)."""
+        return (item.get("risk") or {}).get("abstain") is True
+
+    @staticmethod
+    def _risk_summary(item: dict) -> dict:
+        # The withheld candidate answer itself is never stored or sent to the app.
+        return {"confidence": item.get("confidence"), "risk": item.get("risk"), "region_status": item.get("region_status")}
+
+    def _complete_real_analysis(self, db, reading: dict, request: dict, image_id: int, result: dict) -> dict:
+        image = self._image(self._study(db, reading["session"]["study_id"]), image_id)
+        rid, boxes, suggestions, screening = request["request_id"], [], [], []
+        for (finding, _), item in zip(SCREENING.items(), result["results"], strict=True):
+            withheld, box_ids = self._withheld(item), []
+            if is_yes(item["answer"]) and not withheld:
+                for xyxy in item.get("boxes_xyxy") or []:
+                    try:
+                        bbox = self._geometry(xyxy, image)
+                    except ReadingError:
+                        continue  # a malformed model box is dropped, not shown
+                    boxes.append({"id": self._next_id(db), "image_id": image_id, "bbox_xyxy": bbox, "label": finding.capitalize(),
+                                  "note": "Model-generated region; not validated.", "source": "ai", "review_action": "pending",
+                                  "revision": 1, "deleted_at": None, "ai_request_id": rid})
+                    box_ids.append(boxes[-1]["id"])
+                suggestions.append({"id": f"ai-{rid}-{len(suggestions) + 1}", "text": f"Possible {finding}.",
+                                    "location": "See the model region" if box_ids else "Not localized by the model",
+                                    "image_id": image_id, "source": "ai", "action": "pending", "box_ids": box_ids})
+            screening.append({"finding": finding, "answer": None if withheld else item["answer"], "withheld": withheld,
+                              "box_ids": box_ids, **self._risk_summary(item)})
+        withheld = [entry["finding"] for entry in screening if entry["withheld"]]
+        text = "\n".join(item["text"] for item in suggestions) or "The model suggested no findings for this image."
+        if withheld:
+            text += f"\nThe model abstained on: {', '.join(withheld)}. Review these on the image."
+        db.execute("INSERT INTO preliminary_reports (session_id, image_id, text) VALUES (?, ?, ?)", (reading["session"]["id"], image_id, text))
+        findings = {"id": self._next_id(db), "version": 1, "status": "ai_proposed", "items": suggestions, "ai_items": copy.deepcopy(suggestions),
+                    "no_abnormality_confirmed": False, "annotation_snapshot": None, "approved_by": None, "approved_at": None}
+        reading["analyzed_image_id"] = image_id
+        reading["findings"].append(findings)
+        reading["boxes"].extend(boxes)
+        request["output"] = {"screening": screening}
+        return {"findings_version": 1, "box_ids": [b["id"] for b in boxes]}
+
+    def _complete_real_answer(self, db, reading: dict, request: dict, data: dict, result: dict) -> dict:
+        item = result["results"][0]
+        withheld = self._withheld(item)
+        answer = ("The model abstained: its support for an answer was below the calibrated threshold. Review the image directly."
+                  if withheld else item["answer"])
+        context = {"image_id": data["image_id"], "box_id": data.get("box_id"), "box_snapshot": request["provenance"].get("box_snapshot"),
+                   "created_at": self.now_iso()}
+        question = {**context, "id": self._next_id(db), "role": "user", "text": data["question"], "model_version": None, "latency_ms": None}
+        response = {**context, "id": self._next_id(db), "role": "assistant", "text": answer,
+                    "model_version": model_version(result["model"]), "latency_ms": result["latency_ms"]}
+        reading["messages"].extend([question, response])
+        request["output"] = {"answer": {**self._risk_summary(item), "withheld": withheld,
+                                        "boxes_xyxy": [] if withheld else item.get("boxes_xyxy") or [],
+                                        # The model sees the whole image; a selected region is not passed to it.
+                                        "region_context": "not_sent_to_model" if data.get("box_id") else None}}
         return {"message_ids": [question["id"], response["id"]]}
 
     def _draft(self, db, reading: dict) -> int:
@@ -844,6 +941,7 @@ class ReadingStore:
                 fail(409, "CONTEXT_CHANGED", "The original context changed. Submit a new request.")
         request_id = self._next_id(db)
         submitted_ms = self.clock() * 1000
+        real = self.vlm is not None and data["operation"] in ("analyze", "ask")
         self._record_edit(reading, "ai_request_queued", {"request_id": request_id, "operation": data["operation"], "retry_of": data.get("retry_of")})
         request = {
             "request_id": request_id, "operation": data["operation"], "status": "queued",
@@ -851,7 +949,9 @@ class ReadingStore:
             "session_revision": reading["session"]["revision"], "deadline_at": self._iso_ms(submitted_ms + DEADLINE_MS),
             "retry_of": data.get("retry_of"), "error": None, "output_refs": {}, "submitted_input": data,
             "provenance": {
-                "provider_mode": "mock", "vlm_artifact": MODEL_ARTIFACTS[0], "cv_artifact": MODEL_ARTIFACTS[1] if data["operation"] == "analyze" else None,
+                # Draft report stays template-based on the approved findings, so it never calls the model service.
+                "provider_mode": "real" if real else "mock", "vlm_artifact": None if real else MODEL_ARTIFACTS[0],
+                "cv_artifact": MODEL_ARTIFACTS[1] if data["operation"] == "analyze" and not real else None,
                 "prompt_version": "roi-v1" if box else f"{data['operation']}-v1", "preprocessing_version": "canonical-v1",
                 "image_sha256": image["sha256"] if image else None,
                 "history_report_ids": [h["id"] for h in history] if uses_history else [],
@@ -863,6 +963,8 @@ class ReadingStore:
         fault = os.environ.get("THORAX_DEMO_AI_FAULT")
         reading["jobs"].append({"request": request, "context": context, "submitted_at": submitted_ms,
                                 "failure": fault if fault == "timeout" or (fault == "detector" and data["operation"] == "analyze") else None})
+        if real:
+            threading.Thread(target=self._run_vlm, args=(request_id, data["operation"], data["image_id"], data.get("question")), daemon=True).start()
         return request, 202
 
 

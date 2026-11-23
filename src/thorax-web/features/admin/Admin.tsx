@@ -1,13 +1,13 @@
 "use client";
 
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, Bot, Check, Database, Gauge, KeyRound, ScrollText, Tags, UserPlus, Users } from "lucide-react";
+import { Activity, Bot, Check, Database, FolderPlus, Gauge, KeyRound, ScrollText, Tags, UserPlus, Users } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { useAuth } from "@/components/shell";
 import { Confirm } from "@/components/ui";
 import { actionKey, api, ApiError } from "@/lib/api";
 import type { AdminDoctor, AdminPatient, AuthUser } from "@/lib/contracts";
-import { ActivityLog, AiMonitor, LabelingOversight, Overview, UsersAccess } from "./AdminConsole";
+import { ActivityLog, AiMonitor, LabelingOversight, Overview, Patients, UsersAccess } from "./AdminConsole";
 import "./admin.css";
 
 // The local demo API serves the first set; the Thorax backend serves the full console.
@@ -19,6 +19,7 @@ const demoTabs = [
 const backendTabs = [
   { id: "overview", label: "Overview", icon: Gauge },
   { id: "users", label: "Users & access", icon: Users },
+  { id: "patients", label: "Patients", icon: FolderPlus },
   { id: "assignments", label: "Assignments", icon: KeyRound },
   { id: "ai", label: "AI", icon: Bot },
   { id: "labeling", label: "Labeling", icon: Tags },
@@ -508,6 +509,7 @@ export default function Admin({ user, localDemo }: { user: AuthUser; localDemo: 
       </div> : <>
         <div role="tabpanel" id="admin-panel-overview" aria-labelledby="admin-tab-overview" hidden={selected !== "overview"} tabIndex={0}><Overview actor={user.id} active={selected === "overview"} /></div>
         <div role="tabpanel" id="admin-panel-users" aria-labelledby="admin-tab-users" hidden={selected !== "users"} tabIndex={0}><UsersAccess actor={user.id} active={selected === "users"} me={user} /></div>
+        <div role="tabpanel" id="admin-panel-patients" aria-labelledby="admin-tab-patients" hidden={selected !== "patients"} tabIndex={0}><Patients actor={user.id} active={selected === "patients"} /></div>
         <div role="tabpanel" id="admin-panel-ai" aria-labelledby="admin-tab-ai" hidden={selected !== "ai"} tabIndex={0}><AiMonitor actor={user.id} active={selected === "ai"} /></div>
         <div role="tabpanel" id="admin-panel-labeling" aria-labelledby="admin-tab-labeling" hidden={selected !== "labeling"} tabIndex={0}><LabelingOversight actor={user.id} active={selected === "labeling"} /></div>
         <div role="tabpanel" id="admin-panel-activity" aria-labelledby="admin-tab-activity" hidden={selected !== "activity"} tabIndex={0}><ActivityLog actor={user.id} active={selected === "activity"} /></div>

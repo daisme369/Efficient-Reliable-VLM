@@ -2,12 +2,13 @@
 
 // Admin panels that need the real Thorax backend: overview, users of every role, AI monitoring
 // with the pause switch, labeling oversight, and the admin activity log.
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, Pause, Play, RefreshCw, UserPlus } from "lucide-react";
 import { useState, type FormEvent, type ReactNode } from "react";
 import { Badge, Confirm, Notice, formatTime } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
 import type { AdminUser, AuthUser, LabelTaskStatus, UserRole } from "@/lib/contracts";
+import { PatientStudies } from "@/features/worklist/Worklist";
 
 const roleLabel: Record<UserRole, string> = { doctor: "Doctor", annotator: "Annotator", admin: "Administrator" };
 const taskLabel: Record<LabelTaskStatus, string> = { open: "Unlabeled", in_progress: "In progress", submitted: "Awaiting review", returned: "Returned", approved: "Approved" };
@@ -16,6 +17,8 @@ const actionLabel: Record<string, string> = {
   user_created: "Created account", user_disabled: "Disabled account", user_enabled: "Enabled account", password_reset: "Reset password",
   forced_sign_out: "Signed out user", access_granted: "Granted patient access", access_revoked: "Revoked patient access",
   ai_paused: "Paused AI", ai_resumed: "Resumed AI", labels_exported: "Exported approved labels",
+  patient_created: "Created patient", study_uploaded: "Uploaded study", image_uploaded: "Uploaded image",
+  study_edited: "Edited study", image_deleted: "Removed image", study_deleted: "Deleted study",
 };
 const ms = (value: number | null) => value === null ? "—" : value >= 1000 ? `${(value / 1000).toFixed(1)} s` : `${value} ms`;
 const problem = (failure: unknown) => failure instanceof ApiError ? failure.message : "Could not reach the server. Try again.";
@@ -71,6 +74,66 @@ export function Overview({ actor, active }: { actor: number; active: boolean }) 
   </Panel>;
 }
 
+export function Patients({ actor, active }: { actor: number; active: boolean }) {
+  const queryClient = useQueryClient();
+  const query = useInfiniteQuery({
+    queryKey: ["actor", actor, "admin", "patient-catalog"], initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam, signal }) => api.adminPatients("", pageParam, signal),
+    getNextPageParam: page => page.next_cursor ?? undefined, enabled: active,
+  });
+  const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState<{ tone: "info" | "error"; text: string } | null>(null);
+  const [open, setOpen] = useState<number | null>(null);
+  const patients = query.data?.pages.flatMap(page => page.items) ?? [];
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ["actor", actor, "admin"] });
+
+  async function create(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const year = String(data.get("birth_year") ?? "").trim();
+    const body = { name: String(data.get("name") ?? "").trim(), birth_year: year ? Number(year) : null, sex: String(data.get("sex") ?? "") || null };
+    setBusy(true); setFeedback(null);
+    try {
+      const created = await api.adminCreatePatient(body);
+      setFeedback({ tone: "info", text: `Created patient ${created.code}. Grant a doctor access under Assignments.` });
+      form.reset();
+      await refresh();
+    } catch (failure) { setFeedback({ tone: "error", text: problem(failure) }); }
+    finally { setBusy(false); }
+  }
+
+  return <div className="admin-stack">
+    <Panel title="Patients" description="Patient codes in the catalogue. Manage studies to upload chest X-rays (synthetic or permitted images only), or to edit and delete uploads before a reading starts.">
+      {feedback && <div className="admin-console-feedback"><Notice tone={feedback.tone}>{feedback.text}</Notice></div>}
+      <Loading query={query} label="patients">{() => <div className="admin-table-wrap"><table className="admin-table">
+        <thead><tr><th scope="col">Patient code</th><th scope="col">Doctors with access</th><th scope="col">Studies</th></tr></thead>
+        {patients.map(patient => <tbody key={patient.id}>
+          <tr>
+            <th scope="row" className="mono">{patient.code}</th>
+            <td>{patient.assigned_doctor_ids.length}</td>
+            <td><button className="button ghost" aria-expanded={open === patient.id} aria-controls={`patient-studies-${patient.id}`}
+              onClick={() => { setFeedback(null); setOpen(open === patient.id ? null : patient.id); }}>{open === patient.id ? "Hide studies" : "Manage studies"}</button></td>
+          </tr>
+          {open === patient.id && <tr><td colSpan={3} className="study-cell"><PatientStudies actor={actor} patientId={patient.id} patientLabel={patient.code} canUpload admin /></td></tr>}
+        </tbody>)}
+      </table>
+        {query.hasNextPage && <div className="admin-panel-footer"><button className="button" disabled={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()}>{query.isFetchingNextPage ? "Loading…" : "Load more patients"}</button></div>}
+      </div>}</Loading>
+    </Panel>
+    <form className="admin-panel admin-form admin-create-user" onSubmit={event => void create(event)} aria-labelledby="admin-create-patient">
+      <header className="admin-panel-heading"><h2 id="admin-create-patient"><UserPlus size={20} aria-hidden="true" /> Create patient</h2><p>A patient code is assigned automatically.</p></header>
+      <fieldset disabled={busy}>
+        <label htmlFor="admin-patient-name">Name</label><input id="admin-patient-name" name="name" required maxLength={120} autoComplete="off" />
+        <label htmlFor="admin-patient-year">Birth year (optional)</label><input id="admin-patient-year" name="birth_year" type="number" min={1900} max={new Date().getFullYear()} />
+        <label htmlFor="admin-patient-sex">Sex (optional)</label>
+        <select id="admin-patient-sex" name="sex" defaultValue=""><option value="">Not recorded</option><option>Female</option><option>Male</option><option>Other</option></select>
+        <button type="submit" className="button primary">{busy ? "Saving…" : "Create patient"}</button>
+      </fieldset>
+    </form>
+  </div>;
+}
+
 export function UsersAccess({ actor, active, me }: { actor: number; active: boolean; me: AuthUser }) {
   const queryClient = useQueryClient();
   const query = useQuery({ queryKey: ["actor", actor, "admin", "users"], queryFn: ({ signal }) => api.adminUsers(signal), enabled: active });
@@ -99,7 +162,7 @@ export function UsersAccess({ actor, active, me }: { actor: number; active: bool
 
   return <div className="admin-stack">
     <Panel title="Accounts" description="Every doctor, annotator and administrator. Disabling an account or resetting its password also signs it out."
-      action={<label className="admin-inline-field">Show<select value={filter} onChange={event => setFilter(event.target.value as UserRole | "all")}><option value="all">All roles</option>{(Object.keys(roleLabel) as UserRole[]).map(r => <option key={r} value={r}>{roleLabel[r]}s</option>)}</select></label>}>
+      action={<label className="admin-inline-field">Show<select aria-label="Filter accounts by role" value={filter} onChange={event => setFilter(event.target.value as UserRole | "all")}><option value="all">All roles</option>{(Object.keys(roleLabel) as UserRole[]).map(r => <option key={r} value={r}>{roleLabel[r]}s</option>)}</select></label>}>
       {feedback && <div className="admin-console-feedback"><Notice tone={feedback.tone}>{feedback.text}</Notice></div>}
       <Loading query={query} label="accounts">{() => <div className="admin-table-wrap"><table className="admin-table">
         <thead><tr><th scope="col">Name</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col">Last sign-in</th><th scope="col">Failed sign-ins (24 h)</th><th scope="col">Actions</th></tr></thead>
@@ -222,7 +285,7 @@ export function LabelingOversight({ actor, active }: { actor: number; active: bo
     const total = Object.values(data.counts).reduce((sum, value) => sum + value, 0);
     return <div className="admin-stack">
       <Panel title="Labeling progress" description={`${total} images in the labeling queue.`} action={<Refresh onClick={() => void query.refetch()} busy={query.isFetching} />}>
-        {!data.vocabulary.verified && <div className="admin-console-feedback"><Notice tone="pending">The label list ({data.vocabulary.version}) is unverified. Verify it before using these labels for research.</Notice></div>}
+        {!data.vocabulary.verified && <div className="admin-console-feedback"><Notice tone="pending">The label list ({data.vocabulary.version}) is not fully verified. Check it before using these labels for research. {data.vocabulary.status}</Notice></div>}
         <Stats items={[...(Object.keys(taskLabel) as LabelTaskStatus[]).map(status => ({ label: taskLabel[status], value: data.counts[status] })),
           { label: "Approved with reviewer fixes", value: data.approved_with_reviewer_changes }]} />
         <div className="admin-progress" role="img" aria-label={`${data.counts.approved} of ${total} images approved`}>
@@ -248,12 +311,23 @@ export function LabelingOversight({ actor, active }: { actor: number; active: bo
   }}</Loading>;
 }
 
+const eventGroups: Record<string, { label: string; actions: string[] }> = {
+  accounts: { label: "Accounts and access", actions: ["user_created", "user_disabled", "user_enabled", "password_reset", "forced_sign_out", "access_granted", "access_revoked"] },
+  data: { label: "Patients and uploads", actions: ["patient_created", "study_uploaded", "image_uploaded", "study_edited", "image_deleted", "study_deleted"] },
+  ai: { label: "AI and labeling", actions: ["ai_paused", "ai_resumed", "labels_exported"] },
+};
+
 export function ActivityLog({ actor, active }: { actor: number; active: boolean }) {
   const query = useQuery({ queryKey: ["actor", actor, "admin", "events"], queryFn: ({ signal }) => api.adminEvents(signal), enabled: active });
-  return <Panel title="Administrator activity" description="The latest 100 administrator actions, newest first." action={<Refresh onClick={() => void query.refetch()} busy={query.isFetching} />}>
-    <Loading query={query} label="the activity log">{() => query.data!.items.length ? <div className="admin-table-wrap"><table className="admin-table">
-      <thead><tr><th scope="col">Time</th><th scope="col">Administrator</th><th scope="col">Action</th><th scope="col">Details</th></tr></thead>
-      <tbody>{query.data!.items.map(event => <tr key={event.id}><th scope="row">{formatTime(event.created_at)}</th><td>{event.admin_name}</td><td>{actionLabel[event.action] ?? event.action}</td><td>{event.detail}</td></tr>)}</tbody>
-    </table></div> : <p className="admin-empty">No administrator actions yet.</p>}</Loading>
+  const [group, setGroup] = useState("all");
+  const items = (query.data?.items ?? []).filter(event => group === "all" || eventGroups[group].actions.includes(event.action));
+  return <Panel title="Activity log" description="The latest 100 administrative actions and uploads, newest first."
+    action={<div className="admin-row-actions"><label className="admin-inline-field">Show<select aria-label="Filter activity" value={group} onChange={event => setGroup(event.target.value)}>
+      <option value="all">All actions</option>{Object.entries(eventGroups).map(([id, g]) => <option key={id} value={id}>{g.label}</option>)}</select></label>
+      <Refresh onClick={() => void query.refetch()} busy={query.isFetching} /></div>}>
+    <Loading query={query} label="the activity log">{() => items.length ? <div className="admin-table-wrap"><table className="admin-table">
+      <thead><tr><th scope="col">Time</th><th scope="col">By</th><th scope="col">Action</th><th scope="col">Details</th></tr></thead>
+      <tbody>{items.map(event => <tr key={event.id}><th scope="row">{formatTime(event.created_at)}</th><td>{event.actor_name}<small className="admin-sub">{roleLabel[event.actor_role]}</small></td><td>{actionLabel[event.action] ?? event.action}</td><td>{event.detail}</td></tr>)}</tbody>
+    </table></div> : <p className="admin-empty">{group === "all" ? "No activity yet." : "No activity of this kind in the latest 100 entries."}</p>}</Loading>
   </Panel>;
 }

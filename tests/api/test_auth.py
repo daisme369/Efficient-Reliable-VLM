@@ -99,6 +99,24 @@ class AuthTests(unittest.TestCase):
         self.assertEqual(first.get("/api/v1/auth/me").status_code, 401)
         self.assertEqual(self.client.get("/api/v1/auth/me").status_code, 200)
 
+    def test_login_survives_a_server_restart(self):
+        from fastapi.testclient import TestClient
+        from thorax_api.app import create_app
+
+        csrf = self.login().json()["csrf_token"]
+        restarted = TestClient(create_app(self.app.state.accounts.path, [WEB], clock=lambda: self.now), headers={"Origin": WEB})
+        restarted.cookies = self.client.cookies
+        self.assertEqual(restarted.get("/api/v1/auth/me").json()["csrf_token"], csrf)
+        self.assertEqual(restarted.post("/api/v1/auth/logout", headers={"X-CSRF-Token": csrf}).status_code, 204)
+        self.assertEqual(self.client.get("/api/v1/auth/me").status_code, 401)
+
+    def test_errors_carry_the_logged_request_id_without_request_content(self):
+        with self.assertLogs("thorax_api", "INFO") as logs:
+            response = self.client.get("/api/v1/patients?search=Secret+Name")
+        rid = response.headers["x-request-id"]
+        self.assertEqual(response.json()["error"]["request_id"], rid)
+        self.assertEqual(logs.output, [f"INFO:thorax_api:GET /api/v1/patients 401 {logs.records[0].args[3]:.0f}ms id={rid}"])
+
     def test_idle_expiry_and_activity_extension(self):
         self.login()
         self.now += 29 * 60
@@ -125,6 +143,27 @@ class AuthTests(unittest.TestCase):
         self.assertGreaterEqual(int(limited.headers["retry-after"]), 1)
         self.now += 61
         self.assertEqual(self.login().status_code, 200)
+
+    def test_forwarded_address_is_trusted_only_behind_the_compose_proxy(self):
+        import os
+        from unittest import mock
+        from fastapi.testclient import TestClient
+        from thorax_api.app import create_app
+
+        # Without the flag the test client is not loopback, so a spoofed header is ignored.
+        untrusted = TestClient(self.app, headers={"Origin": WEB, "X-Forwarded-For": "203.0.113.1"})
+        for _ in range(5):
+            self.login(password="not-the-password", client=untrusted)
+        untrusted.headers["X-Forwarded-For"] = "203.0.113.2"
+        self.assertEqual(self.login(client=untrusted).status_code, 429)
+        with mock.patch.dict(os.environ, {"THORAX_TRUST_PROXY": "1"}):
+            app = create_app(self.app.state.accounts.path, [WEB], clock=lambda: self.now)
+        trusted = TestClient(app, headers={"Origin": WEB, "X-Forwarded-For": "203.0.113.1, 10.0.0.2"})
+        for _ in range(5):
+            self.login(password="not-the-password", client=trusted)
+        self.assertEqual(self.login(client=trusted).status_code, 429)
+        trusted.headers["X-Forwarded-For"] = "203.0.113.2"
+        self.assertEqual(self.login(client=trusted).status_code, 200)
 
     def test_request_validation(self):
         extra = self.client.post("/api/v1/auth/login", json={"email": "doctor@example.test", "password": DOCTOR_PASSWORD, "role": "admin"})

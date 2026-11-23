@@ -227,6 +227,8 @@ __marimo__/
 /docs/*
 !/docs/LOCAL_INTEGRATION.md
 !/docs/agents/
+!/docs/scope-changes/
+!/docs/demo-data/
 !/docs/VAST_GROUNDING_TRAINING.md
 # Thorax AI app specification (TAS-6): product, frontend and REST contracts.
 !/docs/spec.md

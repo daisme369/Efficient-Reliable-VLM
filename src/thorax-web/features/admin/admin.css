@@ -323,7 +323,6 @@
 .admin-table .admin-sub { display: block; font-weight: 400; }
 .admin-row-actions { display: flex; flex-wrap: wrap; gap: 4px; }
 .admin-row-actions .button { min-height: 36px; padding: 0 10px; font-size: 13px; }
-.danger-text { color: var(--error-text); }
 .admin-inline-field { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); }
 .admin-inline-field select { min-height: 40px; }
 .admin-ai-control { padding: 0 24px 16px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }

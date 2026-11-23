@@ -70,6 +70,20 @@ class ReadingTests(unittest.TestCase):
         self.assertEqual(job.status_code, 202, job.text)
         return self.settle(workspace)
 
+    def test_history_is_the_five_latest_reports_before_the_study(self):
+        import sqlite3
+        from thorax_api.reading import ReadingStore
+
+        db = sqlite3.connect(":memory:")
+        db.row_factory = sqlite3.Row
+        db.execute("CREATE TABLE history_reports (id INTEGER PRIMARY KEY, patient_id INTEGER, report_date TEXT, text TEXT)")
+        # Saved oldest first, so id order and date order disagree with the demo seed's newest-first ids.
+        dates = ["2026-01-02", "2026-02-02", "2026-03-02", "2026-04-02", "2026-05-02", "2026-06-02", "2026-07-02", "2026-09-01"]
+        db.executemany("INSERT INTO history_reports VALUES (?, 1, ?, 'Synthetic prior report.')", list(enumerate(dates, start=1)))
+        db.execute("INSERT INTO history_reports VALUES (9, 2, '2026-08-02', 'Other patient.')")
+        history = ReadingStore._history(db, {"patient_id": 1, "study_date": "2026-09-01"})
+        self.assertEqual([h["report_date"] for h in history], ["2026-07-02", "2026-06-02", "2026-05-02", "2026-04-02", "2026-03-02"])
+
     def test_full_reading_to_signed_report_and_it_survives_a_restart(self):
         first = self.doctor.post("/api/v1/studies/2411/sessions")
         self.assertEqual((first.status_code, first.headers["etag"]), (201, '"1"'))
