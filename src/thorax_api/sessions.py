@@ -43,7 +43,7 @@ class SessionStore:
     def secret(self) -> bytes:
         """Created once, so CSRF tokens and page cursors stay valid across restarts."""
         with connect(self.path) as db:
-            db.execute("INSERT OR IGNORE INTO server_secrets (name, value) VALUES ('signing', ?)", (secrets.token_hex(32),))
+            db.execute("INSERT INTO server_secrets (name, value) VALUES ('signing', ?) ON CONFLICT DO NOTHING", (secrets.token_hex(32),))
             return bytes.fromhex(db.execute("SELECT value FROM server_secrets WHERE name = 'signing'").fetchone()[0])
 
     def get(self, token_hash: str) -> Login | None:

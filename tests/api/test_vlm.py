@@ -15,6 +15,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
+from tests.api.dbtarget import fresh_db  # noqa: E402
 
 HAS_API_DEPS = all(importlib.util.find_spec(name) for name in ("fastapi", "httpx", "PIL"))
 WEB = "http://127.0.0.1:3000"
@@ -89,6 +90,7 @@ class ModelServiceTests(unittest.TestCase):
         self.assertIsNone(self.service.load_calibration(None, "answer_signal"))
 
 
+
 class InProcessClient:
     """Stands in for VlmClient: runs the service's real answer path on the fake model, without HTTP."""
     def __init__(self, service, calibration=None, error=None):
@@ -114,7 +116,7 @@ class RealModelReadingTests(unittest.TestCase):
 
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
-        db = Path(self.directory.name) / "thorax.sqlite3"
+        db = fresh_db(self.directory.name)
         accounts = AccountStore(db)
         for user_id in (1, 2):  # the demo seed assigns patients to doctors 1 and 2
             accounts.create(f"doctor{user_id}@example.test", f"Doctor {user_id}", "doctor", PASSWORD, user_id=user_id)

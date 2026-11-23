@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
+from tests.api.dbtarget import fresh_db  # noqa: E402
 
 HAS_API_DEPS = all(importlib.util.find_spec(name) for name in ("fastapi", "httpx"))
 WEB = "http://127.0.0.1:3000"
@@ -32,7 +33,7 @@ class AdminTests(unittest.TestCase):
 
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
-        db = Path(self.directory.name) / "thorax.sqlite3"
+        db = fresh_db(self.directory.name)
         accounts = AccountStore(db)
         for user_id, email, role in ((1, "doctor@example.test", "doctor"), (2, "doctor2@example.test", "doctor"), (3, "admin@example.test", "admin"),
                                      (4, "ana@example.test", "annotator"), (5, "ben@example.test", "annotator")):

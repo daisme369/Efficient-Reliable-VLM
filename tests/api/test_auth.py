@@ -10,6 +10,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
+from tests.api.dbtarget import fresh_db  # noqa: E402
 
 HAS_API_DEPS = all(importlib.util.find_spec(name) for name in ("fastapi", "httpx"))
 WEB = "http://127.0.0.1:3000"
@@ -25,7 +26,7 @@ class AuthTests(unittest.TestCase):
 
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
-        db = Path(self.directory.name) / "accounts.sqlite3"
+        db = fresh_db(self.directory.name, "accounts.sqlite3")
         self.store = AccountStore(db)
         self.store.create("doctor@example.test", "Dr. Synthetic", "doctor", DOCTOR_PASSWORD, user_id=1)
         self.store.create("admin@example.test", "Synthetic admin", "admin", "synthetic-admin-pass", user_id=3)
@@ -211,7 +212,7 @@ class AccountStoreTests(unittest.TestCase):
         self.assertFalse(password_matches("wrong horse battery", stored))
         self.assertFalse(password_matches("correct horse battery", None))
         with tempfile.TemporaryDirectory() as directory:
-            store = AccountStore(Path(directory) / "a.sqlite3")
+            store = AccountStore(fresh_db(directory, "a.sqlite3"))
             with self.assertRaises(ValueError):
                 store.create("short@example.test", "Short", "doctor", "too-short")
             with self.assertRaises(ValueError):

@@ -4,6 +4,8 @@ starlette==1.0.0
 uvicorn==0.44.0
 # Upload validation and re-encoding (same pin as requirements.txt).
 pillow==12.3.0
+# PostgreSQL driver for AWS RDS (THORAX_DATABASE_URL); same pin as apps/api/pyproject.toml.
+psycopg[binary]==3.3.8
 # Test client only (tests/api).
 httpx==0.28.1
 
@@ -17,7 +19,9 @@ colorama==0.4.6; platform_system == "Windows"
 h11==0.16.0
 httpcore==1.0.9
 idna==3.18
+psycopg-binary==3.3.8
 pydantic==2.13.4
 pydantic-core==2.46.4
 typing-extensions==4.15.0
 typing-inspection==0.4.2
+tzdata==2025.3; sys_platform == "win32"

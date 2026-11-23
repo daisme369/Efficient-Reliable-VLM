@@ -5,7 +5,6 @@ labeling oversight, and a log of admin actions. Every route is admin-only.
 from __future__ import annotations
 
 import os
-import sqlite3
 import tempfile
 import urllib.request
 from datetime import datetime, timezone
@@ -18,7 +17,7 @@ from starlette.concurrency import run_in_threadpool
 
 from .accounts import ROLES, AccountStore
 from .catalog import Catalog
-from .db import connect, utc_now
+from .db import IntegrityError, connect, utc_now
 from .labeling import LabelStore
 
 SCHEMA = (
@@ -173,7 +172,7 @@ def register_admin(app: FastAPI, *, accounts: AccountStore, catalog: Catalog, la
             user = accounts.create(body["email"], body["name"], body["role"], body["password"])
         except ValueError as problem:
             raise invalid(str(problem).capitalize() + ".") from None
-        except sqlite3.IntegrityError:
+        except IntegrityError:
             raise error(409, "EMAIL_TAKEN", "An account with that email already exists.") from None
         store.log(me.id, "user_created", f"{user.role} {user.email}")
         return ok(user.public(), 201)

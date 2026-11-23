@@ -15,6 +15,8 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
+from tests.api.dbtarget import fresh_db  # noqa: E402
+from tests.api import dbtarget  # noqa: E402
 
 HAS_API_DEPS = all(importlib.util.find_spec(name) for name in ("fastapi", "httpx"))
 WEB = "http://127.0.0.1:3000"
@@ -35,7 +37,7 @@ class LabelingTests(unittest.TestCase):
 
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
-        self.db = Path(self.directory.name) / "thorax.sqlite3"
+        self.db = fresh_db(self.directory.name)
         accounts = AccountStore(self.db)
         for user_id, email, role in ((1, "doctor@example.test", "doctor"), (2, "doctor2@example.test", "doctor"),
                                      (4, "ana@example.test", "annotator"), (5, "ben@example.test", "annotator")):
@@ -221,7 +223,7 @@ class LabelingOffTests(unittest.TestCase):
 
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
-        db = Path(directory.name) / "thorax.sqlite3"
+        db = fresh_db(directory.name)
         accounts = AccountStore(db)
         accounts.create("ana@example.test", "Ana", "annotator", PASSWORD, user_id=4)
         accounts.create("admin@example.test", "Admin", "admin", PASSWORD, user_id=3)
@@ -241,6 +243,8 @@ class LabelingOffTests(unittest.TestCase):
         self.assertEqual((technician.status_code, technician.json()["role"]), (201, "technician"))
 
 
+
+@unittest.skipIf(dbtarget.URL, "upgrades an old SQLite file")
 class RoleMigrationTests(unittest.TestCase):
     def test_existing_database_gains_the_annotator_role_without_losing_users_or_links(self):
         from thorax_api.accounts import AccountStore

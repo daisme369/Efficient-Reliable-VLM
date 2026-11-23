@@ -89,7 +89,7 @@ def create_app(
     absolute_seconds: int = 2 * 60 * 60,
     image_root: str | None = None,
 ) -> FastAPI:
-    db_path = db_path or os.environ.get("THORAX_DB_PATH", "thorax.sqlite3")
+    db_path = db_path or os.environ.get("THORAX_DATABASE_URL") or os.environ.get("THORAX_DB_PATH", "thorax.sqlite3")
     store = AccountStore(db_path)
     catalog = Catalog(db_path, LocalImageStore(image_root or os.environ.get("THORAX_IMAGE_ROOT", "thorax-images")))
     labels = LabelStore(db_path)

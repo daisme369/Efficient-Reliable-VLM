@@ -11,6 +11,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
+from tests.api.dbtarget import fresh_db  # noqa: E402
 
 HAS_API_DEPS = all(importlib.util.find_spec(name) for name in ("fastapi", "httpx"))
 WEB = "http://127.0.0.1:3000"
@@ -26,7 +27,7 @@ class CatalogTests(unittest.TestCase):
         from thorax_api.catalog import seed_demo
 
         cls.directory = tempfile.TemporaryDirectory()
-        db = Path(cls.directory.name) / "thorax.sqlite3"
+        db = fresh_db(cls.directory.name)
         accounts = AccountStore(db)
         for user_id, email, role in ((1, "doctor@example.test", "doctor"), (2, "doctor2@example.test", "doctor"), (3, "admin@example.test", "admin")):
             accounts.create(email, f"User {user_id}", role, "synthetic-pass-123", user_id=user_id)

@@ -12,12 +12,11 @@ import hashlib
 import hmac
 import os
 import secrets
-import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from .db import connect, utc_now
+from .db import IntegrityError, connect, is_postgres, utc_now
 
 ROLES = ("doctor", "admin", "annotator", "technician")
 # OWASP password-storage minimum for scrypt: N=2^17, r=8, p=1 (about 128 MiB per hash).
@@ -81,9 +80,15 @@ class AccountStore:
     def __init__(self, path: str | Path):
         self.path = str(path)
         with self._connect() as db:
-            existing = db.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'").fetchone()
-            if existing is None:
-                db.execute(USERS_TABLE.format(name="users"))
+            if is_postgres(self.path):
+                # ponytail: PostgreSQL databases start with every current role; adding a role later needs ALTER TABLE … CHECK there.
+                existing = None
+                if db.execute("SELECT to_regclass('users')::text").fetchone()[0] is None:
+                    db.execute(USERS_TABLE.format(name="users"))
+            else:
+                existing = db.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'").fetchone()
+                if existing is None:
+                    db.execute(USERS_TABLE.format(name="users"))
         if existing is not None and "'technician'" not in existing[0]:
             self._rebuild_users_table()  # databases from before the annotator or technician roles
         with self._connect() as db:
@@ -111,6 +116,7 @@ class AccountStore:
 
     def _rebuild_users_table(self) -> None:
         """SQLite cannot alter a CHECK constraint: rebuild the table (its documented 12-step procedure)."""
+        import sqlite3
         db = sqlite3.connect(self.path)
         try:
             db.execute("PRAGMA foreign_keys = OFF")  # other tables reference users(id); keep them intact
@@ -128,7 +134,7 @@ class AccountStore:
         return connect(self.path)
 
     @staticmethod
-    def _user(row: sqlite3.Row | None) -> User | None:
+    def _user(row) -> User | None:
         if row is None:
             return None
         return User(row["id"], row["name"], row["email"], row["role"], bool(row["is_active"]), row["password_hash"])
@@ -150,11 +156,11 @@ class AccountStore:
         if not email or "@" not in email or len(email) > 254:
             raise ValueError("email is not valid")
         with self._connect() as db:
-            cursor = db.execute(
-                "INSERT INTO users (id, email, name, role, password_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (user_id, email, name.strip(), role, hash_password(password), utc_now()),
-            )
-            created = cursor.lastrowid
+            values = (email, name.strip(), role, hash_password(password), utc_now())
+            if user_id is None:
+                created = db.execute("INSERT INTO users (email, name, role, password_hash, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id", values).fetchone()[0]
+            else:
+                created = db.execute("INSERT INTO users (id, email, name, role, password_hash, created_at) VALUES (?, ?, ?, ?, ?, ?) RETURNING id", (user_id, *values)).fetchone()[0]
         return self.by_id(created)
 
     def set_active(self, email: str, active: bool) -> bool:
@@ -186,7 +192,7 @@ def _password(env_name: str) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m thorax_api.accounts", description="Manage Thorax API accounts.")
-    parser.add_argument("--db", default=os.environ.get("THORAX_DB_PATH", "thorax.sqlite3"))
+    parser.add_argument("--db", default=os.environ.get("THORAX_DATABASE_URL") or os.environ.get("THORAX_DB_PATH", "thorax.sqlite3"))
     commands = parser.add_subparsers(dest="command", required=True)
     create = commands.add_parser("create", help="Create an account; password from THORAX_NEW_PASSWORD or a prompt.")
     create.add_argument("--email", required=True)
@@ -232,7 +238,7 @@ def main(argv: list[str] | None = None) -> int:
             with connect(args.db) as db:
                 LabelStore(args.db).create_tasks([row[0] for row in db.execute("SELECT id FROM images ORDER BY id")])
             print("demo accounts, patients, studies, images and labeling tasks ready")
-    except (ValueError, sqlite3.IntegrityError) as error:
+    except (ValueError, *IntegrityError) as error:
         parser.error(str(error))
     return 0
 

@@ -20,7 +20,7 @@ import json
 import os
 from pathlib import Path
 
-from .db import connect, utc_now
+from .db import columns as table_columns, connect, utc_now
 
 
 def labeling_enabled() -> bool:
@@ -79,7 +79,7 @@ class LabelStore:
         with connect(self.path) as db:
             for statement in SCHEMA:
                 db.execute(statement)
-            columns = {row[1] for row in db.execute("PRAGMA table_info(label_tasks)")}
+            columns = table_columns(db, "label_tasks", self.path)
             if "reviewer_edited" not in columns:  # databases created before reviewers could edit
                 db.execute("ALTER TABLE label_tasks ADD COLUMN reviewer_edited INTEGER NOT NULL DEFAULT 0")
 
@@ -88,7 +88,7 @@ class LabelStore:
         now = utc_now()
         with connect(self.path) as db:
             before = db.execute("SELECT COUNT(*) FROM label_tasks").fetchone()[0]
-            db.executemany("INSERT OR IGNORE INTO label_tasks (image_id, status, revision, updated_at) VALUES (?, 'open', 1, ?)",
+            db.executemany("INSERT INTO label_tasks (image_id, status, revision, updated_at) VALUES (?, 'open', 1, ?) ON CONFLICT DO NOTHING",
                            [(image_id, now) for image_id in image_ids])
             return db.execute("SELECT COUNT(*) FROM label_tasks").fetchone()[0] - before
 
@@ -217,7 +217,7 @@ class LabelStore:
             db.execute("DELETE FROM label_boxes WHERE task_id = ?", (task_id,))
             db.executemany("INSERT INTO label_boxes (task_id, region, finding, state, x1, y1, x2, y2) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                            [(task_id, *row) for row in rows])
-            db.execute("UPDATE label_tasks SET revision = revision + 1, updated_at = ?, reviewer_edited = reviewer_edited OR ? WHERE id = ?",
+            db.execute("UPDATE label_tasks SET revision = revision + 1, updated_at = ?, reviewer_edited = CASE WHEN ? = 1 THEN 1 ELSE reviewer_edited END WHERE id = ?",
                        (utc_now(), int(not labeler), task_id))
             self._event(db, task_id, user_id, "saved" if labeler else "reviewer_edited")
         return self.task(task_id, user_id)
@@ -308,7 +308,7 @@ class LabelStore:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m thorax_api.labeling", description="Manage labeling tasks.")
-    parser.add_argument("--db", default=os.environ.get("THORAX_DB_PATH", "thorax.sqlite3"))
+    parser.add_argument("--db", default=os.environ.get("THORAX_DATABASE_URL") or os.environ.get("THORAX_DB_PATH", "thorax.sqlite3"))
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("create-tasks", help="Create a labeling task for every catalog image that has none.")
     export = commands.add_parser("export", help="Write approved labels to a folder (labels.jsonl + manifest.json).")

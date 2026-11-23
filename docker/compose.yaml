@@ -38,6 +38,8 @@ services:
       THORAX_WEB_ORIGINS: https://${THORAX_DOMAIN:?Set THORAX_DOMAIN in docker/.env}
       # The API port is not published: only web and caddy can reach it, so their X-Forwarded-For is trusted.
       THORAX_TRUST_PROXY: "1"
+      # Empty: SQLite on the thorax-data volume. On AWS: postgresql://…@<RDS endpoint>:5432/thorax?sslmode=require
+      THORAX_DATABASE_URL: ${THORAX_DATABASE_URL:-}
       THORAX_VLM_URL: ${THORAX_VLM_URL:-}
       THORAX_VLM_KEY: ${THORAX_VLM_KEY:-}
     volumes:

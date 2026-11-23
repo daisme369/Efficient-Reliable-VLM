@@ -14,6 +14,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
+from tests.api.dbtarget import fresh_db  # noqa: E402
 
 HAS_API_DEPS = all(importlib.util.find_spec(name) for name in ("fastapi", "httpx"))
 WEB = "http://127.0.0.1:3000"
@@ -28,7 +29,7 @@ class ReadingTests(unittest.TestCase):
 
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
-        self.db = Path(self.directory.name) / "thorax.sqlite3"
+        self.db = fresh_db(self.directory.name)
         accounts = AccountStore(self.db)
         for user_id, email, role in ((1, "doctor@example.test", "doctor"), (2, "doctor2@example.test", "doctor"), (3, "admin@example.test", "admin")):
             accounts.create(email, f"User {user_id}", role, PASSWORD, user_id=user_id)

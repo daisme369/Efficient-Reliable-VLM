@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 import unicodedata
 
-from .db import connect, utc_now
+from .db import columns as table_columns, connect, utc_now
 from .storage import ImageStore
 
 SCHEMA = (
@@ -65,7 +65,7 @@ class Catalog:
             for statement in SCHEMA:
                 db.execute(statement)
             # Upload provenance, added after the first release; NULL for seeded synthetic images.
-            columns = {row[1] for row in db.execute("PRAGMA table_info(images)")}
+            columns = table_columns(db, "images", self.path)
             for column, kind in (("uploaded_by", "INTEGER REFERENCES users (id)"), ("uploaded_at", "TEXT")):
                 if column not in columns:
                     db.execute(f"ALTER TABLE images ADD COLUMN {column} {kind}")
@@ -213,9 +213,10 @@ class Catalog:
         png, width, height = upload
         key, digest = self._store_upload(png)
         with connect(self.path) as db:
-            cursor = db.execute("INSERT INTO studies (patient_id, study_date, indication) VALUES (?, ?, ?)", (patient_id, study_date, indication))
-            self._insert_image(db, cursor.lastrowid, view, width, height, digest, key, user_id)
-        return cursor.lastrowid
+            study_id = db.execute("INSERT INTO studies (patient_id, study_date, indication) VALUES (?, ?, ?) RETURNING id",
+                                  (patient_id, study_date, indication)).fetchone()[0]
+            self._insert_image(db, study_id, view, width, height, digest, key, user_id)
+        return study_id
 
     def add_image(self, study_id: int, view: str, upload: tuple[bytes, int, int], user_id: int) -> int | None:
         """Returns None when the study already has a reading: its image list is fixed once reading starts."""
@@ -230,8 +231,8 @@ class Catalog:
     @staticmethod
     def _insert_image(db, study_id, view, width, height, digest, key, user_id) -> int:
         return db.execute("""INSERT INTO images (study_id, view, width, height, sha256, media_type, storage_key, uploaded_by, uploaded_at)
-                             VALUES (?, ?, ?, ?, ?, 'image/png', ?, ?, ?)""",
-                          (study_id, view, width, height, digest, key, user_id, utc_now())).lastrowid
+                             VALUES (?, ?, ?, ?, ?, 'image/png', ?, ?, ?) RETURNING id""",
+                          (study_id, view, width, height, digest, key, user_id, utc_now())).fetchone()[0]
 
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
@@ -439,7 +440,7 @@ def seed_demo(catalog: Catalog, assets: Path = DEMO_ASSETS, bundle: dict | None 
                            [(*row, hashes[row[-1]]) for row in bundle["images"]])
             db.executemany("INSERT INTO assignments (doctor_id, patient_id, active) VALUES (?, ?, 1)", bundle["assignments"])
         # Prior reports were added after the first seeds; older databases receive them here.
-        db.executemany("INSERT OR IGNORE INTO history_reports (id, patient_id, report_date, text) VALUES (?, ?, ?, ?)",
+        db.executemany("INSERT INTO history_reports (id, patient_id, report_date, text) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING",
                        bundle["history"])
         db.execute("INSERT INTO fixture_imports (fixture_key, checksum, imported_at) VALUES (?, ?, ?)",
                    (FIXTURE_KEY, checksum, utc_now()))

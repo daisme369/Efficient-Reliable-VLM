@@ -191,7 +191,7 @@ class ReadingStore:
         with connect(self.path) as db:
             for statement in SCHEMA:
                 db.execute(statement)
-            db.execute("INSERT OR IGNORE INTO id_sequence (name, value) VALUES ('global', 10000)")
+            db.execute("INSERT INTO id_sequence (name, value) VALUES ('global', 10000) ON CONFLICT DO NOTHING")
 
     def now_iso(self) -> str:
         return datetime.fromtimestamp(self.clock(), timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")

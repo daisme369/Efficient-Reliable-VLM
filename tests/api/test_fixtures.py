@@ -14,11 +14,15 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
+from tests.api.dbtarget import fresh_db  # noqa: E402
+from tests.api import dbtarget  # noqa: E402
+from thorax_api.db import connect  # noqa: E402
 
 from thorax_api import catalog as catalog_module  # noqa: E402
 from thorax_api.accounts import AccountStore  # noqa: E402
 from thorax_api.catalog import Catalog, FixtureError, bundle_problems, demo_bundle, seed_demo  # noqa: E402
 from thorax_api.storage import LocalImageStore  # noqa: E402
+
 
 
 class FixtureImportTests(unittest.TestCase):
@@ -38,13 +42,19 @@ class FixtureImportTests(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.root = Path(directory.name)
-        self.db = self.root / "thorax.sqlite3"
-        shutil.copy(self.template_db, self.db)
+        if dbtarget.URL:
+            self.db = fresh_db(self.root)
+            accounts = AccountStore(self.db)
+            for user_id in (1, 2):
+                accounts.create(f"doctor{user_id}@example.test", f"Doctor {user_id}", "doctor", "synthetic-pass-123", user_id=user_id)
+        else:
+            self.db = self.root / "thorax.sqlite3"
+            shutil.copy(self.template_db, self.db)
         self.catalog = Catalog(self.db, LocalImageStore(self.root / "images"))
         self.bundle = demo_bundle()
 
     def count(self, table):
-        with contextlib.closing(sqlite3.connect(self.db)) as db, db:
+        with connect(self.db) as db:
             return db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
 
     def rejected(self, bundle, message):
@@ -117,7 +127,7 @@ class FixtureImportTests(unittest.TestCase):
         changed["patients"][0] = (1, "PX-1042", "Renamed Patient", 1958, "Female")
         with self.assertRaisesRegex(FixtureError, "checksum differs"):
             seed_demo(self.catalog, bundle=changed)
-        with contextlib.closing(sqlite3.connect(self.db)) as db, db:
+        with connect(self.db) as db:
             self.assertEqual(db.execute("SELECT name FROM patients WHERE id = 1").fetchone()[0], "Eleanor Brooks")
 
     def test_stored_image_is_never_replaced(self):
@@ -130,7 +140,7 @@ class FixtureImportTests(unittest.TestCase):
 
     def test_database_seeded_before_receipts_is_accepted_only_when_identical(self):
         bundle = self.bundle
-        with contextlib.closing(sqlite3.connect(self.db)) as db, db:
+        with connect(self.db) as db:
             db.executemany("INSERT INTO patients VALUES (?, ?, ?, ?, ?)", bundle["patients"])
             db.executemany("INSERT INTO studies VALUES (?, ?, ?, ?)", bundle["studies"])
             db.executemany("INSERT INTO images (id, study_id, view, width, height, media_type, storage_key, sha256) "
@@ -143,7 +153,7 @@ class FixtureImportTests(unittest.TestCase):
         self.assertGreater(self.count("history_reports"), 0)
 
     def test_database_missing_or_changing_a_fixture_row_is_refused(self):
-        with contextlib.closing(sqlite3.connect(self.db)) as db, db:
+        with connect(self.db) as db:
             db.executemany("INSERT INTO patients VALUES (?, ?, ?, ?, ?)", [(1, "PX-1042", "Someone Else", 1958, "Female")])
         with self.assertRaisesRegex(FixtureError, "existing patients differ"):
             seed_demo(self.catalog)
