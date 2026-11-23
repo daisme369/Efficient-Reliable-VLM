@@ -103,6 +103,6 @@ The fake service proves the software chain, not model quality. Re-run it against
 - **Database:** SQLite, with one writer and one API worker. The plan's PostgreSQL migration (TAS-8) is not used by this app.
 - **Real models:** the trained adapter, the GPU host and the data location for real-mode demos are still open (OQ-002). Real mode has only been exercised with the fake service here.
 - **Analyze in real mode:** it asks ten hand-written screening questions (`src/thorax_api/vlm.py`). Its own comment says they must be checked against the training templates before results are relied on.
-- **Vietnamese UI:** the VI/EN switch translates exact English UI text from `src/thorax-web/lib/i18n-vi.ts`. Text added since then, including the upload and new admin screens, stays English until it is added there.
+- **Vietnamese UI:** the VI/EN switch translates exact English UI text from `src/thorax-web/lib/i18n-vi.ts`, including the upload and admin screens as of 23 November. New or reworded UI text stays English until it is added there.
 - **Fixture limits:** 20 MiB and 40 megapixels per image are demo values, not values from the spec.
 - **Labeling vocabulary:** see `docs/scope-changes/` on this branch before training on exported labels.
