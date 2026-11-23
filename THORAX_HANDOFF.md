@@ -71,6 +71,40 @@ TAS-22, TAS-23 and TAS-24 belong to Cáp Việt Anh; their code is merged here, 
 
 The fake service proves the software chain, not model quality. Re-run it against the real GPU service and record the model ID, adapter hash and latency.
 
+## Trained model bundle (B1, 31 October 2026)
+
+The team's bundle `2026-10-31-b1-posttrain.zip` holds the final B1 adapter. It is BF16 LoRA r=8, alpha=16, on the language projections of `google/medgemma-1.5-4b-it`, revision `91850547d9f0b2fdd21aa7c5f4f3d1a8a52c243b`, with 14.9 M trainable parameters. The bundle also holds 8 checkpoints and the aggregate metrics.
+
+**Validation results (secondary, exploratory; test sealed, primary set empty):**
+- Closed questions: accuracy 0.814 and macro-F1 0.433 over 1706 questions.
+- Open questions: normalized match 0.566 over 708 questions.
+- Calibration, grounding and clinical correctness were not measured.
+
+**Local verification (23 November):** only the adapter folder and the aggregate JSON files were extracted, outside the repository, and all 8 adapter files passed `verify_artifacts`. The adapter SHA-256 reported by the model service will be `1cf49defec6281440c6d573eee67963dc7c5042475d19cc84d99c698b5b29320`.
+
+**Bundle files that must not be shared:**
+- `restricted/validation/predictions.jsonl` holds row-level MIMIC predictions. It was not extracted or read, and it must stay private.
+- `HANDOFF.md` and the receipts hold rental host details.
+- The weights stay out of Git.
+
+**Serving it needs three things that are not available yet:**
+1. **The exact training config.** `scripts/serve_vlm.py` refuses any config whose fingerprint is not `963f44bd171d778b2497d0567f4a4924d2f92c437b37c8860eb8ae2864a8cb4d`. The fingerprint covers the private data paths, shard index hash and every training setting, so it cannot be rebuilt. Ask whoever ran `b1-fast-demo-20261030-v2` for its `b1-local.json` (or the `config` field of that run's `run.json`). The rental instance was destroyed.
+2. **A CUDA GPU allowed for inference** by `docs/agents/GPU-DOCKER.md`: RTX 4090, RTX 5090 or RTX PRO 6000 Blackwell, in the Linux Docker profile. The development laptop's RTX 3060 6 GB is too small and not allowed.
+3. **Hugging Face access** to the gated MedGemma weights at that revision, cached on the GPU host.
+
+Then, on the GPU host:
+
+```bash
+THORAX_VLM_KEY=<random 16+ chars> \
+THORAX_VLM_ADAPTER=/private/models/b1-2026-10-31/adapter \
+THORAX_VLM_CONFIG=/private/models/b1-2026-10-31/b1-local.json \
+    python scripts/serve_vlm.py
+```
+
+Next, point the app's backend at it through an SSH tunnel: `THORAX_VLM_URL=http://127.0.0.1:8500` with the same `THORAX_VLM_KEY`.
+
+Without `THORAX_VLM_CALIBRATION`, answers carry no abstention decision, because B1 has no fitted risk model; that comes from an M1 evaluation `metrics.json`. Finally, re-run `verify_demo.py journey` and record the real latency.
+
 ## Measured latency
 
 23 November 2026, Windows 11 development PC, merged `kiet` code. Through the Next.js web app (dev server) to the backend on loopback. Warm sequential requests, 20 runs each, `scripts/verify_demo.py latency --base http://127.0.0.1:3000`.
