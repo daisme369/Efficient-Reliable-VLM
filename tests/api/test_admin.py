@@ -65,6 +65,7 @@ class AdminTests(unittest.TestCase):
         self.assertEqual(body["users"], {"doctor": {"active": 2, "total": 2}, "admin": {"active": 1, "total": 1}, "annotator": {"active": 2, "total": 2}, "technician": {"active": 0, "total": 0}})
         self.assertEqual(body["signed_in"], 2)
         self.assertEqual(body["catalog"], {"patients": 12, "studies": 23, "images": 27})
+        self.assertEqual(body["over_reads"], {"agree": 0, "minor": 0, "major": 0})
         self.assertEqual(body["labeling"]["open"], 1)
         self.assertEqual((body["ai"]["paused"], body["ai"]["model_service"]["status"]), (False, "not_configured"))
 

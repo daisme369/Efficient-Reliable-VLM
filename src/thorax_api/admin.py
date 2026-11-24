@@ -92,6 +92,12 @@ class AdminStore:
         with connect(self.path) as own:
             own.execute(sql, values)
 
+    def over_reads(self) -> dict:
+        """How a doctor graded each preliminary report a resident released (reports table, see reading.py)."""
+        with connect(self.path) as db:
+            counts = dict(db.execute("SELECT discrepancy, COUNT(*) FROM reports WHERE discrepancy IS NOT NULL GROUP BY discrepancy").fetchall())
+        return {grade: counts.get(grade, 0) for grade in ("agree", "minor", "major")}
+
     def ai_requests(self, limit: int = 100) -> dict:
         with connect(self.path) as db:
             rows = [dict(row) for row in db.execute(
@@ -150,6 +156,7 @@ def register_admin(app: FastAPI, *, accounts: AccountStore, catalog: Catalog, la
             "catalog": catalog.counts(),
             "labeling": labels.queue(0)["counts"] if labeling_on else None,
             "labeling_enabled": labeling_on,
+            "over_reads": store.over_reads(),
             "ai": {**store.ai_pause(), "requests": ai["total"], "failed": ai["failed"] + ai["timed_out"], "model_service": await run_in_threadpool(model_service)},
             "backend": {"status": "ok", "started_at": started_at},
         })

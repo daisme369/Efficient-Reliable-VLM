@@ -230,6 +230,7 @@ class LabelingOffTests(unittest.TestCase):
         with patch.dict(os.environ, {"THORAX_LABELING": ""}):
             app = create_app(db, [WEB], image_root=str(Path(directory.name) / "images"))
         annotator = TestClient(app, headers={"Origin": WEB})
+        self.assertEqual(annotator.get("/api/v1/labeling/queue").status_code, 401)  # sign-in is checked before the switch
         signed_in = annotator.post("/api/v1/auth/login", json={"email": "ana@example.test", "password": PASSWORD})
         self.assertEqual(signed_in.status_code, 200, signed_in.text)
         annotator.headers["X-CSRF-Token"] = signed_in.json()["csrf_token"]

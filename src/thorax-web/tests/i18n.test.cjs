@@ -24,3 +24,10 @@ test('clinical content and unknown text are left alone', () => {
 test('every entry has a non-empty Vietnamese value', () => {
   for (const [english, vietnamese] of Object.entries(VI)) assert.ok(vietnamese.trim(), english);
 });
+
+test('the Gate 1 approver line is translated whoever approved it', () => {
+  assert.equal(translate('Approved by you.'), 'Bạn đã duyệt.');
+  assert.equal(translate('Approved by Ana Resident (resident).'), 'Người duyệt: Ana Resident (bác sĩ nội trú).');
+  assert.equal(translate('Approved by doctor 4.'), 'Người duyệt: bác sĩ 4.');
+  assert.equal(translate('25% of over-reads'), '25% số ca đọc lại');
+});

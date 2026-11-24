@@ -69,6 +69,17 @@ export function Overview({ actor, active }: { actor: number; active: boolean }) 
           { label: "Requests logged", value: data.ai.requests },
           { label: "Failed or timed out", value: data.ai.failed },
         ]} />
+        {data.over_reads && (() => {
+          const { agree, minor, major } = data.over_reads;
+          const graded = agree + minor + major;
+          const rate = (n: number) => graded ? `${Math.round(n / graded * 100)}% of over-reads` : "No over-reads yet";
+          return <><h3>Resident preliminary reports</h3>
+            <Stats items={[
+              { label: "Over-read by a doctor", value: graded },
+              { label: "Minor change", value: minor, note: rate(minor) },
+              { label: "Major change", value: major, note: rate(major) },
+            ]} /></>;
+        })()}
         <h3>Data and labeling</h3>
         <Stats items={[
           { label: "Patients", value: data.catalog.patients }, { label: "Studies", value: data.catalog.studies }, { label: "Images", value: data.catalog.images },

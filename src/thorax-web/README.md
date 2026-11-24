@@ -19,7 +19,7 @@ The local demo keeps synthetic state under `.thorax-demo/state.json`. Set `THORA
 
 ## Run against the Thorax backend
 
-The local demo API above is an in-process mock. The real backend in `src/thorax_api` (FastAPI and SQLite) implements the same contract plus the annotator role, labeling, the full administrator console, self-service password changes and the AI pause switch. See `src/thorax_api/README.md`.
+The local demo API above is an in-process mock. The real backend in `src/thorax_api` (FastAPI and SQLite) implements the same contract plus the annotator (resident) role with sign-off and the urgent preliminary report, study priority, the X-ray technician role, labeling, the full administrator console, self-service password changes and the AI pause switch. See `src/thorax_api/README.md`.
 
 ```powershell
 # Once, from the repository root: create accounts and synthetic data in thorax.sqlite3. Re-running keeps existing data.

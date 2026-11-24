@@ -816,12 +816,19 @@ export const VI: Record<string, string> = {
   'You released this preliminary report. A doctor will over-read and sign it; it is read-only for you now.': 'Bạn đã phát hành báo cáo sơ bộ này. Bác sĩ sẽ đọc lại và ký; giờ bạn chỉ có quyền xem.',
   'Sent to the doctor for sign-off. It is read-only for you now.': 'Đã gửi bác sĩ ký duyệt. Giờ bạn chỉ có quyền xem.',
   'Prepared by': 'Người chuẩn bị',
+  'Resident preliminary reports': 'Báo cáo sơ bộ của bác sĩ nội trú',
+  'Over-read by a doctor': 'Đã được bác sĩ đọc lại',
+  'No over-reads yet': 'Chưa có ca đọc lại',
   'This reading was handed to a doctor.': 'Ca đọc này đã được chuyển cho bác sĩ.',
 };
 
 // Text built from values ({} in the source); matched as whole strings.
 export const VI_PATTERNS: [RegExp, (...groups: string[]) => string][] = [
   [/^Too many sign-in attempts\. Try again in (\d+) seconds\.$/, n => `Đăng nhập sai quá nhiều lần. Thử lại sau ${n} giây.`],
+  [/^(\d+)% of over-reads$/, n => `${n}% số ca đọc lại`],
+  [/^Approved by you\.$/, () => 'Bạn đã duyệt.'],
+  [/^Approved by doctor (\d+|—)\.$/, id => `Người duyệt: bác sĩ ${id}.`],
+  [/^Approved by (.+) \(resident\)\.$/, name => `Người duyệt: ${name} (bác sĩ nội trú).`],
   [/^Findings version (\d+) approved\.$/, v => `Đã duyệt kết quả phiên bản ${v}.`],
   [/^Findings approved · v(\d+)$/, v => `Đã duyệt kết quả · v${v}`],
   [/^Show studies for (.+)$/, name => `Xem các ca chụp của ${name}`],

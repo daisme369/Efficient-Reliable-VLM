@@ -240,4 +240,9 @@ test('annotator releases a preliminary on an urgent study; doctor grades it', as
   await doctor.getByRole('dialog').getByRole('button', { name: 'Approve final report' }).click();
   await expect(doctor.getByRole('heading', { name: 'Final chest X-ray report' })).toBeVisible({ timeout: 20_000 });
   await expect(doctor.getByText('PRELIMINARY: not signed by a doctor')).toHaveCount(0);
+
+  const admin = await (await browser.newContext()).newPage();
+  await signIn(admin, 'admin@thorax.demo', PASSWORDS.admin, /\/admin$/);
+  const stats = admin.locator('.admin-stats').filter({ hasText: 'Over-read by a doctor' });
+  await expect(stats.locator('div', { hasText: 'Minor change' })).toContainText('100% of over-reads');
 });

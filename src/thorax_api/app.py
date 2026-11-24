@@ -509,9 +509,10 @@ def create_app(
 
     def labeler(request: Request) -> User:
         """The labeling queue exists only with THORAX_LABELING; annotators still read their assigned studies without it."""
+        user = actor(request, "annotator")
         if not labeling_on:
             raise missing()
-        return actor(request, "annotator")
+        return user
 
     async def labeling_body(request: Request, allowed: set[str]) -> dict:
         body = await read_body(request)

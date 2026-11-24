@@ -357,6 +357,7 @@ export interface AdminOverview {
   catalog: { patients: number; studies: number; images: number };
   labeling: Record<LabelTaskStatus, number> | null; // null while labeling is off (THORAX_LABELING)
   labeling_enabled: boolean;
+  over_reads?: Record<Discrepancy, number>; // how doctors graded residents' preliminary reports
   ai: AiPause & { requests: number; failed: number; model_service: ModelService };
   backend: { status: string; started_at: string };
 }

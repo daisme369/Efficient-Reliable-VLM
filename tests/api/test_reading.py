@@ -681,6 +681,7 @@ class SignoffTests(ReadingBase):
         final = self.doctor.get(f"/api/v1/sessions/{sid}").json()
         report = next(r for r in final["reports"] if r["id"] == rid)
         self.assertEqual((report["discrepancy"], report["approved_by"], final["study"]["status"]), ("minor", 1, "final"))
+        self.assertEqual(self.app.state.admin.over_reads(), {"agree": 0, "minor": 1, "major": 0})  # admin overview's discrepancy counts
         events = self.doctor.get(f"/api/v1/sessions/{sid}/events").json()["items"]
         self.assertEqual(events[0]["data"]["discrepancy"], "minor")
         self.assertEqual(next(e for e in events if e["type"] == "preliminary_released")["data"],
