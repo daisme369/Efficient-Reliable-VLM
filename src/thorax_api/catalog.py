@@ -123,6 +123,8 @@ class Catalog:
                 f"""SELECT s.id, s.patient_id, s.study_date, s.indication, s.priority,
                            (SELECT COUNT(*) FROM images i WHERE i.study_id = s.id) AS image_count,
                            CASE WHEN EXISTS (SELECT 1 FROM reading_sessions r WHERE r.study_id = s.id AND r.status = 'final') THEN 'final'
+                                WHEN EXISTS (SELECT 1 FROM reading_sessions r WHERE r.study_id = s.id AND r.handoff = 'preliminary') THEN 'preliminary'
+                                WHEN EXISTS (SELECT 1 FROM reading_sessions r WHERE r.study_id = s.id AND r.handoff = 'signoff') THEN 'awaiting_signoff'
                                 WHEN EXISTS (SELECT 1 FROM reading_sessions r WHERE r.study_id = s.id) THEN 'in_progress' ELSE 'new' END AS status,
                            (SELECT r.id FROM reading_sessions r WHERE r.study_id = s.id AND r.doctor_id = ?) AS own_session_id,
                            (SELECT r.status FROM reading_sessions r WHERE r.study_id = s.id AND r.doctor_id = ?) AS own_session_status,

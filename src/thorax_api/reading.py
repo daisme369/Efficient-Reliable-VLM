@@ -304,12 +304,15 @@ class ReadingStore:
 
     @staticmethod
     def study_states(db, study_ids: list[int], actor_id: int) -> dict[int, dict]:
-        """Worklist status per study: final if any reading is final, in progress if any reading exists."""
+        """Worklist status per study: final > preliminary released > awaiting sign-off > in progress > new (same as catalog._study_rows)."""
         result = {}
         for sid in study_ids:
-            rows = db.execute("SELECT id, doctor_id, status FROM reading_sessions WHERE study_id = ?", (sid,)).fetchall()
+            rows = db.execute("SELECT id, doctor_id, status, handoff FROM reading_sessions WHERE study_id = ?", (sid,)).fetchall()
             own = next((r for r in rows if r["doctor_id"] == actor_id), None)
-            result[sid] = {"status": "final" if any(r["status"] == "final" for r in rows) else "in_progress" if rows else "new",
+            handoffs = {r["handoff"] for r in rows}
+            status = ("final" if any(r["status"] == "final" for r in rows) else "preliminary" if "preliminary" in handoffs
+                      else "awaiting_signoff" if "signoff" in handoffs else "in_progress" if rows else "new")
+            result[sid] = {"status": status,
                            "own_session_id": own["id"] if own else None, "own_session_status": own["status"] if own else None}
         return result
 
@@ -372,8 +375,10 @@ class ReadingStore:
         preliminary = db.execute("SELECT image_id, text FROM preliminary_reports WHERE session_id = ?", (reading["session"]["id"],)).fetchone()
         generated_reports = {j["request"]["output_refs"].get("report_id") for j in reading["jobs"]
                              if j["request"]["operation"] == "draft_report" and j["request"]["status"] == "succeeded"}
+        owner = db.execute("SELECT id, name, role FROM users WHERE id = ?", (reading["session"]["doctor_id"],)).fetchone()
         return {
             "session": reading["session"], "patient": self._patient(db, reading["session"]["patient_id"]),
+            "prepared_by": {"id": owner["id"], "name": owner["name"]} if owner and owner["role"] == "annotator" else None,
             "study": self._study_dto(db, study, reading["session"]["doctor_id"]), "images": study["images"], "history": self._history(db, study),
             "latest_findings": reading["findings"][-1] if reading["findings"] else None,
             "reports": [{**report, "source": "ai" if report["id"] in generated_reports else "doctor"} for report in reading["reports"]],
@@ -625,12 +630,23 @@ class ReadingStore:
         if allowed is None:
             missing()
 
-    def open_reading(self, study_id: int, actor_id: int, messages_args: tuple, *, authorize=None) -> tuple[dict, int]:
+    @staticmethod
+    def _may_access(reading: dict, actor_id: int, actor_role: str) -> bool:
+        """The owner, or once it is handed off, any doctor (assignment is checked separately by _authorize)."""
+        return reading["session"]["doctor_id"] == actor_id or (actor_role == "doctor" and reading["session"]["handoff"] is not None)
+
+    def open_reading(self, study_id: int, actor_id: int, messages_args: tuple, *, authorize=None, actor_role: str = "doctor") -> tuple[dict, int]:
         with connect(self.path) as db:
             db.execute("BEGIN IMMEDIATE")
             study = self._study(db, study_id)
             self._authorize(db, actor_id, study["patient_id"], authorize)
             row = db.execute("SELECT id FROM reading_sessions WHERE doctor_id = ? AND study_id = ?", (actor_id, study_id)).fetchone()
+            if actor_role == "doctor":
+                # A resident's reading sent for sign-off is the one to finish, even if this doctor opened the study earlier.
+                handed = db.execute("""SELECT id, status FROM reading_sessions WHERE study_id = ? AND handoff IS NOT NULL
+                                       ORDER BY CASE WHEN status = 'final' THEN 1 ELSE 0 END, id LIMIT 1""", (study_id,)).fetchone()
+                if handed and (row is None or handed["status"] != "final"):
+                    row = handed
             status = 200
             if row is None:
                 sid = self._next_id(db)
@@ -651,12 +667,12 @@ class ReadingStore:
             row = db.execute("SELECT doctor_id, patient_id FROM reading_sessions WHERE id = ?", (session_id,)).fetchone()
         return (row["doctor_id"], row["patient_id"]) if row else None
 
-    def read(self, session_id: int, actor_id: int, view: str, *args, authorize=None):
+    def read(self, session_id: int, actor_id: int, view: str, *args, authorize=None, actor_role: str = "doctor"):
         with connect(self.path) as db:
             db.execute("BEGIN IMMEDIATE")
             reading = self._load(db, session_id)
             reading["actor_id"] = actor_id
-            if reading["session"]["doctor_id"] != actor_id:
+            if not self._may_access(reading, actor_id, actor_role):
                 missing()
             self._authorize(db, actor_id, reading["session"]["patient_id"], authorize)
             if self._settle(db, reading):
@@ -677,12 +693,12 @@ class ReadingStore:
 
     def mutate(self, session_id: int, actor_id: int, kind: str, body: dict, *, if_match: str | None, idempotency_key: str | None,
                path: str, method: str, target: int | None = None, authorize=None, actor_role: str = "doctor") -> tuple[dict, int]:
-        required = kind in ("ai", "add_box", "approve_findings", "approve_report", "start_manual", "create_report")
+        required = kind in ("ai", "add_box", "approve_findings", "approve_report", "start_manual", "create_report", "handoff")
         with connect(self.path) as db:
             db.execute("BEGIN IMMEDIATE")
             reading = self._load(db, session_id)
-            reading["actor_id"] = actor_id
-            if reading["session"]["doctor_id"] != actor_id:
+            reading["actor_id"], reading["actor_role"] = actor_id, actor_role
+            if not self._may_access(reading, actor_id, actor_role):
                 missing()
             self._authorize(db, actor_id, reading["session"]["patient_id"], authorize)
             scope = body_hash = None
@@ -703,6 +719,10 @@ class ReadingStore:
                 fail(412, "REVISION_CONFLICT", "This reading changed in another tab. Reload it before saving.")
             if reading["session"]["status"] == "final":
                 fail(409, "FINAL_READ_ONLY", "This final reading is read-only.")
+            if actor_role == "annotator" and reading["session"]["handoff"] is not None:
+                fail(409, "HANDED_OFF", "This reading was handed to a doctor and can no longer be changed here.")
+            if actor_role == "annotator" and kind == "approve_report":
+                fail(403, "SIGNOFF_REQUIRES_DOCTOR", "Only a doctor can sign the final report. Send it to the doctor instead.")
             if self._active_job(reading):
                 fail(409, "AI_BUSY", "Wait for the current AI request before making changes.")
             if kind in ("add_box", "change_box", "delete_box", "save_findings", "approve_findings") and not reading["findings"]:
@@ -711,7 +731,7 @@ class ReadingStore:
             handler = {"ai": self._submit, "add_box": self._create_box, "change_box": self._edit_box, "delete_box": self._edit_box,
                        "save_findings": self._save_findings, "approve_findings": self._approve_findings,
                        "save_report": self._edit_report, "approve_report": self._edit_report,
-                       "start_manual": self._start_manual, "create_report": self._create_report}[kind]
+                       "start_manual": self._start_manual, "create_report": self._create_report, "handoff": self._handoff}[kind]
             data, status = handler(db, reading, study, body, kind, target)
             self._save(db, reading)
             if scope:
@@ -863,7 +883,7 @@ class ReadingStore:
             return self._receipt(reading, "findings", latest["id"]), 200
         if self._gate1(reading):
             fail(409, "UNRESOLVED_REVIEW", "Resolve the outstanding findings and region review before approving.")
-        latest.update(status="approved", approved_at=self.now_iso(), approved_by=reading["session"]["doctor_id"],
+        latest.update(status="approved", approved_at=self.now_iso(), approved_by=reading["actor_id"],
                       annotation_snapshot=[box_snapshot(b) for b in reading["boxes"] if active_box(b)])
         reading["session"]["status"] = "findings_approved"
         self._record_edit(reading, "gate1_approved", {"findings_version": latest["version"]})
@@ -883,7 +903,7 @@ class ReadingStore:
                 fail(409, "GATE1_REQUIRED", "Approve the latest findings first.")
             if not report["content"]["findings"].strip() or not report["content"]["impression"].strip():
                 invalid("Findings and impression are required.")
-            report.update(status="final", approved_by=reading["session"]["doctor_id"], approved_at=self.now_iso())
+            report.update(status="final", approved_by=reading["actor_id"], approved_at=self.now_iso())
             reading["session"]["status"] = "final"
         else:
             fields(body, list(NARRATIVE))
@@ -894,6 +914,20 @@ class ReadingStore:
                     report["content"][key] = string(body[key], key, 0, 8000)
         report["updated_at"] = self.now_iso()
         self._record_edit(reading, "gate2_approved" if approving else "report_saved", {"report_id": report["id"], "findings_version": latest["version"]})
+        return self._receipt(reading, "report", report["id"]), 200
+
+    def _handoff(self, db, reading, study, body, kind, target):
+        """A resident hands a finished draft to the doctors: for sign-off (routine)."""
+        if reading.get("actor_role") != "annotator":
+            fail(403, "ROLE_FORBIDDEN", "Only a resident hands a reading to a doctor.")
+        if body.get("kind") != "signoff":
+            invalid("Choose how to hand off this reading.")
+        fields(body, ["kind"])
+        if reading["session"]["status"] != "findings_approved" or self._gate2(reading):
+            fail(409, "HANDOFF_NOT_READY", "Approve the findings and save a draft with findings and an impression first.")
+        report = next(r for r in reading["reports"] if r["status"] == "draft")
+        reading["session"].update(handoff="signoff", handoff_at=self.now_iso())
+        self._record_edit(reading, "sent_for_signoff", {"report_id": report["id"]})
         return self._receipt(reading, "report", report["id"]), 200
 
     @staticmethod
@@ -1001,8 +1035,8 @@ def register_reading(app, *, store: ReadingStore, catalog, actor, path_id, read_
     def owned(request: Request, session_id: str):
         user = actor(request, *readers)
         sid = path_id(session_id)
-        owner = store.session_owner(sid)
-        if owner is None or owner[0] != user.id or not catalog.is_assigned(user.id, owner[1]):
+        owner = store.session_owner(sid)  # the store decides who may open it (owner, or a doctor after handoff)
+        if owner is None or not catalog.is_assigned(user.id, owner[1]):
             missing()
         return user, sid
 
@@ -1017,29 +1051,29 @@ def register_reading(app, *, store: ReadingStore, catalog, actor, path_id, read_
             missing()
         if await read_body(request):
             invalid("Unexpected request field.")
-        workspace, status = store.open_reading(found["id"], user.id, message_args(request), authorize=lambda: actor(request, *readers))
+        workspace, status = store.open_reading(found["id"], user.id, message_args(request), authorize=lambda: actor(request, *readers), actor_role=user.role)
         return reply(workspace, status, workspace["session"]["revision"])
 
     @app.get("/api/v1/sessions/{session_id}")
     async def get_session(request: Request, session_id: str):
         user, sid = owned(request, session_id)
-        workspace = store.read(sid, user.id, "workspace", *message_args(request), authorize=lambda: actor(request, *readers))
+        workspace = store.read(sid, user.id, "workspace", *message_args(request), authorize=lambda: actor(request, *readers), actor_role=user.role)
         return reply(workspace, revision=workspace["session"]["revision"])
 
     @app.get("/api/v1/sessions/{session_id}/messages")
     async def get_messages(request: Request, session_id: str):
         user, sid = owned(request, session_id)
-        return reply(store.read(sid, user.id, "messages", *message_args(request), authorize=lambda: actor(request, *readers)))
+        return reply(store.read(sid, user.id, "messages", *message_args(request), authorize=lambda: actor(request, *readers), actor_role=user.role))
 
     @app.get("/api/v1/sessions/{session_id}/events")
     async def get_events(request: Request, session_id: str):
         user, sid = owned(request, session_id)
-        return reply(store.read(sid, user.id, "events", request.query_params.get("cursor"), request.query_params.get("limit"), authorize=lambda: actor(request, *readers)))
+        return reply(store.read(sid, user.id, "events", request.query_params.get("cursor"), request.query_params.get("limit"), authorize=lambda: actor(request, *readers), actor_role=user.role))
 
     @app.get("/api/v1/sessions/{session_id}/ai-requests/{request_id}")
     async def get_ai_request(request: Request, session_id: str, request_id: str):
         user, sid = owned(request, session_id)
-        return reply(store.read(sid, user.id, "request", path_id(request_id), authorize=lambda: actor(request, *readers)))
+        return reply(store.read(sid, user.id, "request", path_id(request_id), authorize=lambda: actor(request, *readers), actor_role=user.role))
 
     async def change(request: Request, session_id: str, kind: str, target: str | None = None):
         user, sid = owned(request, session_id)
@@ -1085,6 +1119,10 @@ def register_reading(app, *, store: ReadingStore, catalog, actor, path_id, read_
     @app.post("/api/v1/sessions/{session_id}/reports")
     async def create_manual_report(request: Request, session_id: str):
         return await change(request, session_id, "create_report")
+
+    @app.post("/api/v1/sessions/{session_id}/handoff")
+    async def handoff(request: Request, session_id: str):
+        return await change(request, session_id, "handoff")
 
     @app.post("/api/v1/sessions/{session_id}/reports/{report_id}/approve")
     async def approve_report(request: Request, session_id: str, report_id: str):

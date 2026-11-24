@@ -580,6 +580,73 @@ class SignoffTests(ReadingBase):
         with connect(self.db) as db:
             db.execute("UPDATE studies SET priority = 'urgent' WHERE id = ?", (study_id,))
 
+    def ready_draft(self, who):
+        """Opens study 2421 as `who`, confirms a normal manual review through Gate 1 and creates the draft report."""
+        ws = who.post("/api/v1/studies/2421/sessions").json()
+        sid, rev = ws["session"]["id"], ws["session"]["revision"]
+        for method, path, body in (("post", "findings", {}), ("patch", "findings", {"items": [], "no_abnormality_confirmed": True}),
+                                   ("post", "findings/approve", {"findings_version": 1}), ("post", "reports", {"findings_version": 1})):
+            r = self.write(method, f"/api/v1/sessions/{sid}/{path}", body, revision=rev, who=who)
+            self.assertIn(r.status_code, (200, 201), r.text)
+            rev = r.json()["session_revision"]
+        return sid, r.json()["resource_id"], rev
+
+    def test_routine_handoff_then_doctor_signs(self):
+        sid, rid, rev = self.ready_draft(self.annotator)
+        refused = self.write("post", f"/api/v1/sessions/{sid}/reports/{rid}/approve", {"findings_version": 1}, revision=rev, who=self.annotator)
+        self.assertEqual((refused.status_code, refused.json()["error"]["code"]), (403, "SIGNOFF_REQUIRES_DOCTOR"))
+        sent = self.write("post", f"/api/v1/sessions/{sid}/handoff", {"kind": "signoff"}, revision=rev, who=self.annotator)
+        self.assertEqual(sent.status_code, 200, sent.text)
+        ws = self.doctor.post("/api/v1/studies/2421/sessions").json()  # the doctor lands on the annotator's reading
+        self.assertEqual((ws["session"]["id"], ws["session"]["handoff"], ws["prepared_by"]["id"]), (sid, "signoff", 7))
+        self.assertEqual(ws["study"]["status"], "awaiting_signoff")
+        self.assertEqual(self.doctor.get("/api/v1/patients/2/studies").json()["items"][0]["status"], "awaiting_signoff")
+        signed = self.write("post", f"/api/v1/sessions/{sid}/reports/{rid}/approve", {"findings_version": 1}, revision=ws["session"]["revision"])
+        self.assertEqual(signed.status_code, 200, signed.text)
+        final = self.doctor.get(f"/api/v1/sessions/{sid}").json()
+        self.assertEqual(next(r for r in final["reports"] if r["id"] == rid)["approved_by"], 1)
+        self.assertEqual(final["study"]["status"], "final")
+        events = self.doctor.get(f"/api/v1/sessions/{sid}/events").json()["items"]
+        self.assertEqual([(e["type"], e["user_id"]) for e in events[:2]], [("gate2_approved", 1), ("sent_for_signoff", 7)])
+
+    def test_annotator_is_read_only_after_handoff(self):
+        sid, rid, rev = self.ready_draft(self.annotator)
+        rev = self.write("post", f"/api/v1/sessions/{sid}/handoff", {"kind": "signoff"}, revision=rev, who=self.annotator).json()["session_revision"]
+        late = self.write("patch", f"/api/v1/sessions/{sid}/reports/{rid}", {"comparison": "x"}, revision=rev, key=False, who=self.annotator)
+        self.assertEqual((late.status_code, late.json()["error"]["code"]), (409, "HANDED_OFF"))
+        self.assertEqual(self.annotator.get(f"/api/v1/sessions/{sid}").status_code, 200)
+
+    def test_handoff_requires_a_complete_draft(self):
+        ws = self.annotator.post("/api/v1/studies/2421/sessions").json()
+        r = self.write("post", f"/api/v1/sessions/{ws['session']['id']}/handoff", {"kind": "signoff"}, revision=ws["session"]["revision"], who=self.annotator)
+        self.assertEqual((r.status_code, r.json()["error"]["code"]), (409, "HANDOFF_NOT_READY"))
+
+    def test_only_an_annotator_hands_off(self):
+        sid, rid, rev = self.ready_draft(self.doctor)
+        r = self.write("post", f"/api/v1/sessions/{sid}/handoff", {"kind": "signoff"}, revision=rev)
+        self.assertEqual((r.status_code, r.json()["error"]["code"]), (403, "ROLE_FORBIDDEN"))
+
+    def test_unassigned_doctor_cannot_see_handed_off_reading(self):
+        sid, rid, rev = self.ready_draft(self.annotator)
+        self.write("post", f"/api/v1/sessions/{sid}/handoff", {"kind": "signoff"}, revision=rev, who=self.annotator)
+        other = self.client("doctor2@example.test")  # not assigned to patient 2
+        self.assertEqual(other.get(f"/api/v1/sessions/{sid}").status_code, 404)
+
+    def test_doctor_cannot_see_a_reading_before_handoff(self):
+        ws = self.annotator.post("/api/v1/studies/2421/sessions").json()
+        self.assertEqual(self.doctor.get(f"/api/v1/sessions/{ws['session']['id']}").status_code, 404)
+
+    def test_doctor_can_still_read_from_scratch(self):
+        self.annotator.post("/api/v1/studies/2421/sessions")  # started, not handed off
+        ws = self.open(2421)
+        self.assertEqual(ws["session"]["doctor_id"], 1)
+
+    def test_handed_off_reading_wins_over_an_earlier_doctor_session(self):
+        self.open(2421)  # the doctor looked first
+        sid, rid, rev = self.ready_draft(self.annotator)
+        self.write("post", f"/api/v1/sessions/{sid}/handoff", {"kind": "signoff"}, revision=rev, who=self.annotator)
+        self.assertEqual(self.open(2421)["session"]["id"], sid)
+
     def test_annotator_opens_assigned_study_with_labeling_off(self):
         r = self.annotator.post("/api/v1/studies/2421/sessions")
         self.assertEqual(r.status_code, 201, r.text)
