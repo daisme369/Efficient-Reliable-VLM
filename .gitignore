@@ -245,6 +245,7 @@ __marimo__/
 # Generated research and release artifacts
 /artifacts/
 /checkpoints/
+*.rar
 /outputs/
 /release-dist/
 /runs/
