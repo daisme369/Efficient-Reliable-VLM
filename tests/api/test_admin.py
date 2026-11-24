@@ -107,7 +107,7 @@ class AdminTests(unittest.TestCase):
         self.assertEqual(catalog, [{"id": 11, "code": "PX-1052", "assigned_doctor_ids": [1, 2]}])
         self.assertEqual(self.admin.delete("/api/v1/admin/assignments/1/11").status_code, 204)
         self.assertEqual(self.doctor.get("/api/v1/studies/2511").status_code, 404)
-        self.assertEqual(self.admin.post("/api/v1/admin/assignments", json={"doctor_id": 4, "patient_id": 11}).status_code, 404)  # not a doctor
+        self.assertEqual(self.admin.post("/api/v1/admin/assignments", json={"doctor_id": 3, "patient_id": 11}).status_code, 404)  # an admin, not a reader
         self.assertEqual(self.actions()[:2], ["access_revoked", "access_granted"])
 
     def test_mixed_user_changes_are_rejected_without_side_effects(self):

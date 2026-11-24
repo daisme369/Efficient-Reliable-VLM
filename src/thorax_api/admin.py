@@ -166,8 +166,6 @@ def register_admin(app: FastAPI, *, accounts: AccountStore, catalog: Catalog, la
         body = await body_of(request, {"name", "email", "role", "password"})
         if not all(isinstance(body.get(key), str) and body[key].strip() for key in ("name", "email", "role", "password")) or len(body["name"]) > 100:
             raise invalid("Enter a name, email, role and initial password.")
-        if body["role"] == "annotator" and not labeling_on:
-            raise invalid("Labeling is turned off, so annotator accounts cannot be created.")
         try:
             user = accounts.create(body["email"], body["name"], body["role"], body["password"])
         except ValueError as problem:
@@ -217,8 +215,8 @@ def register_admin(app: FastAPI, *, accounts: AccountStore, catalog: Catalog, la
     async def doctors(request: Request):
         me = admin(request)
         assigned = catalog.assignments()
-        rows = [{"id": u["id"], "name": u["name"], "email": u["email"], "role": "doctor", "is_active": u["is_active"],
-                 "assigned_patient_ids": sorted(p for d, p in assigned if d == u["id"])} for u in accounts.all_users() if u["role"] == "doctor"]
+        rows = [{"id": u["id"], "name": u["name"], "email": u["email"], "role": u["role"], "is_active": u["is_active"],  # readers: doctors and residents
+                 "assigned_patient_ids": sorted(p for d, p in assigned if d == u["id"])} for u in sorted(accounts.all_users(), key=lambda u: (u["role"] != "doctor", u["id"])) if u["role"] in ("doctor", "annotator")]
         return page(request, me, rows)
 
     @app.get("/api/v1/admin/patient-catalog")
@@ -251,7 +249,7 @@ def register_admin(app: FastAPI, *, accounts: AccountStore, catalog: Catalog, la
         body = await body_of(request, {"doctor_id", "patient_id"})
         doctor = accounts.by_id(body["doctor_id"]) if isinstance(body.get("doctor_id"), int) else None
         code = dict(catalog.patient_codes()).get(body.get("patient_id")) if isinstance(body.get("patient_id"), int) else None
-        if doctor is None or doctor.role != "doctor" or code is None:
+        if doctor is None or doctor.role not in ("doctor", "annotator") or code is None:
             raise error(404, "RESOURCE_NOT_FOUND", "This resource is unavailable.")
         if not doctor.is_active:
             raise error(409, "DOCTOR_INACTIVE", "Enable the doctor before granting access.")

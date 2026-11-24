@@ -21,8 +21,9 @@ WEB = "http://127.0.0.1:3000"
 PASSWORD = "synthetic-pass-123"
 
 
-@unittest.skipUnless(HAS_API_DEPS, "requires requirements/api.txt (fastapi, httpx)")
-class ReadingTests(unittest.TestCase):
+class ReadingBase(unittest.TestCase):
+    """Helpers shared by the reading tests; it has no tests of its own."""
+
     def setUp(self):
         from thorax_api.accounts import AccountStore
         from thorax_api.catalog import seed_demo
@@ -71,6 +72,9 @@ class ReadingTests(unittest.TestCase):
         self.assertEqual(job.status_code, 202, job.text)
         return self.settle(workspace)
 
+
+@unittest.skipUnless(HAS_API_DEPS, "requires requirements/api.txt (fastapi, httpx)")
+class ReadingTests(ReadingBase):
     def test_history_is_the_five_latest_reports_before_the_study(self):
         import sqlite3
         from thorax_api.reading import ReadingStore
@@ -556,6 +560,48 @@ class ReadingTests(unittest.TestCase):
             with self.assertRaises(ReadingError):
                 store.open_reading(2421, 1, (None, None), authorize=expired)
             self.assertEqual(checked.call_count, 2)
+
+
+@unittest.skipUnless(HAS_API_DEPS, "requires requirements/api.txt (fastapi, httpx)")
+class SignoffTests(ReadingBase):
+    """The annotator (resident) reads in the doctor's workspace; only a doctor signs."""
+
+    def setUp(self):
+        super().setUp()
+        from thorax_api.accounts import AccountStore
+
+        AccountStore(self.db).create("annotator@example.test", "Ana Resident", "annotator", PASSWORD, user_id=7)
+        self.app.state.catalog.set_assignment(7, 2, True)  # patient 2 (study 2421); doctor 1 is assigned too, doctor 2 is not
+        self.annotator = self.client("annotator@example.test")
+
+    def make_urgent(self, study_id):
+        from thorax_api.db import connect
+
+        with connect(self.db) as db:
+            db.execute("UPDATE studies SET priority = 'urgent' WHERE id = ?", (study_id,))
+
+    def test_annotator_opens_assigned_study_with_labeling_off(self):
+        r = self.annotator.post("/api/v1/studies/2421/sessions")
+        self.assertEqual(r.status_code, 201, r.text)
+        self.assertEqual(r.json()["session"]["doctor_id"], 7)
+        self.assertIsNone(r.json()["session"]["handoff"])
+
+    def test_annotator_cannot_open_unassigned_study(self):
+        self.assertEqual(self.annotator.post("/api/v1/studies/2411/sessions").status_code, 404)  # patient 1: not assigned
+
+    def test_events_record_the_acting_user(self):
+        ws = self.annotator.post("/api/v1/studies/2421/sessions").json()
+        events = self.annotator.get(f"/api/v1/sessions/{ws['session']['id']}/events").json()["items"]
+        self.assertEqual(events[-1]["user_id"], 7)
+
+    def test_old_database_gains_handoff_columns(self):
+        from thorax_api.db import columns, connect
+
+        self.make_app()  # a second start on the same database must not fail or add anything twice
+        with connect(self.db) as db:
+            self.assertTrue({"handoff", "handoff_at", "critical_communicated_to"} <= columns(db, "reading_sessions", self.db))
+            self.assertTrue({"discrepancy", "released_content"} <= columns(db, "reports", self.db))
+            self.assertEqual([tuple(r) for r in db.execute("SELECT DISTINCT priority FROM studies")], [("routine",)])
 
 
 if __name__ == "__main__":

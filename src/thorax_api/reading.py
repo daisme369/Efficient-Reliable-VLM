@@ -25,7 +25,7 @@ from typing import Callable
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-from .db import connect
+from .db import columns as table_columns, connect
 from .vlm import SCREENING, VlmClient, VlmError, is_yes, model_version
 
 SCHEMA = (
@@ -192,6 +192,15 @@ class ReadingStore:
             for statement in SCHEMA:
                 db.execute(statement)
             db.execute("INSERT INTO id_sequence (name, value) VALUES ('global', 10000) ON CONFLICT DO NOTHING")
+            # Resident sign-off and the emergency preliminary report, added after the first release.
+            for table, added in (("reading_sessions", (("handoff", "TEXT CHECK (handoff IN ('signoff', 'preliminary'))"),
+                                                       ("handoff_at", "TEXT"), ("critical_communicated_to", "TEXT"))),
+                                 ("reports", (("discrepancy", "TEXT CHECK (discrepancy IN ('agree', 'minor', 'major'))"),
+                                              ("released_content", "TEXT")))):
+                existing = table_columns(db, table, self.path)
+                for column, kind in added:
+                    if column not in existing:
+                        db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
 
     def now_iso(self) -> str:
         return datetime.fromtimestamp(self.clock(), timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
@@ -206,7 +215,8 @@ class ReadingStore:
         row = db.execute("SELECT * FROM reading_sessions WHERE id = ?", (session_id,)).fetchone()
         if row is None:
             missing()
-        reading = {"session": {k: row[k] for k in ("id", "doctor_id", "patient_id", "study_id", "status", "revision")},
+        reading = {"session": {k: row[k] for k in ("id", "doctor_id", "patient_id", "study_id", "status", "revision",
+                                                   "handoff", "handoff_at", "critical_communicated_to")},
                    "analyzed_image_id": row["analyzed_image_id"], "new_events": []}
         reading["findings"] = [{
             "id": r["id"], "version": r["version"], "status": r["status"], "items": json.loads(r["items"]), "ai_items": json.loads(r["ai_items"]),
@@ -227,6 +237,7 @@ class ReadingStore:
         reading["reports"] = [{
             "id": r["id"], "findings_version": r["findings_version"], "status": r["status"], "content": json.loads(r["content"]),
             "approved_by": r["approved_by"], "approved_at": r["approved_at"], "updated_at": r["updated_at"],
+            "discrepancy": r["discrepancy"], "released_content": json.loads(r["released_content"]) if r["released_content"] else None,
         } for r in db.execute("SELECT * FROM reports WHERE session_id = ? ORDER BY id", (session_id,))]
         reading["jobs"] = [{"request": json.loads(r["request"]), "context": r["context"], "submitted_at": r["submitted_at"], "failure": r["failure"]}
                            for r in db.execute("SELECT * FROM ai_jobs WHERE session_id = ? ORDER BY id", (session_id,))]
@@ -235,8 +246,8 @@ class ReadingStore:
     def _save(self, db, reading: dict) -> None:
         # ponytail: rewrites the reading's child rows on every change; fine at demo scale (a reading has tens of rows).
         sid, s = reading["session"]["id"], reading["session"]
-        db.execute("UPDATE reading_sessions SET status = ?, revision = ?, analyzed_image_id = ? WHERE id = ?",
-                   (s["status"], s["revision"], reading["analyzed_image_id"], sid))
+        db.execute("UPDATE reading_sessions SET status = ?, revision = ?, analyzed_image_id = ?, handoff = ?, handoff_at = ?, critical_communicated_to = ? WHERE id = ?",
+                   (s["status"], s["revision"], reading["analyzed_image_id"], s["handoff"], s["handoff_at"], s["critical_communicated_to"], sid))
         for table in ("findings_versions", "regions", "messages", "reports", "ai_jobs"):
             db.execute(f"DELETE FROM {table} WHERE session_id = ?", (sid,))
         db.executemany("""INSERT INTO findings_versions (id, session_id, version, status, items, ai_items, no_abnormality_confirmed,
@@ -252,15 +263,16 @@ class ReadingStore:
                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                        [(m["id"], sid, m["role"], m["text"], m["image_id"], m["box_id"], json.dumps(m["box_snapshot"]) if m["box_snapshot"] else None,
                          m["model_version"], m["latency_ms"], m["created_at"]) for m in reading["messages"]])
-        db.executemany("""INSERT INTO reports (id, session_id, findings_version, status, content, approved_by, approved_at, updated_at)
-                          VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                       [(r["id"], sid, r["findings_version"], r["status"], json.dumps(r["content"]), r["approved_by"], r["approved_at"], r["updated_at"])
+        db.executemany("""INSERT INTO reports (id, session_id, findings_version, status, content, approved_by, approved_at, updated_at,
+                          discrepancy, released_content) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       [(r["id"], sid, r["findings_version"], r["status"], json.dumps(r["content"]), r["approved_by"], r["approved_at"], r["updated_at"],
+                         r.get("discrepancy"), json.dumps(r["released_content"]) if r.get("released_content") else None)
                         for r in reading["reports"]])
         db.executemany("INSERT INTO ai_jobs (id, session_id, status, request, context, submitted_at, failure) VALUES (?, ?, ?, ?, ?, ?, ?)",
                        [(j["request"]["request_id"], sid, j["request"]["status"], json.dumps(j["request"]), j["context"], j["submitted_at"], j["failure"])
                         for j in reading["jobs"]])
         db.executemany("INSERT INTO reading_events (id, session_id, user_id, type, data, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                       [(self._next_id(db), sid, s["doctor_id"], kind, json.dumps(data), at) for kind, data, at in reading["new_events"]])
+                       [(self._next_id(db), sid, reading.get("actor_id", s["doctor_id"]), kind, json.dumps(data), at) for kind, data, at in reading["new_events"]])
         reading["new_events"] = []
 
     def _event(self, reading: dict, kind: str, data: dict) -> None:
@@ -607,7 +619,7 @@ class ReadingStore:
         if authorize is not None and authorize().id != actor_id:
             missing()
         allowed = db.execute("""SELECT 1 FROM users u JOIN assignments a ON a.doctor_id = u.id
-                                WHERE u.id = ? AND u.role = 'doctor' AND u.is_active = 1
+                                WHERE u.id = ? AND u.role IN ('doctor', 'annotator') AND u.is_active = 1
                                 AND a.patient_id = ? AND a.active = 1""", (actor_id, patient_id)).fetchone()
         if allowed is None:
             missing()
@@ -628,6 +640,7 @@ class ReadingStore:
                 status = 201
             else:
                 reading = self._load(db, row["id"])
+            reading["actor_id"] = actor_id
             if self._settle(db, reading) or status == 201:
                 self._save(db, reading)
             return self._workspace(db, reading, self.messages_page(reading, actor_id, *messages_args)), status
@@ -641,6 +654,7 @@ class ReadingStore:
         with connect(self.path) as db:
             db.execute("BEGIN IMMEDIATE")
             reading = self._load(db, session_id)
+            reading["actor_id"] = actor_id
             if reading["session"]["doctor_id"] != actor_id:
                 missing()
             self._authorize(db, actor_id, reading["session"]["patient_id"], authorize)
@@ -661,11 +675,12 @@ class ReadingStore:
             return {"items": events[start:end], "next_cursor": self._signed(scope, end) if end < len(events) else None}
 
     def mutate(self, session_id: int, actor_id: int, kind: str, body: dict, *, if_match: str | None, idempotency_key: str | None,
-               path: str, method: str, target: int | None = None, authorize=None) -> tuple[dict, int]:
+               path: str, method: str, target: int | None = None, authorize=None, actor_role: str = "doctor") -> tuple[dict, int]:
         required = kind in ("ai", "add_box", "approve_findings", "approve_report", "start_manual", "create_report")
         with connect(self.path) as db:
             db.execute("BEGIN IMMEDIATE")
             reading = self._load(db, session_id)
+            reading["actor_id"] = actor_id
             if reading["session"]["doctor_id"] != actor_id:
                 missing()
             self._authorize(db, actor_id, reading["session"]["patient_id"], authorize)
@@ -969,7 +984,8 @@ class ReadingStore:
 
 
 def register_reading(app, *, store: ReadingStore, catalog, actor, path_id, read_body, no_store, error) -> None:
-    """Routes for the doctor reading workflow (the contract src/thorax-web expects)."""
+    """Routes for the doctor reading workflow (the contract src/thorax-web expects). Annotators (residents) use the same workspace."""
+    readers = ("doctor", "annotator")
 
     @app.exception_handler(ReadingError)
     async def reading_error(request: Request, problem: ReadingError):
@@ -982,7 +998,7 @@ def register_reading(app, *, store: ReadingStore, catalog, actor, path_id, read_
         return response
 
     def owned(request: Request, session_id: str):
-        user = actor(request, "doctor")
+        user = actor(request, *readers)
         sid = path_id(session_id)
         owner = store.session_owner(sid)
         if owner is None or owner[0] != user.id or not catalog.is_assigned(user.id, owner[1]):
@@ -994,42 +1010,43 @@ def register_reading(app, *, store: ReadingStore, catalog, actor, path_id, read_
 
     @app.post("/api/v1/studies/{study_id}/sessions")
     async def open_session(request: Request, study_id: str):
-        user = actor(request, "doctor")
+        user = actor(request, *readers)
         found = catalog.study(path_id(study_id))
         if found is None or not catalog.is_assigned(user.id, found["patient_id"]):
             missing()
         if await read_body(request):
             invalid("Unexpected request field.")
-        workspace, status = store.open_reading(found["id"], user.id, message_args(request), authorize=lambda: actor(request, "doctor"))
+        workspace, status = store.open_reading(found["id"], user.id, message_args(request), authorize=lambda: actor(request, *readers))
         return reply(workspace, status, workspace["session"]["revision"])
 
     @app.get("/api/v1/sessions/{session_id}")
     async def get_session(request: Request, session_id: str):
         user, sid = owned(request, session_id)
-        workspace = store.read(sid, user.id, "workspace", *message_args(request), authorize=lambda: actor(request, "doctor"))
+        workspace = store.read(sid, user.id, "workspace", *message_args(request), authorize=lambda: actor(request, *readers))
         return reply(workspace, revision=workspace["session"]["revision"])
 
     @app.get("/api/v1/sessions/{session_id}/messages")
     async def get_messages(request: Request, session_id: str):
         user, sid = owned(request, session_id)
-        return reply(store.read(sid, user.id, "messages", *message_args(request), authorize=lambda: actor(request, "doctor")))
+        return reply(store.read(sid, user.id, "messages", *message_args(request), authorize=lambda: actor(request, *readers)))
 
     @app.get("/api/v1/sessions/{session_id}/events")
     async def get_events(request: Request, session_id: str):
         user, sid = owned(request, session_id)
-        return reply(store.read(sid, user.id, "events", request.query_params.get("cursor"), request.query_params.get("limit"), authorize=lambda: actor(request, "doctor")))
+        return reply(store.read(sid, user.id, "events", request.query_params.get("cursor"), request.query_params.get("limit"), authorize=lambda: actor(request, *readers)))
 
     @app.get("/api/v1/sessions/{session_id}/ai-requests/{request_id}")
     async def get_ai_request(request: Request, session_id: str, request_id: str):
         user, sid = owned(request, session_id)
-        return reply(store.read(sid, user.id, "request", path_id(request_id), authorize=lambda: actor(request, "doctor")))
+        return reply(store.read(sid, user.id, "request", path_id(request_id), authorize=lambda: actor(request, *readers)))
 
     async def change(request: Request, session_id: str, kind: str, target: str | None = None):
         user, sid = owned(request, session_id)
         body = await read_body(request)
         data, status = store.mutate(sid, user.id, kind, body, if_match=request.headers.get("if-match"),
                                     idempotency_key=request.headers.get("idempotency-key"), path=request.url.path, method=request.method,
-                                    target=path_id(target) if target is not None else None, authorize=lambda: actor(request, "doctor"))
+                                    target=path_id(target) if target is not None else None, authorize=lambda: actor(request, *readers),
+                                    actor_role=user.role)
         return reply(data, status, data["session_revision"])
 
     @app.post("/api/v1/sessions/{session_id}/ai-requests")

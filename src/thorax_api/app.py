@@ -231,7 +231,7 @@ def create_app(
         # Unknown emails are checked against a dummy hash, so timing does not reveal which accounts exist.
         # scrypt takes ~0.3 s and 128 MiB; run it off the event loop.
         matched = valid_password(password, 8) and await run_in_threadpool(password_matches, password, user.password_hash if user else None)
-        ok = bool(matched and user and user.is_active and (labeling_on or user.role != "annotator"))
+        ok = bool(matched and user and user.is_active)
         if user is not None:
             store.record_sign_in(user.id, ok)  # shown to admins: last sign-in and recent failed attempts
         with state.lock:
@@ -284,7 +284,7 @@ def create_app(
             raise ApiError(401, "UNAUTHENTICATED", UNAVAILABLE)
         if request.method != "GET" and not hmac.compare_digest(csrf(auth[2]), request.headers.get("x-csrf-token", "")):
             raise ApiError(403, "CSRF_INVALID", CSRF_MESSAGE)
-        if auth[0].role not in roles or (auth[0].role == "annotator" and not labeling_on):
+        if auth[0].role not in roles:
             raise ApiError(403, "ROLE_FORBIDDEN", UNAVAILABLE)
         return auth[0]
 
@@ -315,9 +315,6 @@ def create_app(
         await run_in_threadpool(store.set_password, user.email, new)
         return no_store(Response(status_code=204))
 
-    def doctor(request: Request) -> User:
-        return actor(request, "doctor")
-
     def page(request: Request, user: User, items: list) -> JSONResponse:
         """Offset pages with HMAC-signed cursors bound to the user, path and search, like the web mock."""
         raw_limit = request.query_params.get("limit")
@@ -345,7 +342,7 @@ def create_app(
 
     @app.get("/api/v1/patients")
     async def patients(request: Request):
-        user = doctor(request)
+        user = actor(request, "doctor", "annotator")
         search = request.query_params.get("search")
         if search is not None and not 1 <= len(search.strip()) <= 100:
             raise invalid("Search must be 1–100 characters.")
@@ -353,14 +350,14 @@ def create_app(
 
     @app.get("/api/v1/patients/{patient_id}/studies")
     async def patient_studies(request: Request, patient_id: str):
-        user = actor(request, "doctor", "admin", "technician")  # admins and technicians see studies to manage intake
+        user = actor(request, "doctor", "annotator", "admin", "technician")  # admins and technicians see studies to manage intake
         pid = path_id(patient_id)
         may_upload(user, pid)  # a doctor sees only assigned patients; unassigned and nonexistent look the same
         return page(request, user, catalog.studies_for_patient(pid, user.id))
 
     @app.get("/api/v1/studies/{study_id}")
     async def study(request: Request, study_id: str):
-        user = actor(request, "doctor", "admin", "technician")
+        user = actor(request, "doctor", "annotator", "admin", "technician")
         found = catalog.study(path_id(study_id), user.id)
         if found is None:
             raise missing()
@@ -371,8 +368,8 @@ def create_app(
     async def image_content(request: Request, image_id: str):
         user = actor(request, "doctor", "annotator")
         image = catalog.image(path_id(image_id))
-        allowed = image is not None and (catalog.is_assigned(user.id, image["patient_id"]) if user.role == "doctor"
-                                         else labels.annotator_can_view(image["id"], user.id))
+        allowed = image is not None and (catalog.is_assigned(user.id, image["patient_id"])
+                                         or (user.role == "annotator" and labeling_on and labels.annotator_can_view(image["id"], user.id)))
         if not allowed:
             raise missing()
         try:
@@ -387,7 +384,7 @@ def create_app(
 
     # --- intake: technicians and admins push studies for any patient; doctors read, they do not upload ---
     def may_upload(user: User, patient_id: int) -> None:
-        if not catalog.patient_exists(patient_id) or (user.role == "doctor" and not catalog.is_assigned(user.id, patient_id)):
+        if not catalog.patient_exists(patient_id) or (user.role in ("doctor", "annotator") and not catalog.is_assigned(user.id, patient_id)):
             raise missing()  # unassigned and nonexistent look the same
 
     def study_fields(study_date, indication) -> tuple[str, str]:
@@ -507,6 +504,12 @@ def create_app(
     async def label_error(request: Request, error: LabelError):
         return await api_error(request, ApiError(error.status, error.code, error.message))
 
+    def labeler(request: Request) -> User:
+        """The labeling queue exists only with THORAX_LABELING; annotators still read their assigned studies without it."""
+        if not labeling_on:
+            raise missing()
+        return actor(request, "annotator")
+
     async def labeling_body(request: Request, allowed: set[str]) -> dict:
         body = await read_body(request)
         if set(body) - allowed:
@@ -515,38 +518,38 @@ def create_app(
 
     @app.get("/api/v1/labeling/vocabulary")
     async def labeling_vocabulary(request: Request):
-        actor(request, "annotator")
+        labeler(request)
         return no_store(JSONResponse(labels.vocabulary))
 
     @app.get("/api/v1/labeling/queue")
     async def labeling_queue(request: Request):
-        return no_store(JSONResponse(labels.queue(actor(request, "annotator").id)))
+        return no_store(JSONResponse(labels.queue(labeler(request).id)))
 
     @app.post("/api/v1/labeling/tasks/next")
     async def labeling_next(request: Request):
-        user = actor(request, "annotator")
+        user = labeler(request)
         await labeling_body(request, set())
         return no_store(JSONResponse(labels.claim_next(user.id)))
 
     @app.get("/api/v1/labeling/tasks/{task_id}")
     async def labeling_task(request: Request, task_id: str):
-        return no_store(JSONResponse(labels.task(path_id(task_id), actor(request, "annotator").id)))
+        return no_store(JSONResponse(labels.task(path_id(task_id), labeler(request).id)))
 
     @app.put("/api/v1/labeling/tasks/{task_id}/boxes")
     async def labeling_boxes(request: Request, task_id: str):
-        user = actor(request, "annotator")
+        user = labeler(request)
         body = await labeling_body(request, {"boxes", "revision"})
         return no_store(JSONResponse(labels.save_boxes(path_id(task_id), user.id, body.get("boxes"), body.get("revision"))))
 
     @app.post("/api/v1/labeling/tasks/{task_id}/submit")
     async def labeling_submit(request: Request, task_id: str):
-        user = actor(request, "annotator")
+        user = labeler(request)
         body = await labeling_body(request, {"revision"})
         return no_store(JSONResponse(labels.submit(path_id(task_id), user.id, body.get("revision"))))
 
     @app.post("/api/v1/labeling/tasks/{task_id}/review")
     async def labeling_review(request: Request, task_id: str):
-        user = actor(request, "annotator")
+        user = labeler(request)
         body = await labeling_body(request, {"decision", "comment", "revision"})
         return no_store(JSONResponse(labels.review(path_id(task_id), user.id, body.get("decision"), body.get("comment"), body.get("revision"))))
 

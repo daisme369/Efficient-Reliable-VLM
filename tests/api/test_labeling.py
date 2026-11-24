@@ -133,7 +133,7 @@ class LabelingTests(unittest.TestCase):
         self.assertEqual(self.ana.get(f"/api/v1/images/{task['image_id']}/content").status_code, 200)
         self.assertEqual(self.ben.get(f"/api/v1/images/{task['image_id']}/content").status_code, 404)  # in progress, not his
         self.assertEqual(self.ben.get(f"/api/v1/labeling/tasks/{task['id']}").status_code, 404)
-        self.assertEqual(self.ana.get("/api/v1/patients").json()["error"]["code"], "ROLE_FORBIDDEN")
+        self.assertEqual(self.ana.get("/api/v1/patients").json()["items"], [])  # a resident sees only assigned patients; Ana has none
         self.assertEqual(self.ana.get("/api/v1/images/24210/content").status_code, 404)  # no labeling task at all
         self.assertEqual(self.doctor.get("/api/v1/labeling/queue").json()["error"]["code"], "ROLE_FORBIDDEN")
 
@@ -214,9 +214,9 @@ class LabelingTests(unittest.TestCase):
 
 @unittest.skipUnless(HAS_API_DEPS, "requires requirements/api.txt (fastapi, httpx)")
 class LabelingOffTests(unittest.TestCase):
-    """Default (THORAX_LABELING unset): the doctor's Gate 1 review is the annotation, so the annotator workspace is closed."""
+    """Default (THORAX_LABELING unset): the labeling queue is closed; annotators still sign in to read their assigned studies."""
 
-    def test_annotator_workspace_is_closed_by_default(self):
+    def test_labeling_queue_is_closed_by_default(self):
         from fastapi.testclient import TestClient
         from thorax_api.accounts import AccountStore
         from thorax_api.app import create_app
@@ -230,12 +230,15 @@ class LabelingOffTests(unittest.TestCase):
         with patch.dict(os.environ, {"THORAX_LABELING": ""}):
             app = create_app(db, [WEB], image_root=str(Path(directory.name) / "images"))
         annotator = TestClient(app, headers={"Origin": WEB})
-        refused = annotator.post("/api/v1/auth/login", json={"email": "ana@example.test", "password": PASSWORD})
-        self.assertEqual(refused.status_code, 401)  # the same generic error as a wrong password
+        signed_in = annotator.post("/api/v1/auth/login", json={"email": "ana@example.test", "password": PASSWORD})
+        self.assertEqual(signed_in.status_code, 200, signed_in.text)
+        annotator.headers["X-CSRF-Token"] = signed_in.json()["csrf_token"]
+        self.assertEqual(annotator.get("/api/v1/labeling/queue").status_code, 404)
+        self.assertEqual(annotator.post("/api/v1/labeling/tasks/next").status_code, 404)
         admin = TestClient(app, headers={"Origin": WEB})
         admin.headers["X-CSRF-Token"] = admin.post("/api/v1/auth/login", json={"email": "admin@example.test", "password": PASSWORD}).json()["csrf_token"]
         created = admin.post("/api/v1/admin/users", json={"name": "Cara", "email": "cara@example.test", "role": "annotator", "password": PASSWORD})
-        self.assertEqual(created.status_code, 422)
+        self.assertEqual(created.status_code, 201, created.text)  # residents read in the doctor's workspace
         self.assertEqual(admin.get("/api/v1/admin/labeling").status_code, 404)
         overview = admin.get("/api/v1/admin/overview").json()
         self.assertEqual((overview["labeling_enabled"], overview["labeling"]), (False, None))

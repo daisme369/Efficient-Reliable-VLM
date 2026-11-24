@@ -142,12 +142,12 @@ class FixtureImportTests(unittest.TestCase):
         bundle = self.bundle
         with connect(self.db) as db:
             db.executemany("INSERT INTO patients VALUES (?, ?, ?, ?, ?)", bundle["patients"])
-            db.executemany("INSERT INTO studies VALUES (?, ?, ?, ?)", bundle["studies"])
+            db.executemany("INSERT INTO studies (id, patient_id, study_date, indication) VALUES (?, ?, ?, ?)", bundle["studies"])
             db.executemany("INSERT INTO images (id, study_id, view, width, height, media_type, storage_key, sha256) "
                            "VALUES (?, ?, ?, ?, ?, ?, ?, 'x')", bundle["images"])
             # An admin-created patient with an uploaded study (added after the seed) is not a conflict.
             db.execute("INSERT INTO patients VALUES (13, 'PX-1054', 'Uploaded Patient', 1980, 'Male')")
-            db.execute("INSERT INTO studies VALUES (9001, 13, '2026-11-18', 'Uploaded study')")
+            db.execute("INSERT INTO studies (id, patient_id, study_date, indication) VALUES (9001, 13, '2026-11-18', 'Uploaded study')")
         self.assertEqual(seed_demo(self.catalog), "imported")
         self.assertEqual(seed_demo(self.catalog), "unchanged")
         self.assertGreater(self.count("history_reports"), 0)

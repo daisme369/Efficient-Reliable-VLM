@@ -71,6 +71,8 @@ class Catalog:
             for column, kind in (("uploaded_by", "INTEGER REFERENCES users (id)"), ("uploaded_at", "TEXT")):
                 if column not in columns:
                     db.execute(f"ALTER TABLE images ADD COLUMN {column} {kind}")
+            if "priority" not in table_columns(db, "studies", self.path):  # set at intake; urgent studies allow a preliminary report
+                db.execute("ALTER TABLE studies ADD COLUMN priority TEXT NOT NULL DEFAULT 'routine' CHECK (priority IN ('routine', 'urgent'))")
 
     def is_assigned(self, doctor_id: int, patient_id: int) -> bool:
         with connect(self.path) as db:
