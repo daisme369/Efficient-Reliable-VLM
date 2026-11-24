@@ -647,6 +647,80 @@ class SignoffTests(ReadingBase):
         self.write("post", f"/api/v1/sessions/{sid}/handoff", {"kind": "signoff"}, revision=rev, who=self.annotator)
         self.assertEqual(self.open(2421)["session"]["id"], sid)
 
+    def release(self, sid, rev, communicated_to="Dr. ER on call, ext 4410", key=None):
+        headers = {"If-Match": f'"{rev}"', "Idempotency-Key": key or uuid.uuid4().hex}
+        return self.annotator.post(f"/api/v1/sessions/{sid}/handoff", headers=headers,
+                                   json={"kind": "preliminary", "critical": communicated_to is not None, "communicated_to": communicated_to})
+
+    def test_preliminary_only_on_urgent_studies(self):
+        sid, rid, rev = self.ready_draft(self.annotator)
+        r = self.release(sid, rev, None)
+        self.assertEqual((r.status_code, r.json()["error"]["code"]), (409, "NOT_URGENT"))
+
+    def test_critical_finding_needs_who_was_told(self):
+        self.make_urgent(2421)
+        sid, rid, rev = self.ready_draft(self.annotator)
+        for body in ({"kind": "preliminary", "critical": True, "communicated_to": None}, {"kind": "preliminary", "critical": True, "communicated_to": "  "},
+                     {"kind": "preliminary", "critical": False, "communicated_to": "Dr. ER"}, {"kind": "preliminary", "critical": "yes", "communicated_to": None}):
+            r = self.write("post", f"/api/v1/sessions/{sid}/handoff", body, revision=rev, who=self.annotator)
+            self.assertEqual(r.status_code, 422, body)
+
+    def test_over_read_requires_discrepancy_grade(self):
+        self.make_urgent(2421)
+        sid, rid, rev = self.ready_draft(self.annotator)
+        released = self.release(sid, rev)
+        self.assertEqual(released.status_code, 200, released.text)
+        ws = self.doctor.post("/api/v1/studies/2421/sessions").json()
+        self.assertEqual((ws["study"]["status"], ws["session"]["handoff"], ws["session"]["critical_communicated_to"]),
+                         ("preliminary", "preliminary", "Dr. ER on call, ext 4410"))
+        url = f"/api/v1/sessions/{sid}/reports/{rid}/approve"
+        for body in ({"findings_version": 1}, {"findings_version": 1, "discrepancy": "huge"}):
+            self.assertEqual(self.write("post", url, body, revision=ws["session"]["revision"]).status_code, 422, body)
+        ok = self.write("post", url, {"findings_version": 1, "discrepancy": "minor"}, revision=ws["session"]["revision"])
+        self.assertEqual(ok.status_code, 200, ok.text)
+        final = self.doctor.get(f"/api/v1/sessions/{sid}").json()
+        report = next(r for r in final["reports"] if r["id"] == rid)
+        self.assertEqual((report["discrepancy"], report["approved_by"], final["study"]["status"]), ("minor", 1, "final"))
+        events = self.doctor.get(f"/api/v1/sessions/{sid}/events").json()["items"]
+        self.assertEqual(events[0]["data"]["discrepancy"], "minor")
+        self.assertEqual(next(e for e in events if e["type"] == "preliminary_released")["data"],
+                         {"report_id": rid, "critical": True, "communicated_to": "Dr. ER on call, ext 4410"})
+
+    def test_discrepancy_only_on_a_preliminary(self):
+        sid, rid, rev = self.ready_draft(self.doctor)
+        r = self.write("post", f"/api/v1/sessions/{sid}/reports/{rid}/approve", {"findings_version": 1, "discrepancy": "agree"}, revision=rev)
+        self.assertEqual(r.status_code, 422)
+
+    def test_released_content_survives_doctor_edits(self):
+        self.make_urgent(2421)
+        sid, rid, rev = self.ready_draft(self.annotator)
+        rev = self.write("patch", f"/api/v1/sessions/{sid}/reports/{rid}", {"comparison": "Resident comparison"}, revision=rev, key=False, who=self.annotator).json()["session_revision"]
+        before = next(r for r in self.annotator.get(f"/api/v1/sessions/{sid}").json()["reports"] if r["id"] == rid)["content"]
+        rev = self.release(sid, rev, None).json()["session_revision"]
+        steps = (("patch", "findings", {"items": [], "no_abnormality_confirmed": True}), ("post", "findings/approve", {"findings_version": 2}),
+                 ("post", "reports", {"findings_version": 2}))
+        for method, path, body in steps:  # the doctor reopens Gate 1 and drafts again
+            r = self.write(method, f"/api/v1/sessions/{sid}/{path}", body, revision=rev)
+            self.assertIn(r.status_code, (200, 201), r.text)
+            rev = r.json()["session_revision"]
+        new_report = r.json()["resource_id"]
+        rev = self.write("patch", f"/api/v1/sessions/{sid}/reports/{new_report}", {"impression": "Doctor impression."}, revision=rev, key=False).json()["session_revision"]
+        signed = self.write("post", f"/api/v1/sessions/{sid}/reports/{new_report}/approve", {"findings_version": 2, "discrepancy": "major"}, revision=rev)
+        self.assertEqual(signed.status_code, 200, signed.text)
+        reports = {r["id"]: r for r in self.doctor.get(f"/api/v1/sessions/{sid}").json()["reports"]}
+        self.assertEqual(reports[rid]["status"], "stale")
+        self.assertEqual(reports[rid]["released_content"], {k: before[k] for k in ("comparison", "findings", "impression", "recommendation")})
+        self.assertEqual((reports[new_report]["status"], reports[new_report]["discrepancy"]), ("final", "major"))
+
+    def test_release_preliminary_is_idempotent(self):
+        self.make_urgent(2421)
+        sid, rid, rev = self.ready_draft(self.annotator)
+        key = uuid.uuid4().hex
+        first, again = self.release(sid, rev, key=key), self.release(sid, rev, key=key)
+        self.assertEqual((first.status_code, again.status_code, first.json()), (200, 200, again.json()))
+        events = self.annotator.get(f"/api/v1/sessions/{sid}/events").json()["items"]
+        self.assertEqual([e["type"] for e in events].count("preliminary_released"), 1)
+
     def test_annotator_opens_assigned_study_with_labeling_off(self):
         r = self.annotator.post("/api/v1/studies/2421/sessions")
         self.assertEqual(r.status_code, 201, r.text)

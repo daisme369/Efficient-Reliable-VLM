@@ -895,15 +895,18 @@ class ReadingStore:
         latest = reading["findings"][-1] if reading["findings"] else None
         if report["status"] != "draft" or not latest or latest["status"] != "approved" or report["findings_version"] != latest["version"]:
             fail(409, "REPORT_STALE", "The report is no longer based on the latest approved findings.")
+        over_read = reading["session"]["handoff"] == "preliminary"
         if approving:
-            fields(body, ["findings_version"])
+            fields(body, ["findings_version", "discrepancy"] if over_read else ["findings_version"])
+            if over_read and body.get("discrepancy") not in ("agree", "minor", "major"):
+                invalid("Grade the preliminary report before signing.")
             if body.get("findings_version") != latest["version"]:
                 fail(409, "REPORT_STALE", "Review the latest approved findings revision.")
             if reading["session"]["status"] != "findings_approved":
                 fail(409, "GATE1_REQUIRED", "Approve the latest findings first.")
             if not report["content"]["findings"].strip() or not report["content"]["impression"].strip():
                 invalid("Findings and impression are required.")
-            report.update(status="final", approved_by=reading["actor_id"], approved_at=self.now_iso())
+            report.update(status="final", approved_by=reading["actor_id"], approved_at=self.now_iso(), discrepancy=body.get("discrepancy"))
             reading["session"]["status"] = "final"
         else:
             fields(body, list(NARRATIVE))
@@ -913,21 +916,41 @@ class ReadingStore:
                 if key in body:
                     report["content"][key] = string(body[key], key, 0, 8000)
         report["updated_at"] = self.now_iso()
-        self._record_edit(reading, "gate2_approved" if approving else "report_saved", {"report_id": report["id"], "findings_version": latest["version"]})
+        self._record_edit(reading, "gate2_approved" if approving else "report_saved", {"report_id": report["id"], "findings_version": latest["version"],
+                                                                                       **({"discrepancy": body["discrepancy"]} if approving and over_read else {})})
         return self._receipt(reading, "report", report["id"]), 200
 
     def _handoff(self, db, reading, study, body, kind, target):
-        """A resident hands a finished draft to the doctors: for sign-off (routine)."""
+        """A resident hands a finished draft to the doctors: for sign-off (routine), or released at once as a
+        preliminary report on an urgent study, which a doctor over-reads and grades later."""
         if reading.get("actor_role") != "annotator":
             fail(403, "ROLE_FORBIDDEN", "Only a resident hands a reading to a doctor.")
-        if body.get("kind") != "signoff":
+        kind = body.get("kind")
+        if kind == "signoff":
+            fields(body, ["kind"])
+        elif kind == "preliminary":
+            fields(body, ["kind", "critical", "communicated_to"])
+            critical, told = body.get("critical"), body.get("communicated_to")
+            if not isinstance(critical, bool):
+                invalid("Say whether this is a critical finding.")
+            if critical:
+                told = string(told, "Who was told, and how,", 1, 200).strip()
+            elif told is not None:
+                invalid("Record who was told only for a critical finding.")
+            if study["priority"] != "urgent":
+                fail(409, "NOT_URGENT", "A preliminary report can be released only on an urgent study. Send it to the doctor instead.")
+        else:
             invalid("Choose how to hand off this reading.")
-        fields(body, ["kind"])
         if reading["session"]["status"] != "findings_approved" or self._gate2(reading):
             fail(409, "HANDOFF_NOT_READY", "Approve the findings and save a draft with findings and an impression first.")
         report = next(r for r in reading["reports"] if r["status"] == "draft")
-        reading["session"].update(handoff="signoff", handoff_at=self.now_iso())
-        self._record_edit(reading, "sent_for_signoff", {"report_id": report["id"]})
+        reading["session"].update(handoff=kind, handoff_at=self.now_iso())
+        if kind == "signoff":
+            self._record_edit(reading, "sent_for_signoff", {"report_id": report["id"]})
+        else:
+            report["released_content"] = {key: report["content"][key] for key in NARRATIVE}  # kept as released, whatever the doctor changes later
+            reading["session"]["critical_communicated_to"] = told
+            self._record_edit(reading, "preliminary_released", {"report_id": report["id"], "critical": critical, "communicated_to": told})
         return self._receipt(reading, "report", report["id"]), 200
 
     @staticmethod
