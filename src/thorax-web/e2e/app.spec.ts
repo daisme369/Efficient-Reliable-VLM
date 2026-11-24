@@ -210,6 +210,11 @@ test('annotator sends a routine study to the doctor, who signs it', async ({ bro
   await doctor.getByRole('button', { name: 'Approve final report (Gate 2)' }).click();
   await doctor.getByRole('dialog').getByRole('button', { name: 'Approve final report' }).click();
   await expect(doctor.getByRole('heading', { name: 'Final chest X-ray report' })).toBeVisible({ timeout: 20_000 });
+  await doctor.goto('/patients/3/studies/2431?panel=findings');
+  await expect(doctor.getByText(/^Approved by .+ \(resident\)\.$/)).toBeVisible();
+  await doctor.goto('/worklist');
+  await doctor.getByRole('row', { name: /PX-1044/ }).getByRole('button', { name: /Show studies/ }).click();
+  await expect(doctor.locator('a[href="/patients/3/studies/2431/report"]')).toHaveText('View final report');
 });
 
 test('annotator releases a preliminary on an urgent study; doctor grades it', async ({ browser }) => {

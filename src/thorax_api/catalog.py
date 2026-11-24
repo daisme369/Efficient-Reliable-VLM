@@ -60,6 +60,13 @@ EDITABLE = """(EXISTS (SELECT 1 FROM images i WHERE i.study_id = s.id)
     AND NOT EXISTS (SELECT 1 FROM label_tasks t JOIN images i ON i.id = t.image_id WHERE i.study_id = s.id))"""
 
 
+# The reading the actor lands on when opening the study (same choice as ReadingStore.open_reading): for a doctor,
+# a resident's handed-off reading not yet final, else their own, else a handed-off final one.
+OPENS = """FROM reading_sessions r WHERE r.study_id = s.id
+             AND (r.doctor_id = ? OR (r.handoff IS NOT NULL AND EXISTS (SELECT 1 FROM users u WHERE u.id = ? AND u.role = 'doctor')))
+           ORDER BY CASE WHEN r.handoff IS NOT NULL AND r.status <> 'final' THEN 0 WHEN r.doctor_id = ? THEN 1 ELSE 2 END, r.id LIMIT 1"""
+
+
 class Catalog:
     def __init__(self, path: str | Path, images: ImageStore):
         self.path, self.images = str(path), images
@@ -126,11 +133,11 @@ class Catalog:
                                 WHEN EXISTS (SELECT 1 FROM reading_sessions r WHERE r.study_id = s.id AND r.handoff = 'preliminary') THEN 'preliminary'
                                 WHEN EXISTS (SELECT 1 FROM reading_sessions r WHERE r.study_id = s.id AND r.handoff = 'signoff') THEN 'awaiting_signoff'
                                 WHEN EXISTS (SELECT 1 FROM reading_sessions r WHERE r.study_id = s.id) THEN 'in_progress' ELSE 'new' END AS status,
-                           (SELECT r.id FROM reading_sessions r WHERE r.study_id = s.id AND r.doctor_id = ?) AS own_session_id,
-                           (SELECT r.status FROM reading_sessions r WHERE r.study_id = s.id AND r.doctor_id = ?) AS own_session_status,
+                           (SELECT r.id {OPENS}) AS own_session_id,
+                           (SELECT r.status {OPENS}) AS own_session_status,
                            {EDITABLE} AS editable
                     FROM studies s WHERE {where} ORDER BY s.study_date DESC, s.id DESC""",
-                (actor_id, actor_id, *params),
+                (*(actor_id,) * 6, *params),
             ).fetchall()
         return [{**dict(row), "editable": bool(row["editable"])} for row in rows]
 

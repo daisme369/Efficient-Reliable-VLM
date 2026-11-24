@@ -735,6 +735,26 @@ class SignoffTests(ReadingBase):
         events = self.annotator.get(f"/api/v1/sessions/{ws['session']['id']}/events").json()["items"]
         self.assertEqual(events[-1]["user_id"], 7)
 
+    def test_doctor_worklist_follows_the_handed_off_reading(self):
+        sid, rid, rev = self.ready_draft(self.annotator)
+        self.write("post", f"/api/v1/sessions/{sid}/handoff", {"kind": "signoff"}, revision=rev, who=self.annotator)
+        row = self.doctor.get("/api/v1/patients/2/studies").json()["items"][0]
+        self.assertEqual((row["own_session_id"], row["own_session_status"]), (sid, "findings_approved"))
+        ws = self.doctor.post("/api/v1/studies/2421/sessions").json()
+        self.write("post", f"/api/v1/sessions/{sid}/reports/{rid}/approve", {"findings_version": 1}, revision=ws["session"]["revision"])
+        self.assertEqual(self.doctor.get("/api/v1/studies/2421").json()["own_session_status"], "final")  # -> "View final report"
+        self.assertEqual(self.annotator.get("/api/v1/patients/2/studies").json()["items"][0]["own_session_status"], "final")
+
+    def test_ai_on_a_handed_off_reading_counts_for_the_doctor(self):
+        sid, rid, rev = self.ready_draft(self.annotator)
+        self.write("post", f"/api/v1/sessions/{sid}/handoff", {"kind": "signoff"}, revision=rev, who=self.annotator)
+        ws = self.doctor.post("/api/v1/studies/2421/sessions").json()
+        r = self.write("post", f"/api/v1/sessions/{sid}/ai-requests", {"operation": "draft_report", "findings_version": 1}, revision=ws["session"]["revision"])
+        self.assertEqual(r.status_code, 202, r.text)
+        self.app.state.catalog.set_assignment(7, 2, False)  # the resident losing access does not cancel the doctor's request
+        self.assertEqual(self.settle(ws)["latest_ai_request"]["status"], "succeeded")
+        self.assertEqual(self.app.state.admin.ai_requests()["items"][0]["user_name"], "User 1")
+
     def test_old_database_gains_handoff_columns(self):
         from thorax_api.db import columns, connect
 

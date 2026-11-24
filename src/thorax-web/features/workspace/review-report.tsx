@@ -19,6 +19,7 @@ const included = (item: FindingItem) => item.action === 'accepted' || item.actio
 const actionLabels = { pending: 'Needs review', accepted: 'Accepted', edited: 'Doctor edited', rejected: 'Excluded', added: 'Doctor added' } as const;
 
 export function FindingsPanel({ data, actions, disabled, baseRevision, otherDirty, onDirty, onDraftText, onPanel, onBox }: ReviewProps & { onBox: (id: number) => void }) {
+  const { user } = useAuth();
   const [draft, setDraft] = useState<FindingsEdit | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);
@@ -83,7 +84,7 @@ export function FindingsPanel({ data, actions, disabled, baseRevision, otherDirt
     <div className="panel-heading"><div className="section-heading"><ClipboardCheck size={20} aria-hidden /><h2>Findings review</h2></div><Badge tone={approved ? 'approved' : 'pending'}>{approved ? `Findings approved · v${findings.version}` : `${findings.status === 'ai_proposed' ? 'AI proposed' : 'In review'} · v${findings.version}`}</Badge></div>
     <p className="muted">{pending} {pending === 1 ? 'finding' : 'findings'} and {pendingBoxes} AI {pendingBoxes === 1 ? 'region' : 'regions'} pending review.</p>
     <div className="reading-save-state" role="status"><span>{dirty ? 'Unsaved changes' : saved || 'Saved version'}</span>{approved && <span>Approved {formatTime(findings.approved_at)}</span>}</div>
-    {approved && <p className="dense muted">Approved by {data.session.doctor_id === findings.approved_by ? 'you' : `doctor ${findings.approved_by ?? '—'}`}.</p>}
+    {approved && <p className="dense muted">Approved by {findings.approved_by === user?.id ? 'you' : findings.approved_by === data.prepared_by?.id ? `${data.prepared_by?.name} (resident)` : `doctor ${findings.approved_by ?? '—'}`}.</p>}
     {approved && !readOnly && (dirty || editing) && <Notice tone="pending">Saving this change creates a new findings version and makes any draft report stale.</Notice>}
     {visibleItems.map((item, index) => {
       const original = findings.ai_items.find(source => source.id === item.id);

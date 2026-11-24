@@ -429,10 +429,11 @@ class ReadingStore:
         request, elapsed = job["request"], now_ms - job["submitted_at"]
         data = request["submitted_input"]
         session = reading["session"]
+        requester = request.get("requested_by", session["doctor_id"])  # a doctor may run AI on a resident's handed-off reading
         real = request["provenance"]["provider_mode"] == "real"
         outcome = self._vlm_results.pop(request["request_id"], None) if real else None
         model = None
-        if not self.is_allowed(session["doctor_id"], session["patient_id"]):
+        if not self.is_allowed(requester, session["patient_id"]):
             request["status"] = "cancelled"
             request["error"] = {"code": "AUTHORIZATION_REVOKED", "message": "Access to this study was revoked.", "retryable": False}
         elif outcome is not None and outcome[0] == "error":
@@ -483,7 +484,7 @@ class ReadingStore:
             "output_refs": request["output_refs"], "error_code": (request["error"] or {}).get("code"),
         })
         request["session_revision"] = session["revision"]
-        self.record_ai(session["doctor_id"], request["operation"], request["status"], model_version=version,
+        self.record_ai(requester, request["operation"], request["status"], model_version=version,
                        error_code=(request["error"] or {}).get("code"), latency_ms=latency, db=db)
         return True
 
@@ -1020,7 +1021,7 @@ class ReadingStore:
             "request_id": request_id, "operation": data["operation"], "status": "queued",
             "poll_url": f"/api/v1/sessions/{reading['session']['id']}/ai-requests/{request_id}",
             "session_revision": reading["session"]["revision"], "deadline_at": self._iso_ms(submitted_ms + DEADLINE_MS),
-            "retry_of": data.get("retry_of"), "error": None, "output_refs": {}, "submitted_input": data,
+            "retry_of": data.get("retry_of"), "error": None, "output_refs": {}, "submitted_input": data, "requested_by": reading["actor_id"],
             "provenance": {
                 # Draft report stays template-based on the approved findings, so it never calls the model service.
                 "provider_mode": "real" if real else "mock", "vlm_artifact": None if real else MODEL_ARTIFACTS[0],
