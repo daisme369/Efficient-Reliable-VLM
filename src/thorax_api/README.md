@@ -13,7 +13,7 @@ python scripts/serve_api.py
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `THORAX_DATABASE_URL` | unset | `postgresql://user:password@host:5432/db?sslmode=require` runs on PostgreSQL (AWS RDS); otherwise SQLite. `python -m thorax_api.migrate --source <file>` copies a SQLite database into an empty PostgreSQL one |
+| `THORAX_DATABASE_URL` | unset | `postgresql://user:password@host:5432/db?sslmode=verify-full&sslrootcert=<RDS CA bundle>` runs on PostgreSQL (AWS RDS; `docker/aws-deploy.sh` fetches the bundle); otherwise SQLite. `python -m thorax_api.migrate --source <file>` copies a SQLite database into an empty PostgreSQL one |
 | `THORAX_DB_PATH` | `thorax.sqlite3` | SQLite database file, used when `THORAX_DATABASE_URL` is unset |
 | `THORAX_IMAGE_ROOT` | `thorax-images` | Folder holding image files |
 | `THORAX_WEB_ORIGINS` | `http://127.0.0.1:3000,http://localhost:3000` | Origins allowed to send changes (CSRF/Origin check) |

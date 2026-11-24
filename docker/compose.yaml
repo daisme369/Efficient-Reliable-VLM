@@ -38,7 +38,7 @@ services:
       THORAX_WEB_ORIGINS: https://${THORAX_DOMAIN:?Set THORAX_DOMAIN in docker/.env}
       # The API port is not published: only web and caddy can reach it, so their X-Forwarded-For is trusted.
       THORAX_TRUST_PROXY: "1"
-      # Empty: SQLite on the thorax-data volume. On AWS: postgresql://…@<RDS endpoint>:5432/thorax?sslmode=require
+      # Empty: SQLite on the thorax-data volume. On AWS: postgresql://…@<RDS endpoint>:5432/thorax?sslmode=verify-full&sslrootcert=/certs/rds-ca.pem
       THORAX_DATABASE_URL: ${THORAX_DATABASE_URL:-}
       # Model served by vLLM (docker/DEPLOY.md, "Model server"); all empty: fixed demo answers.
       THORAX_VLM_URL: ${THORAX_VLM_URL:-}
@@ -48,6 +48,7 @@ services:
     volumes:
       - thorax-data:/data
       - ./calibration:/calibration:ro  # M1 metrics.json for calibrated abstention; empty folder when unused
+      - ./certs:/certs:ro  # RDS CA bundle written by aws-deploy.sh; empty folder elsewhere
 
 volumes:
   thorax-data:
