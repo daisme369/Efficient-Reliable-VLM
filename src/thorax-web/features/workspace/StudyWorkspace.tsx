@@ -25,7 +25,7 @@ const editableDrafts = ['box', 'findings', 'report'] as const;
 
 export function StudyRoute({ patientId, studyId, finalReport = false }: { patientId: number; studyId: number; finalReport?: boolean }) {
   const desktop = useDesktop();
-  return <RoleGate role="doctor">{user => desktop ? <StudyBoundary key={`${user.id}:${patientId}:${studyId}:${finalReport}`} actor={user.id} patientId={patientId} studyId={studyId} finalReport={finalReport} /> : <AppShell><DesktopNotice /></AppShell>}</RoleGate>;
+  return <RoleGate role={['doctor', 'annotator']}>{user => desktop ? <StudyBoundary key={`${user.id}:${patientId}:${studyId}:${finalReport}`} actor={user.id} patientId={patientId} studyId={studyId} finalReport={finalReport} /> : <AppShell><DesktopNotice /></AppShell>}</RoleGate>;
 }
 
 function StudyBoundary({ actor, patientId, studyId, finalReport }: { actor: number; patientId: number; studyId: number; finalReport: boolean }) {
@@ -78,7 +78,7 @@ function initialSelection(data: Workspace): { panel: Panel; image: number | null
 
 function Reading({ data, reload, onDenied }: { data: Workspace; reload: () => Promise<Workspace>; onDenied: () => void }) {
   const router = useRouter();
-  const { signOut } = useAuth();
+  const { signOut, user } = useAuth();
   const [selection, setSelection] = useState(() => initialSelection(data));
   const started = Boolean(data.latest_findings);
   const analyzed = data.analyzed_image_id === undefined ? started : data.analyzed_image_id !== null;
@@ -120,7 +120,8 @@ function Reading({ data, reload, onDenied }: { data: Workspace; reload: () => Pr
   const actions = useReadingActions(data, reload, openDiscussion, onDenied, localCommit);
   const dirty = Object.values(drafts).some(Boolean);
   const readOnly = data.session.status === 'final';
-  const blocked = actions.busy || actions.live || actions.offline || actions.uncertain || Boolean(actions.conflict);
+  const handedOff = user?.role === 'annotator' && Boolean(data.session.handoff);  // the resident's reading is now the doctor's
+  const blocked = handedOff || actions.busy || actions.live || actions.offline || actions.uncertain || Boolean(actions.conflict);
   const activeBoxes = data.boxes.filter(box => !box.deleted_at);
   const pendingBoxes = activeBoxes.filter(box => box.source === 'ai' && box.review_action === 'pending');
   const pendingFindings = data.latest_findings?.items.filter(item => item.action === 'pending').length ?? 0;
@@ -214,7 +215,7 @@ function Reading({ data, reload, onDenied }: { data: Workspace; reload: () => Pr
   }
 
   const linkedFindings = Object.fromEntries((data.latest_findings?.items ?? []).flatMap(item => item.box_ids.map(id => [id, item.text])));
-  const blockingCopy = actions.offline || actions.uncertain ? 'Reconnect before making changes.' : actions.live ? 'An AI request is running.' : actions.conflict ? 'Resolve the version conflict first.' : actions.busy ? 'Saving the current action…' : undefined;
+  const blockingCopy = handedOff ? 'This reading was handed to a doctor.' : actions.offline || actions.uncertain ? 'Reconnect before making changes.' : actions.live ? 'An AI request is running.' : actions.conflict ? 'Resolve the version conflict first.' : actions.busy ? 'Saving the current action…' : undefined;
   const context = <StudyContext data={data} pendingBoxes={pendingBoxes.length} pendingFindings={pendingFindings} onPanel={setPanel} audit={audit} onAudit={() => setAudit(!audit)} />;
 
   return <AppShell workspace onWorklist={() => go(() => router.push('/worklist'))} onSignOut={() => go(signout)}>
@@ -224,6 +225,7 @@ function Reading({ data, reload, onDenied }: { data: Workspace; reload: () => Pr
         <dl><div><dt>Patient</dt><dd className="patient-name">{data.patient.name}</dd></div><div><dt>Patient code</dt><dd className="mono">{data.patient.code}</dd></div>
           <div><dt>Birth year · Sex</dt><dd className="mono">{data.patient.birth_year ?? '—'} · {data.patient.sex ?? '—'}</dd></div>
           <div><dt>Study date · View</dt><dd className="mono">{formatDate(data.study.study_date)}{image && ` · ${image.view}`}</dd></div>
+          {data.prepared_by && <div><dt>Prepared by</dt><dd>{data.prepared_by.name}</dd></div>}
           <div><dt>My reading</dt><dd><Badge tone={readOnly || data.session.status === 'findings_approved' ? 'approved' : 'info'}>{readOnly && <LockKeyhole size={14} aria-hidden />}{readingLabel(data.session.status)}</Badge></dd></div></dl>
         <div className="identity-end"><Badge tone="info"><FlaskConical size={14} aria-hidden />{data.capabilities.provider_mode === 'mock' ? 'Mock AI' : 'Real AI'}</Badge><DemoBadge mode={data.capabilities.provider_mode} />
           <button ref={drawerButton} className="button context-toggle" aria-expanded={drawer} aria-controls="context-drawer" onClick={() => setDrawer(!drawer)}><PanelLeft size={17} aria-hidden />Study context</button></div>
@@ -231,6 +233,8 @@ function Reading({ data, reload, onDenied }: { data: Workspace; reload: () => Pr
       {(actions.offline || actions.uncertain) && <div className="workspace-notice"><Notice tone="pending">{actions.uncertain ? 'The connection was interrupted. Check whether the action was saved.' : 'Offline. Already loaded content is available for review.'}</Notice><button className="button" disabled={actions.checking || actions.busy} onClick={() => void actions.reconnect()}>{actions.checking ? 'Checking…' : actions.uncertain ? 'Check saved status' : 'Reconnect'}</button></div>}
       {actions.error && !actions.uncertain && <div className="workspace-notice"><Notice tone="error">{actions.error}</Notice></div>}
       {signoutError && <div className="workspace-notice"><Notice tone="error">{signoutError}</Notice></div>}
+      {data.session.handoff === 'preliminary' && !readOnly && <div className="workspace-notice preliminary-banner" role="alert"><strong>PRELIMINARY: not signed by a doctor</strong>{data.session.critical_communicated_to && <span>Critical finding communicated to {data.session.critical_communicated_to}</span>}</div>}
+      {handedOff && !readOnly && <div className="workspace-notice"><Notice tone="info">{data.session.handoff === 'preliminary' ? 'You released this preliminary report. A doctor will over-read and sign it; it is read-only for you now.' : 'Sent to the doctor for sign-off. It is read-only for you now.'}</Notice></div>}
       <div className={`workspace-grid${drawer ? ' drawer-open' : ''}`}>
         <aside className="surface context-rail" aria-label="Study context">{context}</aside>
         {drawer && <aside className="surface context-drawer" id="context-drawer" aria-label="Study context" onKeyDown={event => { if (event.key === 'Escape') { setDrawer(false); drawerButton.current?.focus(); } }}>{context}</aside>}

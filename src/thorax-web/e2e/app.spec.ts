@@ -178,3 +178,61 @@ test('a user changes their password and signs in with it', async ({ page }) => {
   await signIn(page, 'technician@thorax.demo', next, /\/intake$/);
   await change(next, PASSWORDS.technician);  // restore for reruns against the same data
 });
+
+/** The demo resident reads a study by manual review up to a saved draft report. */
+async function residentDraft(page: import('@playwright/test').Page, patient: number, study: number) {
+  await signIn(page, 'annotator@thorax.demo', PASSWORDS.annotator, LABELING_ON ? /\/labeling$/ : /\/worklist$/);
+  await page.goto(`/patients/${patient}/studies/${study}`);
+  await page.getByRole('button', { name: 'Start manual review' }).click();
+  await page.getByLabel('No abnormal findings confirmed').check();
+  await page.getByRole('button', { name: 'Save findings' }).click();
+  await page.getByRole('button', { name: 'Approve findings (Gate 1)' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Approve findings' }).click();
+  await page.getByRole('button', { name: /Go to report/ }).click();
+  await page.getByRole('button', { name: 'Create report manually' }).click();
+  await expect(page.getByRole('button', { name: 'Send to doctor' })).toBeEnabled({ timeout: 20_000 });
+  await expect(page.getByRole('button', { name: 'Approve final report (Gate 2)' })).toHaveCount(0);  // only doctors sign
+}
+
+test('annotator sends a routine study to the doctor, who signs it', async ({ browser }) => {
+  const resident = await (await browser.newContext()).newPage();
+  await residentDraft(resident, 3, 2431);
+  await resident.getByRole('button', { name: 'Send to doctor' }).click();
+  await resident.getByRole('dialog').getByRole('button', { name: 'Send to doctor' }).click();
+  await expect(resident.getByText('Sent to the doctor for sign-off. It is read-only for you now.')).toBeVisible();
+
+  const doctor = await (await browser.newContext()).newPage();
+  await signIn(doctor, 'doctor@thorax.demo', PASSWORDS.doctor, /\/worklist$/);
+  await doctor.getByRole('row', { name: /PX-1044/ }).getByRole('button', { name: /Show studies/ }).click();
+  await expect(doctor.getByText('Awaiting sign-off')).toBeVisible();
+  await doctor.goto('/patients/3/studies/2431?panel=report');
+  await expect(doctor.getByText('Prepared by')).toBeVisible();
+  await doctor.getByRole('button', { name: 'Approve final report (Gate 2)' }).click();
+  await doctor.getByRole('dialog').getByRole('button', { name: 'Approve final report' }).click();
+  await expect(doctor.getByRole('heading', { name: 'Final chest X-ray report' })).toBeVisible({ timeout: 20_000 });
+});
+
+test('annotator releases a preliminary on an urgent study; doctor grades it', async ({ browser }) => {
+  const resident = await (await browser.newContext()).newPage();
+  await residentDraft(resident, 4, 2441);
+  await resident.getByRole('button', { name: 'Release preliminary' }).click();
+  const dialog = resident.getByRole('dialog');
+  await dialog.getByLabel('Critical finding?').check();
+  await dialog.getByLabel('Who was told, and how').fill('ER doctor, phone');
+  await dialog.getByRole('button', { name: 'Release preliminary' }).click();
+  await expect(resident.getByText('PRELIMINARY: not signed by a doctor')).toBeVisible();
+
+  const doctor = await (await browser.newContext()).newPage();
+  await signIn(doctor, 'doctor@thorax.demo', PASSWORDS.doctor, /\/worklist$/);
+  await doctor.goto('/patients/4/studies/2441?panel=report');
+  await expect(doctor.getByText('PRELIMINARY: not signed by a doctor')).toBeVisible();
+  await expect(doctor.getByText('Critical finding communicated to ER doctor, phone')).toBeVisible();
+  const sign = doctor.getByRole('button', { name: 'Approve final report (Gate 2)' });
+  await expect(sign).toBeDisabled();
+  await doctor.getByLabel('Minor change').check();
+  await expect(sign).toBeEnabled();
+  await sign.click();
+  await doctor.getByRole('dialog').getByRole('button', { name: 'Approve final report' }).click();
+  await expect(doctor.getByRole('heading', { name: 'Final chest X-ray report' })).toBeVisible({ timeout: 20_000 });
+  await expect(doctor.getByText('PRELIMINARY: not signed by a doctor')).toHaveCount(0);
+});

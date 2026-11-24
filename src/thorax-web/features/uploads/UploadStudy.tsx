@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Confirm, formatDate } from '@/components/ui';
 import { api, ApiError } from '@/lib/api';
-import type { StudyDetail, StudyDTO, View } from '@/lib/contracts';
+import type { Priority, StudyDetail, StudyDTO, View } from '@/lib/contracts';
 
 const MAX_BYTES = 10 * 1024 * 1024;
 const MAX_FILES = 3;
@@ -28,6 +28,7 @@ export function UploadStudy({ patientId, patientLabel, study: existing, onClose,
 }) {
   const [date, setDate] = useState(localToday);
   const [indication, setIndication] = useState('');
+  const [priority, setPriority] = useState<Priority>('routine');
   const [files, setFiles] = useState<{ file: File; view: View }[]>([]);
   const [permitted, setPermitted] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -53,7 +54,7 @@ export function UploadStudy({ patientId, patientLabel, study: existing, onClose,
       const queue = [...files];
       if (!existing) {
         const first = queue.shift()!;
-        study = await api.createStudy(patientId, { study_date: date, indication: indication.trim(), view: first.view }, first.file);
+        study = await api.createStudy(patientId, { study_date: date, indication: indication.trim(), view: first.view, priority }, first.file);
         saved += 1;
       }
       for (const { file, view } of queue) { study = await api.addStudyImage(existing?.id ?? study!.id, view, file); saved += 1; }
@@ -75,6 +76,7 @@ export function UploadStudy({ patientId, patientLabel, study: existing, onClose,
       {!existing && <>
         <label className="field">Study date<input type="date" required max={localToday()} value={date} onChange={event => setDate(event.target.value)} /></label>
         <label className="field">Indication<input maxLength={200} placeholder="For example: Persistent cough" value={indication} onChange={event => setIndication(event.target.value)} /></label>
+        <label className="field">Priority<select value={priority} onChange={event => setPriority(event.target.value as Priority)}><option value="routine">Routine</option><option value="urgent">Urgent</option></select></label>
       </>}
       {room > 0 ? <label className="field">Images (PNG or JPEG, up to {room}, 10 MiB each)
         <input type="file" accept="image/png,image/jpeg" multiple={room > 1} onChange={event => choose(event.target.files)} />

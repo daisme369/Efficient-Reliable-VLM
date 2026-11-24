@@ -107,18 +107,20 @@ export function useAuth() {
   return auth;
 }
 
-export function homeFor(user: AuthUser) { return { admin: '/admin', annotator: '/labeling', doctor: '/worklist', technician: '/intake' }[user.role]; }
+export function homeFor(user: AuthUser) { return { admin: '/admin', annotator: user.labeling_enabled ? '/labeling' : '/worklist', doctor: '/worklist', technician: '/intake' }[user.role]; }
 
-export function RoleGate({ role, children }: { role: AuthUser['role']; children: (user: AuthUser) => ReactNode }) {
+/** `role`: one role, or several (residents use the doctor's worklist and workspace). */
+export function RoleGate({ role, children }: { role: AuthUser['role'] | AuthUser['role'][]; children: (user: AuthUser) => ReactNode }) {
+  const allowed = (user: AuthUser) => (Array.isArray(role) ? role : [role]).includes(user.role);
   const auth = useAuth();
   const router = useRouter();
   useEffect(() => {
     if (auth.loading || auth.error) return;
     if (!auth.user) router.replace('/login');
-    else if (auth.user.role !== role) router.replace(homeFor(auth.user));
-  }, [auth.loading, auth.error, auth.user, role, router]);
+    else if (!allowed(auth.user)) router.replace(homeFor(auth.user));
+  }, [auth.loading, auth.error, auth.user, role, router]);  // eslint-disable-line react-hooks/exhaustive-deps
   if (auth.error) return <main id="main-content" className="page-wrap"><EmptyState title="Could not reach the server" action={<button className="button" onClick={() => window.location.reload()}>Retry</button>}>Check your connection and try again.</EmptyState></main>;
-  if (!auth.user || auth.user.role !== role) return <main id="main-content" className="page-wrap"><Skeleton label="Checking access" /></main>;
+  if (!auth.user || !allowed(auth.user)) return <main id="main-content" className="page-wrap"><Skeleton label="Checking access" /></main>;
   return children(auth.user);
 }
 
@@ -162,19 +164,20 @@ export function AppShell({ children, workspace, onWorklist, onLabelingQueue, onS
   return <div className={workspace ? 'app-shell app-shell-workspace' : 'app-shell'}>
     <a className="skip-link" href="#main-content">Skip to main content</a>
     <header className="app-header">
-      <Brand /><span className="app-descriptor">{user?.role === 'annotator' ? 'Labeling workspace' : user?.role === 'technician' ? 'Patient intake' : 'Chest X-ray Reading Assistant'}</span>
+      <Brand /><span className="app-descriptor">{user?.role === 'annotator' && pathname.startsWith('/labeling') ? 'Labeling workspace' : user?.role === 'technician' ? 'Patient intake' : 'Chest X-ray Reading Assistant'}</span>
       {user && <nav aria-label="Primary navigation" className="main-nav">
-        {user.role === 'doctor' ? <Link prefetch={false} href="/worklist" aria-current={pathname === '/worklist' ? 'page' : undefined} onClick={onWorklist ? event => { if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); onWorklist(); } : undefined}>
+        {user.role === 'doctor' || (user.role === 'annotator' && !pathname.startsWith('/labeling')) ? <Link prefetch={false} href="/worklist" aria-current={pathname === '/worklist' ? 'page' : undefined} onClick={onWorklist ? event => { if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); onWorklist(); } : undefined}>
           {pathname !== '/worklist' && <ArrowLeft size={16} aria-hidden />} Worklist
         </Link> : user.role === 'annotator' ? <Link prefetch={false} href="/labeling" aria-current={pathname === '/labeling' ? 'page' : undefined} onClick={onLabelingQueue ? event => { if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); onLabelingQueue(); } : undefined}>
           {pathname !== '/labeling' && <ArrowLeft size={16} aria-hidden />} Labeling queue
         </Link> : <Link prefetch={false} href="/admin" aria-current="page">Admin</Link>}
         {user.role === 'annotator' && pathname.startsWith('/labeling/') && <><ChevronRight size={14} aria-hidden /><span>Label image</span></>}
-        {user.role === 'doctor' && pathname.startsWith('/patients/') && <><ChevronRight size={14} aria-hidden /><span>{pathname.endsWith('/report') ? 'Final report' : 'Study workspace'}</span></>}
+        {user.role === 'annotator' && user.labeling_enabled && !pathname.startsWith('/labeling') && <Link prefetch={false} href="/labeling">Labeling queue</Link>}
+        {(user.role === 'doctor' || user.role === 'annotator') && pathname.startsWith('/patients/') && <><ChevronRight size={14} aria-hidden /><span>{pathname.endsWith('/report') ? 'Final report' : 'Study workspace'}</span></>}
       </nav>}
       <div className="header-account">
         <LanguageToggle />
-        {user && <><span className="avatar" aria-hidden>{initials}</span><span className="account-name"><strong>{user.name}</strong><span>{{ admin: 'Administrator', annotator: 'Annotator', doctor: 'Doctor', technician: 'X-ray technician' }[user.role]}</span></span></>}
+        {user && <><span className="avatar" aria-hidden>{initials}</span><span className="account-name"><strong>{user.name}</strong><span>{{ admin: 'Administrator', annotator: 'Resident', doctor: 'Doctor', technician: 'X-ray technician' }[user.role]}</span></span></>}
         {user && backendConnected && <button className="button ghost" onClick={() => setChangingPassword(true)}><KeyRound size={16} aria-hidden /> Change password</button>}
         {user && <button className="button ghost" onClick={() => void leave()} disabled={signingOut}><LogOut size={16} aria-hidden /> {signingOut ? 'Signing out…' : 'Sign out'}</button>}
       </div>

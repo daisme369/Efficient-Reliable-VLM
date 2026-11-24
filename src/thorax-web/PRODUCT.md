@@ -12,7 +12,7 @@ Next.js 15 App Router, React, TypeScript, Tailwind and TanStack Query, as specif
 
 ## Users
 
-X-ray technicians register patients and push chest X-ray studies (patient intake); they do not read images or reports. Doctors find the studies of their assigned patients on the worklist, read them and approve their own readings; they do not upload. Administrators manage accounts and patient assignments, monitor and pause the AI, and can also do intake. A separate annotator labeling workspace exists but is off by default (`THORAX_LABELING`): the doctor's reviewed findings and boxes at Gate 1 are the annotations. With the local demo API, the administrator console is limited to doctor accounts, assignments and fixtures, and labeling is unavailable.
+X-ray technicians register patients and push chest X-ray studies (patient intake); they do not read images or reports. Doctors find the studies of their assigned patients on the worklist, read them and approve their own readings; they do not upload. Administrators manage accounts and patient assignments, monitor and pause the AI, and can also do intake. Annotators act as residents: they read their assigned studies in the same workspace, but instead of signing they **Send to doctor**; on an urgent study they may **Release preliminary**, which a doctor over-reads and grades (agree, minor or major change) before signing. A separate labeling queue exists but is off by default (`THORAX_LABELING`): the doctor's reviewed findings and boxes at Gate 1 are the annotations. With the local demo API, the administrator console is limited to doctor accounts, assignments and fixtures, and labeling is unavailable.
 
 ## Product Purpose
 

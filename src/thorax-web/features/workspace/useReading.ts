@@ -34,7 +34,7 @@ export function useReading(actor: number, patientId: number, studyId: number) {
   const session = useRef<number | undefined>(undefined);
 
   function check(value: Workspace) {
-    if (value.patient.id !== patientId || value.study.id !== studyId || value.study.patient_id !== patientId || value.session.doctor_id !== actor || value.session.patient_id !== patientId || value.session.study_id !== studyId || (session.current !== undefined && value.session.id !== session.current)) throw unavailable();
+    if (value.patient.id !== patientId || value.study.id !== studyId || value.study.patient_id !== patientId || (value.session.doctor_id !== actor && !value.session.handoff) ||  /* a doctor finishes a resident's handed-off reading */ value.session.patient_id !== patientId || value.session.study_id !== studyId || (session.current !== undefined && value.session.id !== session.current)) throw unavailable();
     return value;
   }
 

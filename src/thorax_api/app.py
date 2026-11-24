@@ -111,7 +111,7 @@ def create_app(
 
     def payload(user: User, token: str, login: Login) -> dict:
         expires = datetime.fromtimestamp(login.expires(), timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-        return {**user.public(), "csrf_token": csrf(token), "expires_at": expires}
+        return {**user.public(), "csrf_token": csrf(token), "expires_at": expires, "labeling_enabled": labeling_on}
 
     def check_origin(request: Request) -> str:
         origin = (request.headers.get("origin") or "").rstrip("/")

@@ -219,12 +219,8 @@ def main(argv: list[str] | None = None) -> int:
             from .catalog import Catalog, seed_demo
             from .storage import LocalImageStore
 
-            from .labeling import labeling_enabled
-
             for user_id, name, email, role, env_name in DEMO_ACCOUNTS:
                 password = os.environ.get(env_name)
-                if role == "annotator" and not labeling_enabled():
-                    continue  # labeling is off (THORAX_LABELING); doctors' Gate 1 reviews are the annotations
                 if not password and role in ("annotator", "technician"):
                     print(f"skipped {email}: set {env_name} to create this demo account")
                     continue
@@ -234,6 +230,11 @@ def main(argv: list[str] | None = None) -> int:
                     store.create(email, name, role, password, user_id)
             catalog = Catalog(args.db, LocalImageStore(os.environ.get("THORAX_IMAGE_ROOT", "thorax-images")))
             seed_demo(catalog)
+            if store.by_email("annotator@thorax.demo"):  # the demo resident reads with doctor 1; one of those studies is urgent
+                for _, patient_id in [pair for pair in catalog.assignments() if pair[0] == 1]:
+                    catalog.set_assignment(4, patient_id, True)
+                with connect(args.db) as db:
+                    db.execute("UPDATE studies SET priority = 'urgent' WHERE id = 2441")
             from .labeling import LabelStore
             with connect(args.db) as db:
                 LabelStore(args.db).create_tasks([row[0] for row in db.execute("SELECT id FROM images ORDER BY id")])

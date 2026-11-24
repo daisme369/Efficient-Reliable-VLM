@@ -789,6 +789,34 @@ export const VI: Record<string, string> = {
   'Approve the latest findings before drafting a report.': 'Duyệt kết quả mới nhất trước khi soạn báo cáo.',
   'Generate a draft report.': 'Tạo bản nháp báo cáo.',
   'Save a findings section and an impression before signing.': 'Lưu phần kết quả và kết luận trước khi ký.',
+  // Resident sign-off and the emergency preliminary report
+  'Resident': 'Bác sĩ nội trú',
+  'Awaiting sign-off': 'Chờ ký duyệt',
+  'Preliminary released': 'Đã phát hành sơ bộ',
+  'Urgent': 'Khẩn',
+  'Routine': 'Thường quy',
+  'Priority': 'Mức ưu tiên',
+  'Send to doctor': 'Gửi bác sĩ',
+  'Release preliminary': 'Phát hành báo cáo sơ bộ',
+  'Hand to a doctor': 'Chuyển cho bác sĩ',
+  'Only a doctor signs the final report.': 'Chỉ bác sĩ được ký báo cáo cuối.',
+  'Grade the preliminary report before signing.': 'Hãy đánh giá báo cáo sơ bộ trước khi ký.',
+  'Preliminary report as released': 'Báo cáo sơ bộ như đã phát hành',
+  'Over-read: compared with the preliminary report': 'Đọc lại: so với báo cáo sơ bộ',
+  'Agree': 'Đồng ý',
+  'Minor change': 'Thay đổi nhỏ',
+  'Major change': 'Thay đổi lớn',
+  'The assigned doctor reviews, edits if needed and signs this report. It becomes read-only for you.': 'Bác sĩ được phân công sẽ xem, sửa nếu cần và ký báo cáo này. Bạn sẽ chỉ còn quyền xem.',
+  'The report is shown as PRELIMINARY until a doctor over-reads and signs it.': 'Báo cáo hiển thị là SƠ BỘ cho đến khi bác sĩ đọc lại và ký.',
+  'Critical finding?': 'Phát hiện nguy kịch?',
+  'Who was told, and how': 'Đã báo cho ai, bằng cách nào',
+  'For example: ER doctor on call, by phone': 'Ví dụ: bác sĩ trực cấp cứu, qua điện thoại',
+  'Record who was told before releasing.': 'Ghi lại người đã được báo trước khi phát hành.',
+  'PRELIMINARY: not signed by a doctor': 'SƠ BỘ: chưa được bác sĩ ký',
+  'You released this preliminary report. A doctor will over-read and sign it; it is read-only for you now.': 'Bạn đã phát hành báo cáo sơ bộ này. Bác sĩ sẽ đọc lại và ký; giờ bạn chỉ có quyền xem.',
+  'Sent to the doctor for sign-off. It is read-only for you now.': 'Đã gửi bác sĩ ký duyệt. Giờ bạn chỉ có quyền xem.',
+  'Prepared by': 'Người chuẩn bị',
+  'This reading was handed to a doctor.': 'Ca đọc này đã được chuyển cho bác sĩ.',
 };
 
 // Text built from values ({} in the source); matched as whole strings.
@@ -808,6 +836,7 @@ export const VI_PATTERNS: [RegExp, (...groups: string[]) => string][] = [
   [/^(\d+) disabled$/, n => `${n} đã vô hiệu hóa`],
   [/^(\d+) of (\d+) images approved$/, (a, b) => `Đã duyệt ${a}/${b} ảnh`],
   [/^(\d+) images in the labeling queue\.$/, n => `${n} ảnh trong hàng đợi gán nhãn.`],
+  [/^Critical finding communicated to (.+)$/, who => `Đã báo phát hiện nguy kịch cho ${who}`],
   [/^Export (\d+) approved images$/, n => `Xuất ${n} ảnh đã duyệt`],
 ];
 

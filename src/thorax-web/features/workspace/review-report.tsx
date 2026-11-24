@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import { AppShell, DemoBadge, useAuth } from '@/components/shell';
 import { aiSuggestion, Badge, Confirm, EmptyState, formatDate, formatTime, Notice, Spinner } from '@/components/ui';
 import { actionKey, api, ApiError } from '@/lib/api';
-import type { BoxDTO, FindingItem, FindingsEdit, ReportDTO, ReportNarrative, Workspace } from '@/lib/contracts';
+import type { BoxDTO, Discrepancy, FindingItem, FindingsEdit, ReportDTO, ReportNarrative, Workspace } from '@/lib/contracts';
 import type { Panel } from './StudyWorkspace';
 import { AIStatus, imageLabel, SourceDetails } from './analysis-chat';
 import type { ReadingActions } from './useReading';
@@ -139,6 +139,14 @@ export function ReportPanel({ data, actions, disabled, baseRevision, otherDirty,
   const [edited, setEdited] = useState<{ id: number; value: ReportNarrative } | null>(null);
   const [confirm, setConfirm] = useState(false);
   const [saved, setSaved] = useState('');
+  const { user } = useAuth();
+  const resident = user?.role === 'annotator';
+  const overRead = !resident && data.session.handoff === 'preliminary';
+  const [grade, setGrade] = useState<Discrepancy | null>(null);
+  const [handing, setHanding] = useState<'signoff' | 'preliminary' | null>(null);
+  const [critical, setCritical] = useState(false);
+  const [told, setTold] = useState('');
+  const released = data.reports.find(item => item.released_content)?.released_content;
   const current = data.reports.find(report => report.status === 'final') ?? [...data.reports].sort((a, b) => b.id - a.id)[0];
   const report = data.reports.find(item => item.id === selected) ?? current;
   const approved = data.latest_findings?.status === 'approved' ? data.latest_findings : null;
@@ -147,7 +155,8 @@ export function ReportPanel({ data, actions, disabled, baseRevision, otherDirty,
   const draft = Boolean(report?.status === 'draft' && approved && report.findings_version === approved.version);
   const copy = report ? dirty ? edited?.value : narrative(report.content) : undefined;
   const blockers = data.blockers.filter(item => item.gate === 'gate2');
-  const canApprove = Boolean(draft && !dirty && !otherDirty && !disabled && !readOnly && blockers.length === 0 && report?.content.findings.trim() && report?.content.impression.trim());
+  const ready = Boolean(draft && !dirty && !otherDirty && !disabled && !readOnly && blockers.length === 0 && report?.content.findings.trim() && report?.content.impression.trim());
+  const canApprove = ready && !resident && (!overRead || grade !== null);
   const job = actions.job?.operation === 'draft_report' ? actions.job : null;
   const href = `/patients/${data.patient.id}/studies/${data.study.id}/report`;
 
@@ -170,7 +179,12 @@ export function ReportPanel({ data, actions, disabled, baseRevision, otherDirty,
   }
   function approve() {
     if (!report || !canApprove) return;
-    void actions.transact(options => api.approveReport(data.session.id, report.id, report.findings_version, options), () => { setConfirm(false); onFinal(); }).catch(() => { setConfirm(false); });
+    void actions.transact(options => api.approveReport(data.session.id, report.id, report.findings_version, options, overRead ? grade ?? undefined : undefined), () => { setConfirm(false); onFinal(); }).catch(() => { setConfirm(false); });
+  }
+  function handOff() {
+    if (!handing || !ready || (handing === 'preliminary' && critical && !told.trim())) return;
+    const body = handing === 'signoff' ? { kind: 'signoff' as const } : { kind: 'preliminary' as const, critical, communicated_to: critical ? told.trim() : null };
+    void actions.transact(options => api.handoff(data.session.id, body, options), () => setHanding(null)).catch(() => setHanding(null));
   }
   return <div className="panel-content report-panel">
     <div className="panel-heading"><div className="section-heading"><FileText size={20} aria-hidden /><h2>Structured report</h2></div>{readOnly && <Badge tone="approved"><LockKeyhole size={14} aria-hidden />Final</Badge>}</div>
@@ -188,11 +202,23 @@ export function ReportPanel({ data, actions, disabled, baseRevision, otherDirty,
       {fields.map(([field, label]) => draft && !readOnly ? <div className="field" key={field}><label htmlFor={`report-${field}`}>{label}</label><textarea id={`report-${field}`} maxLength={8000} rows={field === 'findings' || field === 'impression' ? 4 : 2} readOnly={disabled} value={copy[field]} onChange={event => { setSaved(''); setEdited({ id: report.id, value: { ...copy, [field]: event.target.value } }); }} /></div> : <section className="report-section" key={field}><h3>{label}</h3><p>{report.content[field] || '—'}</p></section>)}
       {draft && !readOnly && <div className="panel-footer"><p className="dense muted" role="status">{dirty ? 'Unsaved changes' : saved || 'Draft saved'} · <button className="text-button" onClick={() => onPanel('findings')}>Return to findings</button></p>
         <div className="row-actions"><button className="button" disabled={!dirty || disabled} onClick={save}>{actions.busy ? <Spinner /> : <Save size={16} aria-hidden />}Save report</button>{dirty && <button className="button ghost" disabled={disabled} onClick={() => setEdited(null)}>Discard changes</button>}</div>
-        <div className="gate-details"><strong>Gate 2 · Final approval</strong>{!canApprove && <p>{dirty || otherDirty ? 'Save or discard changes first.' : blockers[0]?.message || 'Save a nonempty Findings and Impression to approve.'}</p>}</div>
-        <button className="button primary full-action" disabled={!canApprove} onClick={() => setConfirm(true)}><FileCheck size={17} aria-hidden />Approve final report (Gate 2)</button>
+        {overRead && released && <details className="source-details" open><summary>Preliminary report as released</summary>{fields.map(([field, label]) => <section className="report-section" key={field}><h3>{label}</h3><p>{released[field] || '—'}</p></section>)}</details>}
+        {overRead && <fieldset className="discrepancy"><legend>Over-read: compared with the preliminary report</legend>{([['agree', 'Agree'], ['minor', 'Minor change'], ['major', 'Major change']] as const).map(([value, label]) => <label key={value}><input type="radio" name="discrepancy" checked={grade === value} onChange={() => setGrade(value)} />{label}</label>)}</fieldset>}
+        <div className="gate-details"><strong>{resident ? 'Hand to a doctor' : 'Gate 2 · Final approval'}</strong>{!ready ? <p>{dirty || otherDirty ? 'Save or discard changes first.' : blockers[0]?.message || 'Save a nonempty Findings and Impression to approve.'}</p> : overRead && !grade ? <p>Grade the preliminary report before signing.</p> : resident ? <p>Only a doctor signs the final report.</p> : null}</div>
+        {resident ? <>
+          <button className="button primary full-action" disabled={!ready} onClick={() => setHanding('signoff')}><FileCheck size={17} aria-hidden />Send to doctor</button>
+          {data.study.priority === 'urgent' && <button className="button full-action" disabled={!ready} onClick={() => setHanding('preliminary')}><FileCheck size={17} aria-hidden />Release preliminary</button>}
+        </> : <button className="button primary full-action" disabled={!canApprove} onClick={() => setConfirm(true)}><FileCheck size={17} aria-hidden />Approve final report (Gate 2)</button>}
       </div>}
     </>}
     {approved && !draft && !readOnly && <><button className="button primary full-action" disabled={disabled || otherDirty || dirty} onClick={generate}><FileText size={17} aria-hidden />{report ? 'Generate new report' : 'Generate report'}</button><button className="button full-action" disabled={disabled || otherDirty || dirty} onClick={createManually}><FileText size={17} aria-hidden />Create report manually</button>{(otherDirty || dirty) && <p className="muted dense">Save or discard your changes before drafting.</p>}</>}
+    {handing === 'signoff' && <Confirm title="Send to doctor" action="Send to doctor" pending={actions.busy} onCancel={() => setHanding(null)} onConfirm={handOff}><p>The assigned doctor reviews, edits if needed and signs this report. It becomes read-only for you.</p><p><strong>{data.patient.name}</strong> · {formatDate(data.study.study_date)}</p></Confirm>}
+    {handing === 'preliminary' && <Confirm title="Release preliminary" action="Release preliminary" pending={actions.busy} onCancel={() => setHanding(null)} onConfirm={handOff}>
+      <p>The report is shown as PRELIMINARY until a doctor over-reads and signs it.</p>
+      <label className="checkbox-line"><input type="checkbox" checked={critical} onChange={event => setCritical(event.target.checked)} />Critical finding?</label>
+      {critical && <label className="field">Who was told, and how<input maxLength={200} required value={told} placeholder="For example: ER doctor on call, by phone" onChange={event => setTold(event.target.value)} /></label>}
+      {critical && !told.trim() && <p className="muted dense">Record who was told before releasing.</p>}
+    </Confirm>}
     {confirm && report && <Confirm title="Approve final report (Gate 2)" action="Approve final report" cancel="Continue editing" pending={actions.busy} onCancel={() => setConfirm(false)} onConfirm={approve}><p>This makes the report and this reading session read-only.</p><p><strong>{data.patient.name}</strong> · {formatDate(data.study.study_date)} · Findings v{report.findings_version}</p></Confirm>}
   </div>;
 }

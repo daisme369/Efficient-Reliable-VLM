@@ -1,6 +1,9 @@
 export type UserRole = 'doctor' | 'admin' | 'annotator' | 'technician';
 export type SessionStatus = 'active' | 'findings_approved' | 'final';
-export type StudyStatus = 'new' | 'in_progress' | 'final';
+export type StudyStatus = 'new' | 'in_progress' | 'awaiting_signoff' | 'preliminary' | 'final';
+export type Priority = 'routine' | 'urgent';
+export type Handoff = 'signoff' | 'preliminary';
+export type Discrepancy = 'agree' | 'minor' | 'major';
 export type View = 'PA' | 'AP' | 'LAT';
 export type BoxCoordinates = [number, number, number, number];
 export type ReviewAction = 'pending' | 'accepted' | 'edited' | 'rejected' | 'added';
@@ -17,6 +20,8 @@ export interface UserDTO {
 export interface AuthUser extends UserDTO {
   csrf_token: string;
   expires_at: string;
+  /** Thorax backend only: the labeling queue is on (THORAX_LABELING). */
+  labeling_enabled?: boolean;
 }
 
 export interface Page<T> {
@@ -47,6 +52,8 @@ export interface StudyDTO {
   own_session_status: SessionStatus | null;
   /** Thorax backend only: an uploaded study nothing depends on yet, so it can be edited or deleted. */
   editable?: boolean;
+  /** Thorax backend only: set at intake; a resident may release a preliminary report on an urgent study. */
+  priority?: Priority;
 }
 
 export interface ImageDTO {
@@ -146,6 +153,10 @@ export interface ReportDTO {
   approved_by: number | null;
   approved_at: string | null;
   updated_at: string;
+  /** Thorax backend only: the doctor's over-read grade of a released preliminary report. */
+  discrepancy?: Discrepancy | null;
+  /** Thorax backend only: the text as the resident released it, kept unchanged. */
+  released_content?: ReportNarrative | null;
 }
 
 export interface MessageDTO {
@@ -227,6 +238,10 @@ export interface SessionDTO {
   study_id: number;
   status: SessionStatus;
   revision: number;
+  /** Thorax backend only: a resident's reading handed to the doctors. */
+  handoff?: Handoff | null;
+  handoff_at?: string | null;
+  critical_communicated_to?: string | null;
 }
 
 export interface HistoryReport {
@@ -252,6 +267,8 @@ export interface Workspace {
   preliminary_report: { image_id: number; text: string } | null;
   blockers: Blocker[];
   capabilities: Capabilities;
+  /** Thorax backend only: the resident who prepared this reading. */
+  prepared_by?: { id: number; name: string } | null;
 }
 
 export interface AuditEvent {
@@ -263,7 +280,7 @@ export interface AuditEvent {
 }
 
 export interface AdminDoctor extends UserDTO {
-  role: 'doctor';
+  role: 'doctor' | 'annotator';
   assigned_patient_ids: number[];
 }
 

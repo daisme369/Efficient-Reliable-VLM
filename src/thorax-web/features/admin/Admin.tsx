@@ -376,7 +376,7 @@ function Assignments({ actor, active, refresh }: { actor: number; active: boolea
           <label htmlFor="admin-assignment-doctor">Doctor</label>
           <select id="admin-assignment-doctor" required value={doctorId} onChange={(event) => setDoctorId(event.target.value)}>
             <option value="">Select a doctor</option>
-            {doctors.filter((doctor) => doctor.is_active).map((doctor) => <option key={doctor.id} value={doctor.id}>{doctor.name} ({doctor.email})</option>)}
+            {doctors.filter((doctor) => doctor.is_active).map((doctor) => <option key={doctor.id} value={doctor.id}>{doctor.name}{doctor.role === "annotator" ? " · Resident" : ""} ({doctor.email})</option>)}
           </select>
           <label htmlFor="admin-assignment-patient">Patient code</label>
           <select id="admin-assignment-patient" required value={patientId} onChange={(event) => setPatientId(event.target.value)}>

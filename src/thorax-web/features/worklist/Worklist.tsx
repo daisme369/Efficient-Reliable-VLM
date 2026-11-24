@@ -10,10 +10,12 @@ import { api, ApiError } from '@/lib/api';
 import { EditStudy, UploadStudy } from '@/features/uploads/UploadStudy';
 import type { StudyDetail, StudyDTO } from '@/lib/contracts';
 
+const studyStatusLabel = { new: 'New', in_progress: 'In progress', awaiting_signoff: 'Awaiting sign-off', preliminary: 'Preliminary released', final: 'Final' } as const;
+
 /** `localDemo`: the built-in mock API, which has no uploads. */
 export function Worklist({ localDemo }: { localDemo: boolean }) {
   const desktop = useDesktop();
-  return <RoleGate role="doctor">{user => <AppShell>{desktop ? <AssignedPatients key={user.id} actor={user.id} localDemo={localDemo} /> : <DesktopNotice />}</AppShell>}</RoleGate>;
+  return <RoleGate role={['doctor', 'annotator']}>{user => <AppShell>{desktop ? <AssignedPatients key={user.id} actor={user.id} localDemo={localDemo} /> : <DesktopNotice />}</AppShell>}</RoleGate>;
 }
 
 function AssignedPatients({ actor, localDemo }: { actor: number; localDemo: boolean }) {
@@ -102,7 +104,7 @@ export function PatientStudies({ actor, patientId, patientLabel, canUpload, admi
       <table className="data-table nested-table"><thead><tr><th scope="col">Study date</th><th scope="col">Indication</th><th scope="col">Images</th><th scope="col">Study status</th>{!admin && <th scope="col">Reading status</th>}<th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
         <tbody>{studies.map(study => {
           const href = `/patients/${patientId}/studies/${study.id}`;
-          return <tr key={study.id}><th scope="row" className="mono">{formatDate(study.study_date)}</th><td>{study.indication || '—'}</td><td className="mono">{study.image_count}</td><td><Badge>{study.status === 'final' ? 'Final' : study.status === 'in_progress' ? 'In progress' : 'New'}</Badge></td>
+          return <tr key={study.id}><th scope="row" className="mono">{formatDate(study.study_date)}</th><td>{study.indication || '—'}</td><td className="mono">{study.image_count}</td><td><span className="badge-row">{study.priority === 'urgent' && <Badge tone="error">Urgent</Badge>}<Badge tone={study.status === 'preliminary' ? 'error' : study.status === 'awaiting_signoff' ? 'pending' : 'neutral'}>{studyStatusLabel[study.status]}</Badge></span></td>
             {!admin && <td><Badge tone={study.own_session_status === 'final' || study.own_session_status === 'findings_approved' ? 'approved' : study.own_session_status === 'active' ? 'info' : 'neutral'}>{readingLabel(study.own_session_status)}</Badge></td>}
             <td className="align-right"><div className="study-actions">
               {canUpload && study.editable && <>

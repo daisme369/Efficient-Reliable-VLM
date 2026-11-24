@@ -1,7 +1,7 @@
 import type {
   AdminDoctor, AdminPatient, AICommand, AIRequest, AIStatus, AuditEvent, AuthUser, BoxCreate,
   BoxPatch, ErrorDetail, FindingsEdit, FixtureStatus, MessageDTO, MutationReceipt, Page, PatientSummary,
-  AdminAi, AdminEvent, AdminLabeling, AdminOverview, AdminUser, AiPause, LabelBox, LabelQueue, LabelTask, LabelVocabulary, ReportNarrative, StudyDetail, StudyDTO, View, Workspace,
+  AdminAi, AdminEvent, AdminLabeling, AdminOverview, AdminUser, AiPause, Discrepancy, LabelBox, LabelQueue, LabelTask, LabelVocabulary, Priority, ReportNarrative, StudyDetail, StudyDTO, View, Workspace,
 } from './contracts';
 
 export class ApiError extends Error {
@@ -152,7 +152,7 @@ export const api = {
     json<MutationReceipt & { code: string }>('/admin/patients', { method: 'POST', body }),
   // Uploads (real backend only): admins for any patient, doctors for their assigned patients.
   // `permitted=yes` records that the uploader confirmed the image is synthetic or permitted.
-  createStudy: (patientId: number, study: { study_date: string; indication: string; view: View }, file: Blob) =>
+  createStudy: (patientId: number, study: { study_date: string; indication: string; view: View; priority: Priority }, file: Blob) =>
     json<StudyDetail>(`/patients/${patientId}/studies?${new URLSearchParams({ ...study, permitted: 'yes' })}`, { method: 'POST', file }),
   editStudy: (studyId: number, body: { study_date: string; indication: string }) =>
     json<StudyDetail>(`/studies/${studyId}`, { method: 'PATCH', body }),
@@ -209,10 +209,13 @@ export const api = {
     mutate<MutationReceipt>('POST', `${session(id)}/reports`, { findings_version: findingsVersion }, options),
   saveReport: (id: number, reportId: number, body: Partial<ReportNarrative>, options: MutationOptions) =>
     mutate<MutationReceipt>('PATCH', `${session(id)}/reports/${reportId}`, body, options),
-  approveReport: (id: number, reportId: number, findingsVersion: number, options: MutationOptions) =>
+  approveReport: (id: number, reportId: number, findingsVersion: number, options: MutationOptions, discrepancy?: Discrepancy) =>
     mutate<MutationReceipt>(
-      'POST', `${session(id)}/reports/${reportId}/approve`, { findings_version: findingsVersion }, options,
+      'POST', `${session(id)}/reports/${reportId}/approve`, { findings_version: findingsVersion, ...(discrepancy ? { discrepancy } : {}) }, options,
     ),
+  /** A resident hands a finished draft to the doctors: for sign-off, or as a preliminary report on an urgent study. */
+  handoff: (id: number, body: { kind: 'signoff' } | { kind: 'preliminary'; critical: boolean; communicated_to: string | null }, options: MutationOptions) =>
+    mutate<MutationReceipt>('POST', `${session(id)}/handoff`, body, options),
   adminDoctors: (cursor?: string, signal?: AbortSignal, activity = false) =>
     json<Page<AdminDoctor>>(query('/admin/doctors', cursor), { signal, activity }),
   adminPatients: (search = '', cursor?: string, signal?: AbortSignal, activity = false) =>
