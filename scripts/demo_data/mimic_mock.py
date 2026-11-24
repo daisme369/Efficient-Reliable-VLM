@@ -161,10 +161,16 @@ class Intake:
             patient = self.call("POST", "/api/v1/admin/patients", json.dumps(
                 {"name": f"Mock subject {item['subject_id']}", "birth_year": birth_year, "sex": sex}).encode())
             date = f"{item['StudyDate'][:4]}-{item['StudyDate'][4:6]}-{item['StudyDate'][6:]}"
-            query = urllib.parse.urlencode({"study_date": date, "indication": item["_indication"], "view": item["ViewPosition"], "permitted": "yes"})
+            query = urllib.parse.urlencode({"study_date": date, "indication": item["_indication"], "view": item["ViewPosition"], "permitted": "yes",
+                                            "priority": priority_for(item["_indication"])})
             self.call("POST", f"/api/v1/patients/{patient['resource_id']}/studies?{query}", (root / item["_path"]).read_bytes(), "image/jpeg")
             codes.append(f"{patient['code']} <- subject {item['subject_id']} study {item['study_id']}")
         return codes
+
+
+def priority_for(indication: str) -> str:
+    """Intake marks acute and trauma requests urgent, so a resident may release a preliminary report on them."""
+    return "urgent" if any(word in indication.lower() for word in ("acute", "trauma")) else "routine"
 
 
 def main() -> None:

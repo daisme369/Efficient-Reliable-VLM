@@ -315,6 +315,7 @@ class ReadingStore:
 
     def _study_dto(self, db, study: dict, actor_id: int) -> dict:
         return {"id": study["id"], "patient_id": study["patient_id"], "study_date": study["study_date"], "indication": study["indication"],
+                "priority": study["priority"],
                 "image_count": len(study["images"]), **self.study_states(db, [study["id"]], actor_id)[study["id"]]}
 
     @staticmethod

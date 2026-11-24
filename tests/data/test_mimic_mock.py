@@ -19,6 +19,10 @@ spec.loader.exec_module(mock)
 
 @unittest.skipUnless(HAS_PIL, "requires pillow")
 class MimicMockTests(unittest.TestCase):
+    def test_acute_and_trauma_indications_are_urgent(self):
+        self.assertEqual([mock.priority_for(text) for text in ("Acute chest pain", "TRAUMA, fall", "Follow-up effusion")],
+                         ["urgent", "urgent", "routine"])
+
     def test_layout_ids_and_csvs(self):
         from PIL import Image
 

@@ -110,7 +110,8 @@ class Catalog:
                           (SELECT COUNT(*) FROM studies s WHERE s.patient_id = p.id) AS study_count
                    FROM patients p JOIN assignments a ON a.patient_id = p.id
                    WHERE a.doctor_id = ? AND a.active = 1 AND (LOWER(p.name) LIKE ? OR LOWER(p.code) LIKE ?)
-                   ORDER BY p.id""",
+                   ORDER BY CASE WHEN EXISTS (SELECT 1 FROM studies s WHERE s.patient_id = p.id AND s.priority = 'urgent' AND NOT EXISTS (
+                                SELECT 1 FROM reading_sessions r WHERE r.study_id = s.id AND r.status = 'final')) THEN 0 ELSE 1 END, p.id""",
                 (doctor_id, pattern, pattern),
             ).fetchall()
         return [dict(row) for row in rows]
@@ -119,7 +120,7 @@ class Catalog:
         # Reading status comes from reading_sessions (created by ReadingStore, see reading.py).
         with connect(self.path) as db:
             rows = db.execute(
-                f"""SELECT s.id, s.patient_id, s.study_date, s.indication,
+                f"""SELECT s.id, s.patient_id, s.study_date, s.indication, s.priority,
                            (SELECT COUNT(*) FROM images i WHERE i.study_id = s.id) AS image_count,
                            CASE WHEN EXISTS (SELECT 1 FROM reading_sessions r WHERE r.study_id = s.id AND r.status = 'final') THEN 'final'
                                 WHEN EXISTS (SELECT 1 FROM reading_sessions r WHERE r.study_id = s.id) THEN 'in_progress' ELSE 'new' END AS status,
@@ -212,13 +213,14 @@ class Catalog:
         self.images.put(key, png)
         return key, digest
 
-    def create_study(self, patient_id: int, study_date: str, indication: str, view: str, upload: tuple[bytes, int, int], user_id: int) -> int:
+    def create_study(self, patient_id: int, study_date: str, indication: str, view: str, upload: tuple[bytes, int, int], user_id: int,
+                     priority: str = "routine") -> int:
         """A study is created together with its first image, so no study is ever empty."""
         png, width, height = upload
         key, digest = self._store_upload(png)
         with connect(self.path) as db:
-            study_id = db.execute("INSERT INTO studies (patient_id, study_date, indication) VALUES (?, ?, ?) RETURNING id",
-                                  (patient_id, study_date, indication)).fetchone()[0]
+            study_id = db.execute("INSERT INTO studies (patient_id, study_date, indication, priority) VALUES (?, ?, ?, ?) RETURNING id",
+                                  (patient_id, study_date, indication, priority)).fetchone()[0]
             self._insert_image(db, study_id, view, width, height, digest, key, user_id)
         return study_id
 

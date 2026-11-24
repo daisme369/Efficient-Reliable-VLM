@@ -58,6 +58,18 @@ class UploadTests(unittest.TestCase):
         query = {"study_date": "2026-11-01", "indication": "Synthetic upload check", "view": "PA", "permitted": "yes", **params}
         return client.post(f"/api/v1/patients/{patient_id}/studies", params=query, content=data, headers={"Content-Type": media})
 
+    def test_technician_marks_study_urgent(self):
+        r = self.new_study(self.tech, 2, synthetic_image("PNG"), priority="urgent")
+        self.assertEqual(r.status_code, 201, r.text)
+        self.assertEqual(r.json()["priority"], "urgent")
+        listed = self.doctor.get("/api/v1/patients/2/studies").json()["items"]
+        self.assertEqual(next(s for s in listed if s["id"] == r.json()["id"])["priority"], "urgent")
+        self.assertEqual(self.doctor.get("/api/v1/patients").json()["items"][0]["id"], 2)  # a patient with an unread urgent study comes first
+
+    def test_priority_defaults_to_routine_and_rejects_unknown(self):
+        self.assertEqual(self.new_study(self.tech, 1, synthetic_image("PNG")).json()["priority"], "routine")
+        self.assertEqual(self.new_study(self.tech, 1, synthetic_image("PNG"), priority="stat").status_code, 422)
+
     def test_technician_registers_and_pushes_a_study_and_the_assigned_doctor_reads_it(self):
         created = self.tech.post("/api/v1/admin/patients", json={"name": "Synthetic Upload Patient", "birth_year": 1970, "sex": "Other"})
         self.assertEqual(created.status_code, 201)

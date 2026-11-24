@@ -441,8 +441,11 @@ def create_app(
         pid = path_id(patient_id)
         may_upload(user, pid)
         study_date, indication = study_fields(request.query_params.get("study_date"), request.query_params.get("indication"))
+        priority = request.query_params.get("priority", "routine")
+        if priority not in ("routine", "urgent"):
+            raise invalid("Choose the priority: routine or urgent.")
         view, image = await upload(request)
-        sid = await run_in_threadpool(catalog.create_study, pid, study_date, indication, view, image, user.id)
+        sid = await run_in_threadpool(catalog.create_study, pid, study_date, indication, view, image, user.id, priority)
         app.state.admin.log(user.id, "study_uploaded", f"{dict(catalog.patient_codes())[pid]} study {sid} ({view}), confirmed permitted")
         return no_store(JSONResponse(catalog.study(sid, user.id), status_code=201))
 
