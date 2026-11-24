@@ -26,7 +26,8 @@ python scripts/serve_api.py
 | `THORAX_VLM_MODEL` | `thorax-m1` | vLLM's `--served-model-name`; `scripts/gpu/merge_m1_adapter.py` prints it with the adapter hash, and every answer records it |
 | `THORAX_VLM_CALIBRATION` | unset | M1 `metrics.json`; turns on calibrated abstention. `THORAX_VLM_RISK_METHOD` picks `answer_signal` (default), `grounding_signal` or `joint` |
 | `THORAX_DEMO_AI_FAULT` | unset | `timeout` or `detector` to simulate AI failures |
-| `THORAX_LABELING` | unset | `1` turns the annotator labeling workspace on. It is off by default: the doctor's Gate 1 review is the annotation (spec FR-017 keeps training-data export for later). While off, annotators cannot sign in or be created, and the labeling routes return 404. |
+| `THORAX_LABELING` | unset | `1` turns the annotator labeling queue on. It is off by default: the doctor's Gate 1 review is the annotation (spec FR-017 keeps training-data export for later). While off, only the labeling routes return 404; annotators (residents) still sign in and read their assigned studies. |
+| `THORAX_DEMO_ANNOTATOR_PASSWORD` | unset | `seed-demo` creates the demo resident `annotator@thorax.demo`, assigns it to doctor 1's patients and marks study 2441 urgent |
 | `THORAX_DEMO_TECHNICIAN_PASSWORD` | unset | `seed-demo` creates `technician@thorax.demo` (X-ray technician) when set |
 
 Other commands: `python -m thorax_api.accounts create|disable|enable|reset-password`, `python -m thorax_api.labeling create-tasks|export --out <dir>`.
@@ -38,7 +39,7 @@ Other commands: `python -m thorax_api.accounts create|disable|enable|reset-passw
 | `app.py` | App factory, sign-in (HttpOnly session cookie, CSRF, Origin check, rate limits, 30 min idle / 2 h absolute), password change, worklist and image routes |
 | `accounts.py` | Users (doctor, admin, annotator), scrypt password hashes, sign-in history, account CLI |
 | `catalog.py` | Patients, studies, images, assignments, prior reports, synthetic demo seed, and uploads: admin-created patients, studies with PNG/JPEG images (decoded, limited to 10 MiB and 16 MP, re-encoded as PNG without metadata) |
-| `reading.py` | Doctor readings: findings (with revisions), regions, chat, reports, audit events, AI jobs, idempotency |
+| `reading.py` | Readings by doctors and residents: findings (with revisions), regions, chat, reports, audit events, AI jobs, idempotency, handoff for sign-off and the urgent preliminary report |
 | `labeling.py` | Annotator tasks, labeler → reviewer flow, reviewer fixes, approved-label export |
 | `admin.py` | Overview, user and access control, AI monitoring and pause switch, labeling oversight, admin activity log |
 | `sessions.py` | Sign-in sessions (token hashes only) and the signing secret, stored in SQLite |
@@ -46,6 +47,18 @@ Other commands: `python -m thorax_api.accounts create|disable|enable|reset-passw
 | `db.py` | Shared SQLite connection; portable SQL for a later move to PostgreSQL |
 
 Tests: `python -m unittest discover -s tests/api -t .` (they skip when FastAPI is not installed).
+
+## Resident sign-off and the preliminary report
+
+An annotator is the hospital's resident: they read assigned studies in the doctor's workspace up to a draft report, but only a doctor signs (Gate 2).
+
+- `POST /api/v1/sessions/{id}/handoff` (`If-Match` and `Idempotency-Key` required), by the resident who owns the reading, once Gate 1 is approved and the draft has findings and an impression:
+  - `{"kind": "signoff"}`: sends the draft to the doctors. The study shows `awaiting_signoff`.
+  - `{"kind": "preliminary", "critical": bool, "communicated_to": str | null}`: only on an `urgent` study. The report is released at once as PRELIMINARY (`preliminary`), its text kept unchanged in `released_content`. A critical finding needs who was told and how (1–200 characters).
+- After a handoff, any doctor assigned to the patient opens that reading (opening the study lands on it) and finishes it. The resident can still read it but not change it.
+- Signing a preliminary needs `"discrepancy": "agree" | "minor" | "major"` in the approve body; it is stored on the report and in the `gate2_approved` event.
+- Studies get a `priority` (`routine` by default, `urgent`) at intake: `POST /api/v1/patients/{id}/studies?priority=urgent`.
+- Errors: `403 SIGNOFF_REQUIRES_DOCTOR` (a resident tries to sign), `409 HANDED_OFF` (a resident edits after handoff), `409 HANDOFF_NOT_READY`, `409 NOT_URGENT`, `403 ROLE_FORBIDDEN` (a doctor tries to hand off).
 
 ## Manual review and recovery
 

@@ -100,8 +100,9 @@ Wait until you see three lines that end in **Healthy**. Caddy requests the certi
 read -rsp "Doctor password: " THORAX_DEMO_DOCTOR_PASSWORD; echo
 read -rsp "Admin password: " THORAX_DEMO_ADMIN_PASSWORD; echo
 read -rsp "X-ray technician password: " THORAX_DEMO_TECHNICIAN_PASSWORD; echo
-export THORAX_DEMO_DOCTOR_PASSWORD THORAX_DEMO_ADMIN_PASSWORD THORAX_DEMO_TECHNICIAN_PASSWORD
-docker compose -f docker/compose.yaml exec -e THORAX_DEMO_DOCTOR_PASSWORD -e THORAX_DEMO_ADMIN_PASSWORD -e THORAX_DEMO_TECHNICIAN_PASSWORD api python -m thorax_api.accounts seed-demo
+read -rsp "Resident password: " THORAX_DEMO_ANNOTATOR_PASSWORD; echo
+export THORAX_DEMO_DOCTOR_PASSWORD THORAX_DEMO_ADMIN_PASSWORD THORAX_DEMO_TECHNICIAN_PASSWORD THORAX_DEMO_ANNOTATOR_PASSWORD
+docker compose -f docker/compose.yaml exec -e THORAX_DEMO_DOCTOR_PASSWORD -e THORAX_DEMO_ADMIN_PASSWORD -e THORAX_DEMO_TECHNICIAN_PASSWORD -e THORAX_DEMO_ANNOTATOR_PASSWORD api python -m thorax_api.accounts seed-demo
 ```
 
 Use passwords of at least 12 characters. The typing stays invisible, which is normal. The passwords never go into Git or the image.

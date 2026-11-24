@@ -66,6 +66,20 @@ What this means for Thorax AI:
 | Find the study | Doctor's worklist of assigned patients | Unchanged: the doctor queries the worklist |
 | Read, AI suggestions, Gate 1, report, Gate 2 | Doctor | Unchanged |
 | Separate annotator labeling screen | Annotator role with its own queue | **Turned off** (setting `THORAX_LABELING`, off by default). The doctor's reviewed boxes at Gate 1 are the annotations. The code stays for later training-data export (spec FR-017). |
+| Resident pre-read | None | The annotator acts as a **resident**: reads in the doctor's workspace up to a draft, then **Send to doctor**. Only a doctor signs (Gate 2). |
+| Emergency (urgent study) | None | The resident may **Release preliminary** at once, logging who was told of a critical finding. A doctor over-reads it later and grades the difference: agree, minor or major. |
+
+### Resident, attending and over-read
+
+In a teaching hospital the resident reads first and the attending radiologist signs. At night or in the emergency department the resident's report goes out as a preliminary so treatment is not delayed, and the attending over-reads it the next morning. Discrepancies are graded, and critical findings are phoned to the treating doctor and the call is recorded (ACR practice parameter on communication of diagnostic imaging findings).
+
+```mermaid
+flowchart LR
+  A[Resident reads] --> G1[Gate 1: findings]
+  G1 --> D[Draft report]
+  D -->|routine| S[Send to doctor] --> R[Doctor reviews / edits] --> G2[Gate 2: final]
+  D -->|urgent| P[Release preliminary + critical-finding call] --> V[Shown as PRELIMINARY] --> O[Doctor over-reads, grades agree / minor / major] --> G2
+```
 
 ```mermaid
 flowchart LR
@@ -153,6 +167,7 @@ The current deployment diagram is at https://claude.ai/artifact/W3TmWLViuGFfjaSk
 | --- | --- |
 | Workflow review (this document) | Done |
 | Technician role (`/intake` page); doctors stop uploading; labeling off by default | Built on `vietanh`. 90 backend tests pass; Playwright passes 6 tests with 2 annotator tests skipped, 2 in mock mode, and the annotator tests with labeling switched on. |
+| Resident sign-off and emergency preliminary report | Built on `vietanh` (plan `docs/superpowers/plans/2026-11-23-resident-signoff.md`). Backend tests pass on SQLite and PostgreSQL; Playwright covers both flows. |
 | MIMIC-shaped mock database | Built: `scripts/demo_data/mimic_mock.py` (build and push), with a test. Pushed 3 studies into a local API as the technician. |
 | Orthanc PACS behind the API | Planned before 06/12 |
 | Organ outlines (CheXmask) | Planned before 06/12, after the licence check |
