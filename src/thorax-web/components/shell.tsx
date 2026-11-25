@@ -170,7 +170,7 @@ export function AppShell({ children, workspace, onWorklist, onLabelingQueue, onS
           {pathname !== '/worklist' && <ArrowLeft size={16} aria-hidden />} Worklist
         </Link> : user.role === 'annotator' ? <Link prefetch={false} href="/labeling" aria-current={pathname === '/labeling' ? 'page' : undefined} onClick={onLabelingQueue ? event => { if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); onLabelingQueue(); } : undefined}>
           {pathname !== '/labeling' && <ArrowLeft size={16} aria-hidden />} Labeling queue
-        </Link> : <Link prefetch={false} href="/admin" aria-current="page">Admin</Link>}
+        </Link> : user.role === 'admin' ? <Link prefetch={false} href="/admin" aria-current="page">Admin</Link> : null /* the technician has one page, already named beside the logo */}
         {user.role === 'annotator' && pathname.startsWith('/labeling/') && <><ChevronRight size={14} aria-hidden /><span>Label image</span></>}
         {user.role === 'annotator' && user.labeling_enabled && !pathname.startsWith('/labeling') && <Link prefetch={false} href="/labeling">Labeling queue</Link>}
         {(user.role === 'doctor' || user.role === 'annotator') && pathname.startsWith('/patients/') && <><ChevronRight size={14} aria-hidden /><span>{pathname.endsWith('/report') ? 'Final report' : 'Study workspace'}</span></>}

@@ -9,6 +9,7 @@ import { Badge, Confirm, Notice, formatTime } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
 import type { AdminUser, AuthUser, LabelTaskStatus, UserRole } from "@/lib/contracts";
 import { PatientStudies } from "@/features/worklist/Worklist";
+import "./admin.css"; // also used by the technician's intake page, which does not load Admin.tsx
 
 const roleLabel: Record<UserRole, string> = { doctor: "Doctor", technician: "X-ray technician", annotator: "Annotator", admin: "Administrator" };
 export const overviewKey = (actor: number) => ["actor", actor, "admin", "overview"] as const;
