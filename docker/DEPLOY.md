@@ -147,14 +147,14 @@ The AWS Free plan refuses non-free instance types at launch ("not eligible for F
 
 ## Model server (vLLM)
 
-The backend calls vLLM's OpenAI-compatible API. On the GPU host (24 GB GPU, Linux, CUDA):
+The backend calls vLLM's OpenAI-compatible API. On AWS, `docker/gpu-setup.sh` does steps 1 and 2 on the GPU host (g6.xlarge, Deep Learning Base GPU AMI, instance role `thorax-gpu`): it reads the adapter and its training config from `s3://thorax-files-637804394917/models/m1-v2/`, the Hugging Face token from `/thorax/hf/token`, merges once, and starts vLLM on port 8000 (open only to the app server). By hand, on any GPU host (24 GB GPU, Linux, CUDA):
 
 1. Merge the adapter: `python scripts/gpu/merge_m1_adapter.py --config <run>/config.json --adapter <run>/checkpoint --out /models/medgemma-m1`. It prints the served model name.
 2. Start vLLM, pinned by digest:
 
    ```bash
    docker run --gpus all -p 127.0.0.1:8000:8000 -v /models:/models \
-     vllm/vllm-openai:v0.11.0@sha256:014a95f21c9edf6abe0aea6b07353f96baa4ec291c427bb1176dc7c93a85845c \
+     vllm/vllm-openai:v0.33.0@sha256:d825baf9ce4b1b6bfc5ecc7b79880c7e6748c65a72d697ce3d47607aafa84c6e \
      --model /models/medgemma-m1 --served-model-name <printed name> --api-key "$THORAX_VLM_KEY" \
      --dtype bfloat16 --max-model-len 4096 --limit-mm-per-prompt '{"image": 1}'
    ```

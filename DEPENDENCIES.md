@@ -36,7 +36,7 @@ The direct projects use Apache-2.0, BSD-family, MIT-family, PSF-compatible, or M
 
 ## Deferred packages
 
-The model server uses the official image `vllm/vllm-openai:v0.11.0` (Apache-2.0), pinned by digest `sha256:014a95f21c9edf6abe0aea6b07353f96baa4ec291c427bb1176dc7c93a85845c` and run only on the GPU host (`docker/DEPLOY.md`, "Model server"). Approved by the user on 23 November 2026; it is not installed in any Python requirements file. Version 0.11.0 serves Gemma 3 image-text models and returns per-token log-probabilities, which the calibrated abstention needs.
+The model server uses the official image `vllm/vllm-openai:v0.33.0` (Apache-2.0, released 2 November 2026), pinned by digest `sha256:d825baf9ce4b1b6bfc5ecc7b79880c7e6748c65a72d697ce3d47607aafa84c6e` and run only on the GPU host (`docker/gpu-setup.sh`, `docker/DEPLOY.md` "Model server"). Approved by the user on 25 November 2026, replacing v0.11.0 (approved 23 November): v0.20 and later run on transformers 5, the major version M1 was trained with, so the merged model loads without a 4.x downgrade. It is not installed in any Python requirements file. It serves Gemma 3 image-text models and returns per-token log-probabilities, which the calibrated abstention needs. The one-time merge runs inside that image with the training pins from `requirements/medgemma-cu128.txt` (transformers 5.19.0, peft 0.21.2, accelerate 1.15.0, huggingface-hub 2.2.0, safetensors 0.8.0).
 
 Do not add `flash-attn`, `xformers`, DeepSpeed, vLLM, or another CUDA-specific package to the base requirements. Add one only after the backbone and measured bottleneck justify it, then lock it in a platform-specific profile. Do not move bitsandbytes into the cross-platform base requirements.
 
