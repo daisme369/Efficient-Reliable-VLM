@@ -202,8 +202,9 @@ function admin(state: MockState, actor: MockUser, request: Request, segments: st
   }
   if (method === 'GET' && resource === 'patient-catalog' && target === undefined) {
     const search = searchText(new URL(request.url));
-    const catalog = patients.filter(({ code }) => code.toLowerCase().includes(search)).map(({ id, code }) => ({
-      id, code,
+    const catalog = patients.filter(({ code, name }) => code.toLowerCase().includes(search) || name.toLowerCase().includes(search)).map(({ id, code, name, birth_year, sex }) => ({
+      id, code, name, birth_year, sex,
+      last_study_date: studies.filter((row) => row.patient_id === id).map((row) => row.study_date).sort().at(-1) ?? null,
       assigned_doctor_ids: state.assignments.filter((row) => row.patient_id === id && row.active).map(({ doctor_id }) => doctor_id),
     }));
     return json(page(state, catalog, request, actor));

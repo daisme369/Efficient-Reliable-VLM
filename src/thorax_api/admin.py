@@ -231,8 +231,9 @@ def register_admin(app: FastAPI, *, accounts: AccountStore, catalog: Catalog, la
         me = intake(request)
         search = (request.query_params.get("search") or "").strip().lower()
         assigned = catalog.assignments()
-        rows = [{"id": pid, "code": code, "assigned_doctor_ids": sorted(d for d, p in assigned if p == pid)}
-                for pid, code in catalog.patient_codes() if search in code.lower()]
+        # Admins and technicians see names: they register patients and must confirm who is on the X-ray (doctors read by assignment).
+        rows = [{**p, "assigned_doctor_ids": sorted(d for d, pid in assigned if pid == p["id"])}
+                for p in catalog.patient_register() if search in p["code"].lower() or search in p["name"].lower()]
         return page(request, me, rows)
 
     @app.post("/api/v1/admin/patients")

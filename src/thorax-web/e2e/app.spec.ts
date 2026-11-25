@@ -21,7 +21,7 @@ test('technician pushes, edits, extends and deletes a study; the doctor only rea
 
   await signIn(page, 'technician@thorax.demo', PASSWORDS.technician, /\/intake$/);
   await expect(page.getByRole('heading', { name: 'Patient intake' })).toBeVisible();
-  await page.getByRole('row', { name: /PX-1045/ }).getByRole('button', { name: 'Manage studies' }).click();
+  await page.getByRole('row', { name: /PX-1045/ }).getByRole('button', { name: 'Studies', exact: true }).click();
   const studies = page.locator('.study-cell');
 
   await studies.getByRole('button', { name: 'Add study' }).click();
@@ -57,6 +57,25 @@ test('technician pushes, edits, extends and deletes a study; the doctor only rea
   await expect(studies.getByText('Study deleted.')).toBeVisible();
   await expect(studies.getByRole('row', { name: /E2E upload/ })).toHaveCount(0);
   await expect(page.getByRole('tab')).toHaveCount(0);  // no admin console, accounts or clinical screens
+});
+
+test('technician registers a patient and adds the first study straight away', async ({ page }) => {
+  await signIn(page, 'technician@thorax.demo', PASSWORDS.technician, /\/intake$/);
+  await page.getByRole('button', { name: 'Register new patient' }).click();
+  await page.getByLabel('Full name').fill('E2E Intake Patient');
+  await page.getByLabel('Birth year').fill('1980');
+  await page.getByRole('button', { name: 'Register and add study' }).click();
+  const dialog = page.getByRole('dialog');  // opens by itself for the new patient
+  await expect(dialog.getByRole('heading', { name: /Add a study for E2E Intake Patient \(PX-\d+\)/ })).toBeVisible();
+  await dialog.getByLabel('Indication').fill('E2E intake upload');
+  await dialog.locator('input[type=file]').setInputFiles([png('e2e-intake.png', 4)]);
+  await dialog.getByRole('checkbox').check();
+  await dialog.getByRole('button', { name: 'Upload study' }).click();
+  await expect(page.getByText(/added for E2E Intake Patient .*No doctor is assigned yet/)).toBeVisible();
+  await page.getByPlaceholder('Search by name or patient code').fill('intake patient');
+  const row = page.getByRole('row', { name: /E2E Intake Patient/ });
+  await expect(row).toContainText('1980');
+  await expect(row).toContainText('No doctor assigned');
 });
 
 test('admin creates a patient, adds a study, and sees it in the activity log', async ({ page }) => {

@@ -11,7 +11,7 @@ import type { AdminUser, AuthUser, LabelTaskStatus, UserRole } from "@/lib/contr
 import { PatientStudies } from "@/features/worklist/Worklist";
 import "./admin.css"; // also used by the technician's intake page, which does not load Admin.tsx
 
-const roleLabel: Record<UserRole, string> = { doctor: "Doctor", technician: "X-ray technician", annotator: "Annotator", admin: "Administrator" };
+const roleLabel: Record<UserRole, string> = { doctor: "Doctor", technician: "X-ray technician", annotator: "Resident", admin: "Administrator" };
 export const overviewKey = (actor: number) => ["actor", actor, "admin", "overview"] as const;
 /** Labeling (annotator role) is off unless the backend sets THORAX_LABELING=1. */
 export function useLabelingEnabled(actor: number, enabled = true) {
@@ -92,7 +92,7 @@ export function Overview({ actor, active }: { actor: number; active: boolean }) 
   </Panel>;
 }
 
-export function Patients({ actor, active, intake = false }: { actor: number; active: boolean; intake?: boolean }) {
+export function Patients({ actor, active }: { actor: number; active: boolean }) {
   const queryClient = useQueryClient();
   const query = useInfiniteQuery({
     queryKey: ["actor", actor, "admin", "patient-catalog"], initialPageParam: undefined as string | undefined,
@@ -114,7 +114,7 @@ export function Patients({ actor, active, intake = false }: { actor: number; act
     setBusy(true); setFeedback(null);
     try {
       const created = await api.adminCreatePatient(body);
-      setFeedback({ tone: "info", text: intake ? `Created patient ${created.code}. Add the study, then ask an administrator to assign the reading doctor.` : `Created patient ${created.code}. Grant a doctor access under Assignments.` });
+      setFeedback({ tone: "info", text: `Created patient ${created.code}. Grant a doctor access under Assignments.` });
       form.reset();
       await refresh();
     } catch (failure) { setFeedback({ tone: "error", text: problem(failure) }); }
@@ -161,8 +161,7 @@ export function UsersAccess({ actor, active, me }: { actor: number; active: bool
   const [resetFor, setResetFor] = useState<AdminUser | null>(null);
   const [resetPassword, setResetPassword] = useState("");
   const [role, setRole] = useState<UserRole>("doctor");
-  const labelingOn = useLabelingEnabled(actor, active);
-  const roles = (Object.keys(roleLabel) as UserRole[]).filter(r => r !== "annotator" || labelingOn);
+  const roles = Object.keys(roleLabel) as UserRole[];  // residents (annotators) read in the doctor's workspace even with labeling off
   const [filter, setFilter] = useState<UserRole | "all">("all");
 
   async function run(action: () => Promise<unknown>, done: string) {
@@ -181,7 +180,7 @@ export function UsersAccess({ actor, active, me }: { actor: number; active: bool
   const users = (query.data?.items ?? []).filter(user => filter === "all" || user.role === filter);
 
   return <div className="admin-stack">
-    <Panel title="Accounts" description="Every doctor, X-ray technician and administrator. Disabling an account or resetting its password also signs it out."
+    <Panel title="Accounts" description="Every doctor, resident, X-ray technician and administrator. Disabling an account or resetting its password also signs it out."
       action={<label className="admin-inline-field">Show<select aria-label="Filter accounts by role" value={filter} onChange={event => setFilter(event.target.value as UserRole | "all")}><option value="all">All roles</option>{roles.map(r => <option key={r} value={r}>{roleLabel[r]}s</option>)}</select></label>}>
       {feedback && <div className="admin-console-feedback"><Notice tone={feedback.tone}>{feedback.text}</Notice></div>}
       <Loading query={query} label="accounts">{() => <div className="admin-table-wrap"><table className="admin-table">

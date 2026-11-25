@@ -95,6 +95,13 @@ class Catalog:
         with connect(self.path) as db:
             return [(row["id"], row["code"]) for row in db.execute("SELECT id, code FROM patients ORDER BY id")]
 
+    def patient_register(self) -> list[dict]:
+        """Every patient with the details intake staff confirm identity by, newest first."""
+        with connect(self.path) as db:
+            return [dict(row) for row in db.execute(
+                """SELECT p.id, p.code, p.name, p.birth_year, p.sex, (SELECT MAX(s.study_date) FROM studies s WHERE s.patient_id = p.id) AS last_study_date
+                   FROM patients p ORDER BY p.id DESC""")]
+
     def assignments(self) -> list[tuple[int, int]]:
         with connect(self.path) as db:
             return [(row[0], row[1]) for row in db.execute("SELECT doctor_id, patient_id FROM assignments WHERE active = 1")]

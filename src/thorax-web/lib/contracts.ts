@@ -288,6 +288,11 @@ export interface AdminPatient {
   id: number;
   code: string;
   assigned_doctor_ids: number[];
+  // Shown to admins and technicians, who register patients (absent from the in-process mock's older shape).
+  name?: string;
+  birth_year?: number | null;
+  sex?: string | null;
+  last_study_date?: string | null;
 }
 
 export interface FixtureStatus {

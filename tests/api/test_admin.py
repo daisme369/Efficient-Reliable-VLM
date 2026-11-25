@@ -105,7 +105,12 @@ class AdminTests(unittest.TestCase):
         doctors = self.admin.get("/api/v1/admin/doctors").json()["items"]
         self.assertIn(11, doctors[0]["assigned_patient_ids"])
         catalog = self.admin.get("/api/v1/admin/patient-catalog", params={"search": "px-1052"}).json()["items"]
-        self.assertEqual(catalog, [{"id": 11, "code": "PX-1052", "assigned_doctor_ids": [1, 2]}])
+        self.assertEqual([(r["id"], r["code"], r["assigned_doctor_ids"]) for r in catalog], [(11, "PX-1052", [1, 2])])
+        row = catalog[0]  # intake staff confirm the patient by name, birth year and sex
+        self.assertTrue(row["name"] and row["last_study_date"])
+        self.assertIn(row["sex"], ("Female", "Male", "Other", None))
+        by_name = self.admin.get("/api/v1/admin/patient-catalog", params={"search": row["name"].split()[-1].upper()}).json()["items"]
+        self.assertIn(11, [r["id"] for r in by_name])
         self.assertEqual(self.admin.delete("/api/v1/admin/assignments/1/11").status_code, 204)
         self.assertEqual(self.doctor.get("/api/v1/studies/2511").status_code, 404)
         self.assertEqual(self.admin.post("/api/v1/admin/assignments", json={"doctor_id": 3, "patient_id": 11}).status_code, 404)  # an admin, not a reader
