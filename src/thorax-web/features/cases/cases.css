@@ -3,3 +3,18 @@
 .prior-tag { margin-left: 6px; }
 .prior-snippet { margin: 4px 0 0; font-size: 0.85em; }
 .prior-snippet mark, .history-text mark { background: #fde68a; color: inherit; border-radius: 2px; padding: 0 1px; }
+.similar-cases { padding: 12px 16px; display: grid; gap: 8px; align-content: start; }
+.case-concepts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 0; font-size: 0.85em; }
+.case-chip { border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; background: var(--canvas); }
+.case-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.case-row { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; border: 1px solid var(--line); border-radius: 6px; padding: 10px; }
+.case-row > div { display: grid; gap: 4px; min-width: 0; }
+.case-row .button, .case-compare-banner .button { flex: none; white-space: nowrap; }
+.case-meta { margin: 0; font-size: 0.85em; color: var(--muted); }
+.case-note { font-size: 0.85em; }
+.viewer-column.comparing { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 12px; }
+.case-compare { display: flex; flex-direction: column; gap: 8px; min-height: 0; min-width: 0; }
+.case-compare-banner { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border-radius: 6px; background: #fef3c7; color: #78350f; }
+.case-compare-report { flex: none; max-height: 30%; overflow: auto; font-size: 0.9em; }
+.case-compare-report h3 { margin: 4px 0; font-size: 0.95em; }
+.case-compare-report ul { margin: 0; padding-left: 18px; }

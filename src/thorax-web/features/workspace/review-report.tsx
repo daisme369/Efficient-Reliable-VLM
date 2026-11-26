@@ -15,7 +15,7 @@ type ReviewProps = {
   data: Workspace; actions: ReadingActions; disabled: boolean; otherDirty: boolean; baseRevision?: number;
   onDirty: (dirty: boolean) => void; onDraftText: (text: string[]) => void; onPanel: (panel: Panel) => void;
 };
-const included = (item: FindingItem) => item.action === 'accepted' || item.action === 'edited' || item.action === 'added';
+export const included = (item: FindingItem) => item.action === 'accepted' || item.action === 'edited' || item.action === 'added';
 const actionLabels = { pending: 'Needs review', accepted: 'Accepted', edited: 'Doctor edited', rejected: 'Excluded', added: 'Doctor added' } as const;
 
 export function FindingsPanel({ data, actions, disabled, baseRevision, otherDirty, onDirty, onDraftText, onPanel, onBox }: ReviewProps & { onBox: (id: number) => void }) {

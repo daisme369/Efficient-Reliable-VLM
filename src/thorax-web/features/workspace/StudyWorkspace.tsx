@@ -1,24 +1,27 @@
 'use client';
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Archive, ChevronRight, ClipboardCheck, FlaskConical, LockKeyhole, MessageSquare, PanelLeft, ShieldCheck, UserRound } from 'lucide-react';
+import { Archive, ChevronRight, ClipboardCheck, FlaskConical, Images, LockKeyhole, MessageSquare, PanelLeft, ShieldCheck, UserRound } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { AppShell, DemoBadge, DesktopNotice, RoleGate, useAuth, useDesktop } from '@/components/shell';
 import { Badge, Confirm, EmptyState, formatDate, formatTime, Notice, readingLabel, Skeleton } from '@/components/ui';
 import { api, ApiError } from '@/lib/api';
-import type { BoxDTO, Workspace } from '@/lib/contracts';
+import type { BoxDTO, CaseMatch, Workspace } from '@/lib/contracts';
 import StudyViewer, { type RegionChanges } from '@/features/viewer/StudyViewer';
 import { PriorStudies } from '@/features/cases/PriorStudies';
+import { SimilarCases } from '@/features/cases/SimilarCases';
+import { CaseCompare } from '@/features/cases/CaseCompare';
 import { AnalysisPanel, ChatPanel } from './analysis-chat';
-import { FindingsPanel, ReportPanel, FinalReport } from './review-report';
+import { FindingsPanel, ReportPanel, FinalReport, included } from './review-report';
 import { useReading, useReadingActions } from './useReading';
 import './workspace.css';
 
 const discussionTabs = [
   { id: 'chat', label: 'Discussion', icon: MessageSquare },
   { id: 'findings', label: 'Findings', icon: ClipboardCheck },
+  { id: 'cases', label: 'Similar cases', icon: Images },
 ] as const;
 export type Panel = 'analysis' | 'report' | typeof discussionTabs[number]['id'];
 type Draft = 'box' | 'findings' | 'report' | 'chat';
@@ -60,7 +63,7 @@ function StudyEntry({ actor, patientId, studyId, finalReport, onDenied }: { acto
   if (!query.data && query.error) return <AppShell><main id="main-content" className="page-wrap surface"><EmptyState title="Could not load the study" action={<button className="button" onClick={() => void query.refetch()}>Retry</button>}>Check your connection and try again.</EmptyState></main></AppShell>;
   if (!query.data) return <AppShell><main id="main-content" className="page-wrap surface"><Skeleton label="Loading study workspace" rows={6} /></main></AppShell>;
   if (finalReport) return <FinalReport data={query.data} reload={reload} onDenied={onDenied} />;
-  return <Reading key={query.data.session.id} data={query.data} reload={reload} onDenied={onDenied} />;
+  return <Reading key={query.data.session.id} actor={actor} data={query.data} reload={reload} onDenied={onDenied} />;
 }
 
 function defaultImage(data: Workspace) {
@@ -77,7 +80,7 @@ function initialSelection(data: Workspace): { panel: Panel; image: number | null
   return { panel: data.latest_findings ? panel : 'analysis', image: data.images.some(item => item.id === requestedImage) ? requestedImage : defaultImage(data) };
 }
 
-function Reading({ data, reload, onDenied }: { data: Workspace; reload: () => Promise<Workspace>; onDenied: () => void }) {
+function Reading({ actor, data, reload, onDenied }: { actor: number; data: Workspace; reload: () => Promise<Workspace>; onDenied: () => void }) {
   const router = useRouter();
   const { signOut, user } = useAuth();
   const [selection, setSelection] = useState(() => initialSelection(data));
@@ -91,6 +94,7 @@ function Reading({ data, reload, onDenied }: { data: Workspace; reload: () => Pr
   const [imageReady, setImageReady] = useState(false);
   const [drawer, setDrawer] = useState(false);
   const [audit, setAudit] = useState(false);
+  const [compare, setCompare] = useState<CaseMatch | null>(null);
   const [drafts, setDrafts] = useState<Partial<Record<Draft, boolean>>>({});
   const draftRevisions = useRef<Partial<Record<Draft, number>>>({});
   const draftText = useRef<Partial<Record<'findings' | 'report', string[]>>>({});
@@ -215,9 +219,10 @@ function Reading({ data, reload, onDenied }: { data: Workspace; reload: () => Pr
     document.getElementById(`tab-${next}`)?.focus();
   }
 
+  const seed = (data.latest_findings?.items.filter(included) ?? []).map(item => item.text.trim().replace(/\.+$/, '')).filter(Boolean).join('. ').slice(0, 500);
   const linkedFindings = Object.fromEntries((data.latest_findings?.items ?? []).flatMap(item => item.box_ids.map(id => [id, item.text])));
   const blockingCopy = handedOff ? 'This reading was handed to a doctor.' : actions.offline || actions.uncertain ? 'Reconnect before making changes.' : actions.live ? 'An AI request is running.' : actions.conflict ? 'Resolve the version conflict first.' : actions.busy ? 'Saving the current action…' : undefined;
-  const context = <StudyContext data={data} pendingBoxes={pendingBoxes.length} pendingFindings={pendingFindings} onPanel={setPanel} audit={audit} onAudit={() => setAudit(!audit)} />;
+  const context = <StudyContext actor={actor} data={data} pendingBoxes={pendingBoxes.length} pendingFindings={pendingFindings} onPanel={setPanel} audit={audit} onAudit={() => setAudit(!audit)} />;
 
   return <AppShell workspace onWorklist={() => go(() => router.push('/worklist'))} onSignOut={() => go(signout)}>
     <main id="main-content" className="workspace">
@@ -239,8 +244,9 @@ function Reading({ data, reload, onDenied }: { data: Workspace; reload: () => Pr
       <div className={`workspace-grid${drawer ? ' drawer-open' : ''}`}>
         <aside className="surface context-rail" aria-label="Study context">{context}</aside>
         {drawer && <aside className="surface context-drawer" id="context-drawer" aria-label="Study context" onKeyDown={event => { if (event.key === 'Escape') { setDrawer(false); drawerButton.current?.focus(); } }}>{context}</aside>}
-        <section className="viewer-column" aria-label="Image review">
+        <section className={`viewer-column${compare ? ' comparing' : ''}`} aria-label="Image review">
           <StudyViewer key={reset} images={data.images} imageId={imageId} boxes={data.boxes} selectedBoxId={boxId} canAnnotate={started && !blocked} canAskRegion={analyzed && data.capabilities.can_ask_roi && !blocked} readOnly={readOnly} approvedSnapshot={data.latest_findings?.annotation_snapshot} findingsApproved={data.session.status === 'findings_approved'} blockedReason={blockingCopy} linkedFindings={linkedFindings} loadImage={api.image} onImageChange={changeImage} onBoxSelect={setBoxId} onBoxSave={saveBox} onBoxDelete={deleteBox} onAskRegion={askRegion} onDirtyChange={setBoxDirty} onImageStatus={setImageReady} />
+          {compare && <CaseCompare key={compare.case_id} match={compare} onClose={() => setCompare(null)} />}
         </section>
         <section className="surface review" aria-label="Clinical review">
           {started && <div className="discussion-header">
@@ -252,6 +258,7 @@ function Reading({ data, reload, onDenied }: { data: Workspace; reload: () => Pr
             {!started && <AnalysisPanel data={data} image={image} imageReady={imageReady} actions={actions} disabled={blocked || dirty || readOnly} reason={blockingCopy ?? (dirty ? 'Save or discard your changes first.' : undefined)} onManual={() => void actions.transact(options => api.startManualFindings(data.session.id, options), () => setPanel('findings')).catch(() => {})} />}
             <div id="panel-chat" role="tabpanel" aria-labelledby="tab-chat" hidden={panel !== 'chat'}><ChatPanel data={data} image={image} actions={actions} disabled={blocked || Boolean(drafts.box) || !imageReady} reason={blockingCopy ?? (drafts.box ? 'Save or discard the region changes first.' : !imageReady ? 'Load the selected image before adding to the discussion.' : undefined)} attachment={attachment} clearAttachment={() => setAttachment(null)} onDirty={setChatDirty} visible={panel === 'chat'} /></div>
             <div id="panel-findings" role="tabpanel" aria-labelledby="tab-findings" hidden={panel !== 'findings'}><FindingsPanel data={data} actions={actions} disabled={blocked} baseRevision={draftRevisions.current.findings} otherDirty={Boolean(drafts.box || drafts.report || drafts.chat)} onDirty={setFindingsDirty} onDraftText={setFindingsText} onPanel={setPanel} onBox={openBox} /></div>
+            <div id="panel-cases" role="tabpanel" aria-labelledby="tab-cases" hidden={panel !== 'cases'}>{panel === 'cases' && <SimilarCases actor={actor} studyId={data.study.id} seed={seed} onCompare={setCompare} />}</div>
             <div id="panel-report" hidden={panel !== 'report'}><ReportPanel data={data} actions={actions} disabled={blocked} baseRevision={draftRevisions.current.report} otherDirty={Boolean(drafts.box || drafts.findings || drafts.chat)} onDirty={setReportDirty} onDraftText={setReportText} onPanel={setPanel} onFinal={() => router.push(`${href}/report`)} /></div>
           </div>
         </section>
@@ -282,7 +289,7 @@ function ConflictPreview({ data, draftText, boxId }: { data: Workspace; draftTex
   </>;
 }
 
-function StudyContext({ data, pendingBoxes, pendingFindings, onPanel, audit, onAudit }: { data: Workspace; pendingBoxes: number; pendingFindings: number; onPanel: (panel: Panel) => void; audit: boolean; onAudit: () => void }) {
+function StudyContext({ actor, data, pendingBoxes, pendingFindings, onPanel, audit, onAudit }: { actor: number; data: Workspace; pendingBoxes: number; pendingFindings: number; onPanel: (panel: Panel) => void; audit: boolean; onAudit: () => void }) {
   const started = Boolean(data.latest_findings);
   const analyzed = data.analyzed_image_id === undefined ? started : data.analyzed_image_id !== null;
   const approved = data.latest_findings?.status === 'approved';
@@ -297,7 +304,7 @@ function StudyContext({ data, pendingBoxes, pendingFindings, onPanel, audit, onA
       <dl className="context-details"><div><dt>Study date</dt><dd className="mono">{formatDate(data.study.study_date)}</dd></div><div><dt>Indication</dt><dd>{data.study.indication || '—'}</dd></div><div><dt>Images</dt><dd>{data.images.length} {data.images.length === 1 ? 'image' : 'images'}</dd></div></dl>
     </section>
     <section className="context-section"><h2>Reading progress</h2><ol className="progress-list">{progress.map((step, index) => <li key={index}><button disabled={!started && step.tab !== 'analysis'} onClick={() => onPanel(step.tab)}><span className={`step-index${step.done ? ' done' : ''}`}>{step.done ? <ShieldCheck size={15} aria-hidden /> : index + 1}</span><span><strong>{step.label}</strong><small>{step.status}</small></span><ChevronRight size={14} aria-hidden /></button></li>)}</ol></section>
-    <PriorStudies actor={data.session.doctor_id} studyId={data.study.id} />
+    <PriorStudies actor={actor} studyId={data.study.id} />
     <section className="context-section audit-section"><button type="button" className="button ghost" aria-expanded={audit} onClick={onAudit}><ShieldCheck size={16} aria-hidden />Reading audit <ChevronRight size={15} aria-hidden /></button>{audit && <Audit data={data} />}</section>
   </div>;
 }
