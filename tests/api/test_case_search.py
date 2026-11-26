@@ -46,6 +46,30 @@ class MatchingTests(unittest.TestCase):
         hit = match("Heart size normal. Small left effusion; no pneumothorax.", ["pleural_effusion"], "effusion")
         self.assertEqual((hit["snippet"], hit["concepts"]), ("Small left effusion", ["pleural_effusion"]))
 
+    def test_fold_handles_decomposed_input(self):
+        import unicodedata
+        from thorax_api.case_search import detect, match
+        text = unicodedata.normalize("NFD", "Tràn dịch màng phổi trái.")
+        self.assertEqual(detect(text), ["pleural_effusion"])
+        hit = match(text, ["pleural_effusion"], text)
+        start, end = hit["spans"][0]
+        self.assertEqual(hit["snippet"][start:end], "Tràn dịch màng phổi")
+
+    def test_negated_query_searches_nothing(self):
+        from thorax_api.case_search import detect, match
+        self.assertEqual(detect("no pleural effusion"), [])
+        self.assertEqual(detect("không tràn dịch"), [])
+        self.assertEqual(detect("bibasilar"), ["query"])
+        self.assertIsNone(match("Small left effusion.", [], "no effusion"))
+
+    def test_negation_ends_at_but(self):
+        from thorax_api.case_search import match
+        self.assertIsNotNone(match("No pneumothorax but small left effusion.", ["pleural_effusion"], "effusion"))
+
+    def test_comma_list_stays_negated(self):
+        from thorax_api.case_search import match
+        self.assertIsNone(match("No pleural effusion, pneumothorax or consolidation.", ["pneumothorax"], "pneumothorax"))
+
 
 if __name__ == "__main__":
     unittest.main()

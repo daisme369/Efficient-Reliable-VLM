@@ -26,6 +26,7 @@ CONCEPTS: dict[str, tuple[str, tuple[str, ...]]] = {
 
 _CUE = re.compile(r"\b(?:no|without|negative for|resolved|khong co|khong thay|khong)\b")
 _NOT_A_CUE = ("no change", "no interval change", "khong thay doi")
+_STOP = re.compile(r"\b(?:but|however|although|nhung|tuy nhien)\b")
 _SENTENCE = re.compile(r"[^.;\n]+")
 
 
@@ -44,21 +45,23 @@ def _word(term: str) -> re.Pattern:
 
 def _negated(folded: str, start: int) -> bool:
     return any(
-        m.end() <= start and not folded.startswith(_NOT_A_CUE, m.start())
+        m.end() <= start
+        and not folded.startswith(_NOT_A_CUE, m.start())
+        and not _STOP.search(folded, m.end(), start)  # "but"/"however" ends the negation's scope
         for m in _CUE.finditer(folded)
     )
 
 
 def _sentences(text: str):
     """Yield (stripped original sentence, its folded form)."""
-    for m in _SENTENCE.finditer(text):
+    for m in _SENTENCE.finditer(unicodedata.normalize("NFC", text)):
         s = m.group().strip()
         if s:
             yield s, fold(s)
 
 
-def _hits(folded: str) -> dict[str, list[list[int]]]:
-    """Un-negated spans per concept; where terms overlap the longest one wins."""
+def _hits(folded: str) -> tuple[dict[str, list[list[int]]], bool]:
+    """Un-negated spans per concept (where terms overlap the longest wins), and whether any term appeared at all."""
     found = [
         (m.start(), m.end(), cid)
         for cid, (_, terms) in CONCEPTS.items()
@@ -74,18 +77,23 @@ def _hits(folded: str) -> dict[str, list[list[int]]]:
     for s, e, cid in sorted(taken):
         if cid == "normal" or not _negated(folded, s):
             hits.setdefault(cid, []).append([s, e])
-    return hits
+    return hits, bool(taken)
 
 
 def detect(query: str) -> list[str]:
-    ids = {cid for _, f in _sentences(query) for cid in _hits(f)}
-    return [cid for cid in CONCEPTS if cid in ids] or ["query"]
+    ids, seen = set(), False
+    for _, f in _sentences(query):
+        hits, any_term = _hits(f)
+        ids |= hits.keys()
+        seen |= any_term
+    # a fully negated query searches nothing; the literal fallback is only for queries with no concept term
+    return [cid for cid in CONCEPTS if cid in ids] if seen else ["query"]
 
 
 def match(text: str, concepts: list[str], query: str) -> dict | None:
-    phrase = " ".join(fold(query).split())
+    phrase = " ".join(fold(unicodedata.normalize("NFC", query)).split())
     for sentence, folded in _sentences(text):
-        hits = _hits(folded)
+        hits, _ = _hits(folded)
         if "query" in concepts and phrase:
             hits["query"] = [[m.start(), m.end()] for m in _word(phrase).finditer(folded)]
         matched = [c for c in concepts if hits.get(c)]
