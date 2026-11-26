@@ -14,8 +14,10 @@ test('mock doctor reads a study and sees no upload actions', async ({ page }) =>
   await page.getByRole('button', { name: 'Analyze selected image' }).click();
   await expect(page.getByText('Preliminary AI report')).toBeVisible({ timeout: 20_000 });
   await page.getByRole('tab', { name: 'Similar cases' }).click();  // the mock has no signed cases: empty states, no errors
+  await expect(page.getByRole('searchbox', { name: 'Search similar cases' })).not.toHaveValue('');  // seeded from the pending AI findings
+  await page.getByRole('searchbox', { name: 'Search similar cases' }).fill('');
   await expect(page.getByText('Type a finding to search signed reports.')).toBeVisible();
-  await page.getByRole('searchbox', { name: 'Search similar cases' }).fill('effusion');
+  await page.getByRole('searchbox', { name: 'Search similar cases' }).fill('no effusion');
   await expect(page.getByText('Nothing to search for: the text names no finding, or only negated ones.')).toBeVisible();
   await expect(page.getByText('Only signed reports are shown. Other patients are de-identified.')).toBeVisible();
 

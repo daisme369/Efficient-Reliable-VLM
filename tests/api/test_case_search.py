@@ -73,11 +73,52 @@ class MatchingTests(unittest.TestCase):
         from thorax_api.case_search import match
         self.assertIsNone(match("No pleural effusion, pneumothorax or consolidation.", ["pneumothorax"], "pneumothorax"))
 
+    def test_fallback_respects_negation(self):
+        from thorax_api.case_search import match
+        self.assertIsNone(match("No bronchiectasis.", ["query"], "bronchiectasis"))
+        self.assertIsNone(match("Không giãn phế quản.", ["query"], "giãn phế quản"))
+        self.assertIsNotNone(match("Mild bronchiectasis.", ["query"], "bronchiectasis"))
+
+    def test_english_plurals_match(self):
+        from thorax_api.case_search import match
+        for text, cid, q in (("Bilateral pleural effusions.", "pleural_effusion", "pleural effusion"),
+                             ("Patchy bibasilar opacities.", "consolidation", "opacity"),
+                             ("Two nodules in the right lung.", "nodule_mass", "nodule"),
+                             ("Rib fractures.", "fracture", "fracture"),
+                             ("Multiple masses.", "nodule_mass", "mass")):
+            hit = match(text, [cid], q)
+            self.assertIsNotNone(hit, text)
+            s, e = hit["spans"][0]
+            self.assertTrue(hit["snippet"][s:e].lower().endswith(("s", "es", "ies")), text)
+
+    def test_no_significant_change_is_not_negation(self):
+        from thorax_api.case_search import match
+        for text in ("No significant change in the left effusion.", "No significant interval change in left pleural effusion."):
+            self.assertIsNotNone(match(text, ["pleural_effusion"], "effusion"), text)
+
+    def test_normal_does_not_pull_in_normal_studies(self):
+        from thorax_api.case_search import detect, match
+        self.assertEqual(detect("Heart size normal. Small left effusion"), ["pleural_effusion"])
+        self.assertEqual(detect("normal chest"), ["normal"])
+        self.assertIsNone(match("Heart size normal. No pleural effusion.", ["pleural_effusion"], "effusion"))
+
+    def test_post_negation(self):
+        from thorax_api.case_search import match
+        self.assertIsNone(match("The left effusion has resolved.", ["pleural_effusion"], "effusion"))
+        self.assertIsNone(match("Pneumothorax is not seen.", ["pneumothorax"], "pneumothorax"))
+        self.assertIsNone(match("Tràn dịch đã hết.", ["pleural_effusion"], "tràn dịch"))
+        self.assertIsNotNone(match("Small effusion, pneumothorax is not seen.", ["pleural_effusion"], "effusion"))
+
+    def test_decimal_does_not_split_sentence(self):
+        from thorax_api.case_search import match
+        hit = match("Nodule 1.5 cm in right upper lobe.", ["nodule_mass"], "nodule")
+        self.assertEqual(hit["snippet"], "Nodule 1.5 cm in right upper lobe")
+
 @unittest.skipUnless(HAS_API_DEPS, "FastAPI test dependencies are not installed")
 class CaseIndexTests(ReadingBase):
     next_id = 90000
 
-    def final_reading(self, doctor_id, study_id, items, impression, *, report_id=None):
+    def final_reading(self, doctor_id, study_id, items, impression, *, report_id=None, report_findings=None):
         """Insert a signed reading straight into the tables; returns the session id."""
         CaseIndexTests.next_id += 1
         sid = CaseIndexTests.next_id
@@ -90,7 +131,7 @@ class CaseIndexTests(ReadingBase):
                     for n, text in enumerate(items)]
             db.execute("INSERT INTO findings_versions (id, session_id, version, status, items, ai_items, no_abnormality_confirmed, approved_by, approved_at) VALUES (?, ?, 1, 'approved', ?, '[]', 0, ?, '2026-11-20T00:00:00Z')",
                        (sid, sid, json.dumps(rows), doctor_id))
-            content = {"comparison": "", "findings": " ".join(items), "impression": impression, "recommendation": ""}
+            content = {"comparison": "", "findings": " ".join(items) if report_findings is None else report_findings, "impression": impression, "recommendation": ""}
             db.execute("INSERT INTO reports (id, session_id, findings_version, status, content, approved_by, approved_at, updated_at) VALUES (?, ?, 1, 'final', ?, ?, '2026-11-20T00:00:00Z', '2026-11-20T00:00:00Z')",
                        (report_id or sid, sid, json.dumps(content), doctor_id))
         return sid
@@ -103,6 +144,16 @@ class CaseIndexTests(ReadingBase):
         self.assertIn("reading", [p["source"] for p in body["prior"]])
         found = self.doctor.get("/api/v1/studies/2411/case-search", params={"q": "tràn dịch"}).json()
         self.assertEqual([(p["source"], p["study_id"]) for p in found["prior"]], [("reading", 2410)])
+
+    def test_prior_uses_signed_report_text(self):
+        self.final_reading(1, 2410, ["Small left pleural effusion."], "Left effusion.", report_findings="Moderate left pleural effusion.")
+        body = self.doctor.get("/api/v1/studies/2411/case-search").json()
+        reading = [p for p in body["prior"] if p["source"] == "reading"][0]
+        self.assertIn("Moderate", reading["text"])
+        self.assertNotIn("Small", reading["text"])
+        self.final_reading(1, 2431, ["Small right effusion."], "R.", report_findings="Moderate right effusion.")
+        case = self.doctor.get("/api/v1/studies/2411/case-search", params={"q": "effusion"}).json()["cases"][0]
+        self.assertEqual(case["findings"], ["Moderate right effusion."])
 
     def test_cases_identity_follows_assignment(self):
         self.final_reading(1, 2431, ["Moderate right pleural effusion."], "Right effusion.")   # patient 3: doctor 1 only

@@ -189,7 +189,7 @@ export const VI: Record<string, string> = {
   'De-identified case — for comparison only': 'Ca đã ẩn danh — chỉ để so sánh',
   'Assigned patient — for comparison only': 'Bệnh nhân được phân công — chỉ để so sánh',
   'Close compare': 'Đóng so sánh',
-  'Up to 5 earlier reports': 'Tối đa 5 báo cáo trước',
+  'Earlier studies of this patient': 'Các lần chụp trước của bệnh nhân này',
   'Source': 'Nguồn',
   'Historical report — not current-image evidence': 'Báo cáo cũ — không phải bằng chứng của ảnh hiện tại',
   'No earlier reports; analysis will use the current image.': 'Không có báo cáo trước; phân tích sẽ dùng ảnh hiện tại.',

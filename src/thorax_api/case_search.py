@@ -30,13 +30,14 @@ CONCEPTS: dict[str, tuple[str, tuple[str, ...]]] = {
     "hilar_enlargement": ("Hilar enlargement", ("hilar enlargement", "ron phoi to")),
     "interstitial": ("Interstitial pattern", ("interstitial", "reticular", "linear markings")),
     "support_device": ("Support device", ("tube", "catheter", "pacemaker")),
-    "normal": ("Normal", ("no acute", "normal", "binh thuong")),
+    "normal": ("Normal", ("no acute", "normal chest", "binh thuong")),
 }
 
 _CUE = re.compile(r"\b(?:no|without|negative for|resolved|khong co|khong thay|khong)\b")
-_NOT_A_CUE = ("no change", "no interval change", "khong thay doi")
+_NOT_A_CUE = re.compile(r"no (?:significant )?(?:interval )?change|khong thay doi")
+_POST_CUE = re.compile(r"\b(?:has resolved|resolved|is not seen|not seen|absent|no longer|khong con|da het)\b")
 _STOP = re.compile(r"\b(?:but|however|although|nhung|tuy nhien)\b")
-_SENTENCE = re.compile(r"[^.;\n]+")
+_SENTENCE = re.compile(r"(?:[^.;\n]|(?<=\d)\.(?=\d))+")  # a "." between digits is a decimal point
 
 
 def fold(text: str) -> str:
@@ -49,16 +50,19 @@ def fold(text: str) -> str:
 
 
 def _word(term: str) -> re.Pattern:
-    return re.compile(r"(?<![a-z0-9])" + re.escape(term) + r"(?![a-z0-9])")
+    stem, plural = (term[:-1] + "(?:y|ies)", "") if term.endswith("y") else (re.escape(term), "(?:e?s)?")
+    return re.compile(r"(?<![a-z0-9])" + stem + plural + r"(?![a-z0-9])")
 
 
-def _negated(folded: str, start: int) -> bool:
-    return any(
+def _negated(folded: str, start: int, end: int) -> bool:
+    before = any(
         m.end() <= start
-        and not folded.startswith(_NOT_A_CUE, m.start())
+        and not _NOT_A_CUE.match(folded, m.start())
         and not _STOP.search(folded, m.end(), start)  # "but"/"however" ends the negation's scope
         for m in _CUE.finditer(folded)
     )
+    clause = re.split(r",|" + _STOP.pattern, folded[end:], maxsplit=1)[0]  # a post-cue only reaches the end of its clause
+    return before or bool(_POST_CUE.search(clause))
 
 
 def _sentences(text: str):
@@ -84,7 +88,7 @@ def _hits(folded: str) -> tuple[dict[str, list[list[int]]], bool]:
             taken.append((s, e, cid))
     hits: dict[str, list[list[int]]] = {}
     for s, e, cid in sorted(taken):
-        if cid == "normal" or not _negated(folded, s):
+        if cid == "normal" or not _negated(folded, s, e):
             hits.setdefault(cid, []).append([s, e])
     return hits, bool(taken)
 
@@ -96,6 +100,8 @@ def detect(query: str) -> list[str]:
         ids |= hits.keys()
         seen |= any_term
     # a fully negated query searches nothing; the literal fallback is only for queries with no concept term
+    if len(ids) > 1:
+        ids.discard("normal")  # "heart size normal" must not pull normal studies into a finding search
     return [cid for cid in CONCEPTS if cid in ids] if seen else ["query"]
 
 
@@ -104,7 +110,7 @@ def match(text: str, concepts: list[str], query: str) -> dict | None:
     for sentence, folded in _sentences(text):
         hits, _ = _hits(folded)
         if "query" in concepts and phrase:
-            hits["query"] = [[m.start(), m.end()] for m in _word(phrase).finditer(folded)]
+            hits["query"] = [[m.start(), m.end()] for m in _word(phrase).finditer(folded) if not _negated(folded, m.start(), m.end())]
         matched = [c for c in concepts if hits.get(c)]
         if matched:
             spans = sorted(sp for c in matched for sp in hits[c])
@@ -125,9 +131,9 @@ SCHEMA = (
 LIMIT = 20
 
 
-def _text(items: list[str], content: dict) -> str:
-    """A reading as one report text: the included finding lines, then the Impression."""
-    return "\n".join([*items, f"Impression: {content.get('impression', '')}"])
+def _text(lines: list[str], content: dict) -> str:
+    """A reading as one report text: the signed finding lines, then the Impression."""
+    return "\n".join([*lines, f"Impression: {content.get('impression', '')}"])
 
 
 class CaseIndex:
@@ -154,8 +160,11 @@ class CaseIndex:
             if row["study_id"] in seen:
                 continue
             seen.add(row["study_id"])
-            lines = [i["text"] for i in json.loads(row["items"] or "[]") if included(i)]
-            out.append({**dict(row), "content": json.loads(row["content"]), "lines": lines})
+            content = json.loads(row["content"])
+            # the signed report's findings; the included items only when the report has none
+            lines = [x.strip() for x in (content.get("findings") or "").splitlines() if x.strip()] \
+                or [i["text"] for i in json.loads(row["items"] or "[]") if included(i)]
+            out.append({**dict(row), "content": content, "lines": lines})
         return out
 
     def search(self, actor_id: int, study: dict, q: str) -> dict:
@@ -183,7 +192,7 @@ class CaseIndex:
         for f in finals if q else []:
             if f["patient_id"] == study["patient_id"]:
                 continue
-            text = "\n".join([*f["lines"], f["content"].get("findings", ""), f"Impression: {f['content'].get('impression', '')}"])
+            text = _text(f["lines"], f["content"])
             if not (hit := match(text, concepts, q)):
                 continue
             decade = (int(f["study_date"][:4]) - f["birth_year"]) // 10 * 10 if f["birth_year"] else None

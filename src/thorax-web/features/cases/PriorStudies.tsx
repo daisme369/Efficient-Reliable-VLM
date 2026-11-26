@@ -18,7 +18,7 @@ export function PriorStudies({ actor, studyId }: { actor: number; studyId: numbe
     placeholderData: previous => previous,
   });
   const prior = data?.prior ?? [];
-  return <section className="context-section history-section"><div className="section-heading"><History size={17} aria-hidden /><h2>Prior studies</h2></div><p className="muted">Up to 5 earlier reports</p>
+  return <section className="context-section history-section"><div className="section-heading"><History size={17} aria-hidden /><h2>Prior studies</h2></div><p className="muted">Earlier studies of this patient</p>
     <label className="prior-search"><span className="sr-only">Search this patient&apos;s prior studies</span>
       <input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search this patient's prior studies" autoComplete="off" /></label>
     {isError ? <p className="muted" role="alert">Prior studies could not be loaded.</p>

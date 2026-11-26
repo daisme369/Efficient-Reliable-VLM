@@ -219,7 +219,7 @@ function Reading({ actor, data, reload, onDenied }: { actor: number; data: Works
     document.getElementById(`tab-${next}`)?.focus();
   }
 
-  const seed = (data.latest_findings?.items.filter(included) ?? []).map(item => item.text.trim().replace(/\.+$/, '')).filter(Boolean).join('. ').slice(0, 500);
+  const seed = (data.latest_findings?.items.filter(item => item.action !== 'rejected') ?? []).map(item => item.text.trim().replace(/\.+$/, '')).filter(Boolean).join('. ').slice(0, 500);
   const linkedFindings = Object.fromEntries((data.latest_findings?.items ?? []).flatMap(item => item.box_ids.map(id => [id, item.text])));
   const blockingCopy = handedOff ? 'This reading was handed to a doctor.' : actions.offline || actions.uncertain ? 'Reconnect before making changes.' : actions.live ? 'An AI request is running.' : actions.conflict ? 'Resolve the version conflict first.' : actions.busy ? 'Saving the current action…' : undefined;
   const context = <StudyContext actor={actor} data={data} pendingBoxes={pendingBoxes.length} pendingFindings={pendingFindings} onPanel={setPanel} audit={audit} onAudit={() => setAudit(!audit)} />;
