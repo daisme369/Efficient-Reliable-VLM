@@ -502,7 +502,8 @@ def create_app(
                             vlm=VlmClient.from_env(), image_png=lambda image_id: catalog.image_bytes(catalog.image(image_id)))
     app.state.readings = readings
     register_reading(app, store=readings, catalog=catalog, actor=actor, path_id=path_id, read_body=read_body, no_store=no_store, error=ApiError)
-    register_case_search(app, index=CaseIndex(db_path), catalog=catalog, actor=actor, path_id=path_id, no_store=no_store,
+    app.state.case_index = CaseIndex(db_path)
+    register_case_search(app, index=app.state.case_index, catalog=catalog, actor=actor, path_id=path_id, no_store=no_store,
                          invalid=invalid, missing=missing, error=ApiError)
 
     # --- labeling (annotator role) ---------------------------------------------------------

@@ -139,6 +139,15 @@ class CaseIndexTests(ReadingBase):
         with connect(self.db) as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM case_views").fetchone()[0], 1)
 
+    def test_case_views_get_distinct_ids(self):
+        index = self.app.state.case_index
+        sid = self.final_reading(1, 2431, ["Small right effusion."], "Right effusion.")
+        index.record_view(1, sid)
+        index.record_view(1, sid)
+        with connect(self.db) as db:
+            ids = [r[0] for r in db.execute("SELECT id FROM case_views")]
+        self.assertEqual(len(set(ids)), 2)
+
     def test_access_rules(self):
         admin = self.client("admin@example.test")
         self.assertEqual(admin.get("/api/v1/studies/2411/case-search").status_code, 403)

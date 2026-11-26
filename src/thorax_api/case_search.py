@@ -219,8 +219,7 @@ class CaseIndex:
 
     def record_view(self, user_id: int, session_id: int) -> None:
         with connect(self.path) as db:
-            n, = db.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM case_views").fetchone()
-            db.execute("INSERT INTO case_views (id, user_id, session_id, created_at) VALUES (?, ?, ?, ?)", (n, user_id, session_id, utc_now()))
+            db.execute("INSERT INTO case_views (user_id, session_id, created_at) VALUES (?, ?, ?)", (user_id, session_id, utc_now()))
 
 
 def register_case_search(app, *, index: CaseIndex, catalog, actor, path_id, no_store, invalid, missing, error) -> None:
