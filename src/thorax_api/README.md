@@ -58,6 +58,8 @@ An annotator is the hospital's resident: they read assigned studies in the docto
 - After a handoff, any doctor assigned to the patient opens that reading (opening the study lands on it) and finishes it. The resident can still read it but not change it.
 - Signing a preliminary needs `"discrepancy": "agree" | "minor" | "major"` in the approve body; it is stored on the report and in the `gate2_approved` event.
 - Studies get a `priority` (`routine` by default, `urgent`) at intake: `POST /api/v1/patients/{id}/studies?priority=urgent`.
+- `GET /api/v1/studies/{id}/case-search?q=` (doctor or resident assigned to the patient): the patient's earlier reports and de-identified similar signed cases, matched across English and Vietnamese, with negation. Patient identity shows only for patients the caller is assigned to.
+- `GET /api/v1/cases/{case_id}/image`: the image of a signed case; each view is logged in `case_views`.
 - Errors: `403 SIGNOFF_REQUIRES_DOCTOR` (a resident tries to sign), `409 HANDED_OFF` (a resident edits after handoff), `409 HANDOFF_NOT_READY`, `409 NOT_URGENT`, `403 ROLE_FORBIDDEN` (a doctor tries to hand off).
 
 ## Manual review and recovery

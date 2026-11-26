@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
+import json
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
+from tests.api.test_reading import HAS_API_DEPS, ReadingBase  # noqa: E402
+from thorax_api.db import connect  # noqa: E402
 
 
 class MatchingTests(unittest.TestCase):
@@ -69,6 +72,78 @@ class MatchingTests(unittest.TestCase):
     def test_comma_list_stays_negated(self):
         from thorax_api.case_search import match
         self.assertIsNone(match("No pleural effusion, pneumothorax or consolidation.", ["pneumothorax"], "pneumothorax"))
+
+@unittest.skipUnless(HAS_API_DEPS, "FastAPI test dependencies are not installed")
+class CaseIndexTests(ReadingBase):
+    next_id = 90000
+
+    def final_reading(self, doctor_id, study_id, items, impression, *, report_id=None):
+        """Insert a signed reading straight into the tables; returns the session id."""
+        CaseIndexTests.next_id += 1
+        sid = CaseIndexTests.next_id
+        with connect(self.db) as db:
+            patient_id, = db.execute("SELECT patient_id FROM studies WHERE id = ?", (study_id,)).fetchone()
+            image_id, = db.execute("SELECT MIN(id) FROM images WHERE study_id = ?", (study_id,)).fetchone()
+            db.execute("INSERT INTO reading_sessions (id, doctor_id, patient_id, study_id, status, revision, analyzed_image_id) VALUES (?, ?, ?, ?, 'final', 1, ?)",
+                       (sid, doctor_id, patient_id, study_id, image_id))
+            rows = [{"id": f"f{n}", "text": text, "location": None, "image_id": image_id, "source": "doctor", "action": "accepted", "box_ids": []}
+                    for n, text in enumerate(items)]
+            db.execute("INSERT INTO findings_versions (id, session_id, version, status, items, ai_items, no_abnormality_confirmed, approved_by, approved_at) VALUES (?, ?, 1, 'approved', ?, '[]', 0, ?, '2026-11-20T00:00:00Z')",
+                       (sid, sid, json.dumps(rows), doctor_id))
+            content = {"comparison": "", "findings": " ".join(items), "impression": impression, "recommendation": ""}
+            db.execute("INSERT INTO reports (id, session_id, findings_version, status, content, approved_by, approved_at, updated_at) VALUES (?, ?, 1, 'final', ?, ?, '2026-11-20T00:00:00Z', '2026-11-20T00:00:00Z')",
+                       (report_id or sid, sid, json.dumps(content), doctor_id))
+        return sid
+
+    def test_prior_lists_history_and_earlier_final_readings(self):
+        self.final_reading(1, 2410, ["Small left pleural effusion."], "Left effusion.")
+        body = self.doctor.get("/api/v1/studies/2411/case-search").json()
+        self.assertEqual(body["cases"], [])
+        self.assertEqual([p["source"] for p in body["prior"]][:1], ["history"])  # history 2026-10-02 is newest
+        self.assertIn("reading", [p["source"] for p in body["prior"]])
+        found = self.doctor.get("/api/v1/studies/2411/case-search", params={"q": "tràn dịch"}).json()
+        self.assertEqual([(p["source"], p["study_id"]) for p in found["prior"]], [("reading", 2410)])
+
+    def test_cases_identity_follows_assignment(self):
+        self.final_reading(1, 2431, ["Moderate right pleural effusion."], "Right effusion.")   # patient 3: doctor 1 only
+        self.final_reading(2, 2511, ["Small left effusion."], "Left effusion.")                # patient 11: doctor 2 only
+        one = self.doctor.get("/api/v1/studies/2411/case-search", params={"q": "effusion"}).json()["cases"]
+        self.assertEqual(len(one), 2)
+        identified = [c for c in one if "patient" in c]
+        hidden = [c for c in one if "patient" not in c]
+        self.assertEqual((identified[0]["patient"]["code"], len(hidden)), ("PX-1044", 1))
+        self.assertTrue(set(hidden[0]).isdisjoint({"patient", "study_date", "study_id", "patient_id"}))
+        # patient 11 = Sofia Reyes, born 1969, study 2511 dated 2026-11-03
+        self.assertEqual((hidden[0]["study_month"], hidden[0]["age_band"], hidden[0]["sex"]), ("2026-11", "50–59", "Female"))
+        own = self.doctor.get("/api/v1/studies/2431/case-search", params={"q": "effusion"}).json()["cases"]
+        self.assertNotIn("PX-1044", [c.get("patient", {}).get("code") for c in own])  # current patient never a case
+
+    def test_one_case_per_study_latest_final(self):
+        self.final_reading(1, 2431, ["Small right effusion."], "Old impression.")
+        self.final_reading(2, 2431, ["Small right effusion."], "Newest impression.")
+        cases = self.doctor.get("/api/v1/studies/2411/case-search", params={"q": "effusion"}).json()["cases"]
+        self.assertEqual([c["impression"] for c in cases], ["Newest impression."])
+
+    def test_negated_and_unsigned_are_not_cases(self):
+        self.final_reading(1, 2431, ["No pleural effusion."], "Normal chest.")
+        self.open(2441)  # an in-progress reading is never a case
+        self.assertEqual(self.doctor.get("/api/v1/studies/2411/case-search", params={"q": "effusion"}).json()["cases"], [])
+
+    def test_case_image_only_for_final(self):
+        sid = self.final_reading(1, 2431, ["Small right effusion."], "Right effusion.")
+        draft = self.open(2441)["session"]["id"]
+        self.assertEqual(self.doctor.get(f"/api/v1/cases/{draft}/image").status_code, 404)
+        self.assertEqual(self.doctor.get("/api/v1/cases/999999/image").status_code, 404)
+        image = self.doctor.get(f"/api/v1/cases/{sid}/image")
+        self.assertEqual((image.status_code, image.headers["content-type"]), (200, "image/png"))
+        with connect(self.db) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM case_views").fetchone()[0], 1)
+
+    def test_access_rules(self):
+        admin = self.client("admin@example.test")
+        self.assertEqual(admin.get("/api/v1/studies/2411/case-search").status_code, 403)
+        self.assertEqual(self.doctor.get("/api/v1/studies/2511/case-search").status_code, 404)  # patient 11 not assigned
+        self.assertEqual(self.doctor.get("/api/v1/studies/2411/case-search", params={"q": "x" * 501}).status_code, 422)  # app's invalid() is 422
 
 
 if __name__ == "__main__":

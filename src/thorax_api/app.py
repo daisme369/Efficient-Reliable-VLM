@@ -34,6 +34,7 @@ from starlette.concurrency import run_in_threadpool
 from .accounts import ROLES, AccountStore, User, password_matches, valid_password
 from .admin import register_admin, sessions_view
 from .catalog import MAX_UPLOAD_BYTES, Catalog, normalize_upload
+from .case_search import CaseIndex, register_case_search
 from .reading import ReadingStore, register_reading
 from .sessions import Login, SessionStore
 from .vlm import VlmClient
@@ -501,6 +502,8 @@ def create_app(
                             vlm=VlmClient.from_env(), image_png=lambda image_id: catalog.image_bytes(catalog.image(image_id)))
     app.state.readings = readings
     register_reading(app, store=readings, catalog=catalog, actor=actor, path_id=path_id, read_body=read_body, no_store=no_store, error=ApiError)
+    register_case_search(app, index=CaseIndex(db_path), catalog=catalog, actor=actor, path_id=path_id, no_store=no_store,
+                         invalid=invalid, missing=missing, error=ApiError)
 
     # --- labeling (annotator role) ---------------------------------------------------------
     @app.exception_handler(LabelError)
