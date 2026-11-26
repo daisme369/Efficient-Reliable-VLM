@@ -376,3 +376,29 @@ export interface AdminAi {
 export interface AnnotatorStats { id: number; name: string; is_active: boolean; in_progress: number; labeled: number; approved: number; times_returned: number; reviews: number; review_edits: number }
 export interface AdminLabeling { counts: Record<LabelTaskStatus, number>; annotators: AnnotatorStats[]; approved_with_reviewer_changes: number; vocabulary: { version: string; verified: boolean; status: string } }
 export interface AdminEvent { id: number; action: string; detail: string; created_at: string; actor_name: string; actor_role: UserRole }
+
+// Case search (mirrors src/thorax_api/case_search.py)
+export interface CaseConcept { id: string; label: string }
+export interface PriorMatch {
+  source: 'history' | 'reading';
+  date: string;
+  text: string;
+  study_id: number | null;
+  snippet: string | null;
+  spans: number[][];
+}
+export interface CaseMatch {
+  case_id: number;
+  study_month: string;
+  age_band: string | null;
+  sex: string | null;
+  findings: string[];
+  impression: string;
+  concepts: string[];
+  snippet: string;
+  spans: number[][];
+  image: { view: View; width: number; height: number; media_type: string };
+  patient?: { id: number; code: string; name: string }; // only for patients assigned to the caller
+  study_date?: string;
+}
+export interface CaseSearchDTO { concepts: CaseConcept[]; prior: PriorMatch[]; cases: CaseMatch[] }

@@ -1,7 +1,7 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { AuthUser, MutationReceipt, Page, View } from '../../../../lib/contracts';
+import type { AuthUser, CaseSearchDTO, MutationReceipt, Page, View } from '../../../../lib/contracts';
 import {
   approveFindings, checkWrite, createBox, createReport, editBox, editReport, fields, integer, openStudy,
   saveFindings, settleJobs, startManualFindings, string, studyDto, submit, workspace,
@@ -10,7 +10,7 @@ import {
   assigned, fail, hash, hashPassword, idleMs, idempotent, invalid, keyedHash, missing, MockError, nextId,
   passwordMatches, publicUser, readState, saveState, validPassword, type MockSession, type MockState, type MockUser,
 } from '../../../../lib/server/mock-state';
-import { assetHashes, fixtureChecksum, fixtureKey, patients, studies } from '../../../../lib/server/fixtures';
+import { assetHashes, fixtureChecksum, fixtureKey, patients, studies, studyHistory } from '../../../../lib/server/fixtures';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -317,6 +317,14 @@ function clinical(state: MockState, actor: MockUser, request: Request, segments:
   if (resource === 'studies' && !child) {
     const study = checkedStudy(state, actor, id(target));
     if (method === 'GET' && !part) return json({ ...studyDto(state, study, actor.id), images: study.images });
+    // ponytail: the mock has no signed cases, so search finds nothing; it is exercised against the real backend.
+    if (method === 'GET' && part === 'case-search') {
+      const q = new URL(request.url).searchParams.get('q')?.trim();
+      const prior = q ? [] : studyHistory(study).map((h) => ({
+        source: 'history' as const, date: h.report_date, text: h.text, study_id: null, snippet: null, spans: [],
+      }));
+      return json({ concepts: [], prior, cases: [] } satisfies CaseSearchDTO);
+    }
     if (method === 'POST' && part === 'sessions') {
       fields(body, []);
       const { reading, status } = openStudy(state, study, actor.id);
@@ -324,6 +332,7 @@ function clinical(state: MockState, actor: MockUser, request: Request, segments:
     }
   }
   if (resource === 'images' && method === 'GET' && part === 'content' && !child) return loadImage(state, actor, id(target));
+  if (resource === 'cases' && method === 'GET' && part === 'image' && !child) return missing();
   if (resource !== 'sessions') return missing();
   const reading = checkedReading(state, actor, id(target));
   if (method === 'GET') {

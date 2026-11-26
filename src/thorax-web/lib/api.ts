@@ -1,7 +1,7 @@
 import type {
   AdminDoctor, AdminPatient, AICommand, AIRequest, AIStatus, AuditEvent, AuthUser, BoxCreate,
   BoxPatch, ErrorDetail, FindingsEdit, FixtureStatus, MessageDTO, MutationReceipt, Page, PatientSummary,
-  AdminAi, AdminEvent, AdminLabeling, AdminOverview, AdminUser, AiPause, Discrepancy, LabelBox, LabelQueue, LabelTask, LabelVocabulary, Priority, ReportNarrative, StudyDetail, StudyDTO, View, Workspace,
+  CaseSearchDTO, AdminAi, AdminEvent, AdminLabeling, AdminOverview, AdminUser, AiPause, Discrepancy, LabelBox, LabelQueue, LabelTask, LabelVocabulary, Priority, ReportNarrative, StudyDetail, StudyDTO, View, Workspace,
 } from './contracts';
 
 export class ApiError extends Error {
@@ -183,6 +183,12 @@ export const api = {
   workspace: (id: number, signal?: AbortSignal) => json<Workspace>(session(id), { signal }),
   async image(imageId: number, signal?: AbortSignal) {
     const response = await send(`/images/${imageId}/content`, { signal });
+    return response.blob();
+  },
+  caseSearch: (studyId: number, q: string, signal?: AbortSignal) =>
+    json<CaseSearchDTO>(`/studies/${studyId}/case-search${q.trim() ? `?${new URLSearchParams({ q })}` : ''}`, { signal }),
+  async caseImage(caseId: number, signal?: AbortSignal) {
+    const response = await send(`/cases/${caseId}/image`, { signal });
     return response.blob();
   },
   messages: (id: number, cursor?: string, signal?: AbortSignal) =>
