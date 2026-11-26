@@ -35,7 +35,7 @@ export function SimilarCases({ actor, studyId, seed, onCompare }: { actor: numbe
           <div><p className="case-concepts">{c.concepts.map(id => <span key={id} className="case-chip">{labels.get(id) ?? id}</span>)}</p>
             <p className="case-meta mono">{caseLabel(c)}</p>
             <p className="prior-snippet"><Highlight text={c.snippet} spans={c.spans as [number, number][]} /></p></div>
-          <button type="button" className="button" onClick={() => onCompare(c)}><Columns2 size={16} aria-hidden />Compare</button>
+          <button type="button" className="button" aria-label={`Compare with ${caseLabel(c)}`} onClick={() => onCompare(c)}><Columns2 size={16} aria-hidden />Compare</button>
         </li>)}</ul>
       : <p className="muted">No similar signed cases.</p>}
     <p className="muted case-note">Only signed reports are shown. Other patients are de-identified.</p>

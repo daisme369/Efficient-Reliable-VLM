@@ -874,6 +874,7 @@ export const VI_PATTERNS: [RegExp, (...groups: string[]) => string][] = [
   [/^Findings version (\d+) approved\.$/, v => `Đã duyệt kết quả phiên bản ${v}.`],
   [/^Findings approved · v(\d+)$/, v => `Đã duyệt kết quả · v${v}`],
   [/^Show studies for (.+)$/, name => `Xem các ca chụp của ${name}`],
+  [/^Compare with (.+)$/, label => `So sánh với ${label}`],
   [/^Hide studies for (.+)$/, name => `Ẩn các ca chụp của ${name}`],
   [/^(\d+) available$/, n => `${n} báo cáo`],
   [/^Region (\d+)$/, n => `Vùng ${n}`],

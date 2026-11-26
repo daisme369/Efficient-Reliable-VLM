@@ -28,7 +28,7 @@ test('mock doctor reads a study and sees no upload actions', async ({ page }) =>
   await page.getByRole('searchbox', { name: 'Search similar cases' }).fill('right effusion');
   await expect(page.getByText('Searching for:')).toBeVisible();
   await expect(page.getByText('2025-03 · 60–69 · F')).toBeVisible();
-  await page.getByRole('button', { name: 'Compare' }).click();
+  await page.getByRole('button', { name: 'Compare with 2025-03 · 60–69 · F' }).click();
   const compare = page.getByRole('region', { name: 'Comparison case' });
   await expect(compare.getByText('De-identified case — for comparison only')).toBeVisible();
   await expect(compare.getByRole('img', { name: 'Chest X-ray, PA, 1 by 1 pixels' })).toBeVisible();
