@@ -60,7 +60,7 @@ The user picked A now; B may follow.
   were included + report findings/impression). Today the "Prior reports" rail shows only `history_reports`, so a report signed
   in Thorax never shows up for the next study — this closes that gap.
 - **Other patients ("cases"):** only **final** readings (signed by a doctor). Preliminary, in-progress and draft readings are
-  never cases. One case per final reading.
+  never cases. One case per study (its latest final report).
 
 ## Matching
 
@@ -77,8 +77,12 @@ The user picked A now; B may follow.
 
 ## API
 
-- `GET /api/v1/case-search?q=…&patient_id=…` (doctor, annotator; `q` 1–100 chars)
-  - `patient_id` required: the reading's patient; the actor must be assigned to it (same 404 rule as today).
+- `GET /api/v1/studies/{study_id}/case-search?q=…` (doctor, annotator; `q` 0–500 chars, so the Similar cases tab can send
+  the current findings text)
+  - The study is the one being read; "prior" means before its date. The actor must be assigned to its patient (same 404 rule as today).
+  - Empty `q`: `prior` lists all earlier studies of this patient, `cases` is empty (the left rail uses this).
+  - Concepts are detected in `q` with the same negation rule, so "No pneumothorax" in the findings does not search for pneumothorax.
+  - One case per study: its latest final report.
   - Returns `{ concepts: [...], prior: [...], cases: [...] }`.
     - `prior`: this patient's matches — `{ source: 'history'|'reading', date, snippet, spans, study_id? }`.
     - `cases`: other patients' matches — `{ case_id, study_month, age_band, sex, view, findings: [text], impression, snippet, spans }`;
