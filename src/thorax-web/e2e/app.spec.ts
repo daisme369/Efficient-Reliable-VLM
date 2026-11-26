@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { LABELING_ON, PASSWORDS, signIn, syntheticPng } from './accounts';
+import { randomUUID } from 'node:crypto';
+import { API_PORT, LABELING_ON, PASSWORDS, signIn, syntheticPng, WEB_PORT } from './accounts';
 
 const png = (name: string, seed: number) => ({ name, mimeType: 'image/png', buffer: syntheticPng(seed) });
 
@@ -264,4 +265,52 @@ test('annotator releases a preliminary on an urgent study; doctor grades it', as
   await signIn(admin, 'admin@thorax.demo', PASSWORDS.admin, /\/admin$/);
   const stats = admin.locator('.admin-stats').filter({ hasText: 'Over-read by a doctor' });
   await expect(stats.locator('div', { hasText: 'Minor change' })).toContainText('100% of over-reads');
+});
+
+test('doctor finds a signed similar case and compares it side by side', async ({ page, playwright }) => {
+  // Sign study 2451 (patient 5, PX-1046) through the API, the way tests/api/test_reading.py does.
+  const web = `http://127.0.0.1:${WEB_PORT}`;
+  const api = await playwright.request.newContext({ baseURL: `http://127.0.0.1:${API_PORT}`, extraHTTPHeaders: { Origin: web } });
+  const login = await api.post('/api/v1/auth/login', { data: { email: 'doctor@thorax.demo', password: PASSWORDS.doctor } });
+  expect(login.ok()).toBeTruthy();
+  const csrf = { 'X-CSRF-Token': (await login.json()).csrf_token };
+  const send = async (method: 'post' | 'patch', path: string, data: object | undefined, revision: number, key = true) => {
+    const res = await api[method](path, { data, headers: { ...csrf, 'If-Match': `"${revision}"`, ...(key ? { 'Idempotency-Key': randomUUID() } : {}) } });
+    expect(res.ok(), await res.text()).toBeTruthy();
+    return res;
+  };
+  const opened = await api.post('/api/v1/studies/2451/sessions', { headers: csrf });
+  expect(opened.ok()).toBeTruthy();
+  let ws = await opened.json();
+  const sid = ws.session.id;
+  const settle = async (done: (w: any) => boolean) => {  // the real server runs the mock AI on wall-clock time
+    await expect.poll(async () => { ws = await (await api.get(`/api/v1/sessions/${sid}`)).json(); return done(ws); }, { timeout: 20_000 }).toBe(true);
+  };
+  const pa = ws.images.find((i: { view: string }) => i.view === 'PA');
+  await send('post', `/api/v1/sessions/${sid}/ai-requests`, { operation: 'analyze', image_id: pa.id }, ws.session.revision);
+  await settle(w => w.latest_findings?.items?.length > 0);
+  const findings = ws.latest_findings;
+  let rev = (await (await send('patch', `/api/v1/sessions/${sid}/boxes/${ws.boxes[0].id}`, { review_action: 'accepted' }, ws.session.revision, false)).json()).session_revision;
+  rev = (await (await send('patch', `/api/v1/sessions/${sid}/findings`, { items: findings.items.map((i: object) => ({ ...i, action: 'accepted' })), no_abnormality_confirmed: false }, rev, false)).json()).session_revision;
+  rev = (await (await send('post', `/api/v1/sessions/${sid}/findings/approve`, { findings_version: findings.version }, rev)).json()).session_revision;
+  await send('post', `/api/v1/sessions/${sid}/ai-requests`, { operation: 'draft_report', findings_version: findings.version }, rev);
+  await settle(w => w.reports?.length > 0);
+  await send('post', `/api/v1/sessions/${sid}/reports/${ws.reports[0].id}/approve`, { findings_version: findings.version }, ws.session.revision);
+  await api.dispose();
+
+  await signIn(page, 'doctor@thorax.demo', PASSWORDS.doctor, /\/worklist$/);
+  await page.goto('/patients/6/studies/2461');
+  await page.getByRole('button', { name: 'Analyze selected image' }).click();
+  await expect(page.getByText('Preliminary AI report')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole('heading', { name: 'Prior studies' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Similar cases' }).click();
+  await page.getByRole('searchbox', { name: 'Search similar cases' }).fill('opacity');
+  const row = page.getByRole('listitem').filter({ hasText: 'PX-1046' });
+  await expect(row.getByText(/basilar opacity/)).toBeVisible();
+  await row.getByRole('button', { name: /^Compare with/ }).click();
+  const compare = page.getByRole('region', { name: 'Comparison case' });
+  await expect(page.getByRole('region', { name: 'Study viewer' })).toHaveCount(2);
+  await expect(compare.getByText('Assigned patient — for comparison only')).toBeVisible();
+  await compare.getByRole('button', { name: 'Close compare' }).click();
+  await expect(page.getByRole('region', { name: 'Study viewer' })).toHaveCount(1);
 });
