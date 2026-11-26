@@ -1,0 +1,5 @@
+.prior-search { display: block; margin: 6px 0 10px; }
+.prior-search input { width: 100%; }
+.prior-tag { margin-left: 6px; }
+.prior-snippet { margin: 4px 0 0; font-size: 0.85em; }
+.prior-snippet mark, .history-text mark { background: #fde68a; color: inherit; border-radius: 2px; padding: 0 1px; }

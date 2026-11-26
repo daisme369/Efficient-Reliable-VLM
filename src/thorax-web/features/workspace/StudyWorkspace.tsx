@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Archive, ChevronRight, ClipboardCheck, FileText, FlaskConical, History, LockKeyhole, MessageSquare, PanelLeft, ShieldCheck, UserRound } from 'lucide-react';
+import { Archive, ChevronRight, ClipboardCheck, FlaskConical, LockKeyhole, MessageSquare, PanelLeft, ShieldCheck, UserRound } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
@@ -10,6 +10,7 @@ import { Badge, Confirm, EmptyState, formatDate, formatTime, Notice, readingLabe
 import { api, ApiError } from '@/lib/api';
 import type { BoxDTO, Workspace } from '@/lib/contracts';
 import StudyViewer, { type RegionChanges } from '@/features/viewer/StudyViewer';
+import { PriorStudies } from '@/features/cases/PriorStudies';
 import { AnalysisPanel, ChatPanel } from './analysis-chat';
 import { FindingsPanel, ReportPanel, FinalReport } from './review-report';
 import { useReading, useReadingActions } from './useReading';
@@ -296,9 +297,7 @@ function StudyContext({ data, pendingBoxes, pendingFindings, onPanel, audit, onA
       <dl className="context-details"><div><dt>Study date</dt><dd className="mono">{formatDate(data.study.study_date)}</dd></div><div><dt>Indication</dt><dd>{data.study.indication || '—'}</dd></div><div><dt>Images</dt><dd>{data.images.length} {data.images.length === 1 ? 'image' : 'images'}</dd></div></dl>
     </section>
     <section className="context-section"><h2>Reading progress</h2><ol className="progress-list">{progress.map((step, index) => <li key={index}><button disabled={!started && step.tab !== 'analysis'} onClick={() => onPanel(step.tab)}><span className={`step-index${step.done ? ' done' : ''}`}>{step.done ? <ShieldCheck size={15} aria-hidden /> : index + 1}</span><span><strong>{step.label}</strong><small>{step.status}</small></span><ChevronRight size={14} aria-hidden /></button></li>)}</ol></section>
-    <section className="context-section history-section"><div className="section-heading"><History size={17} aria-hidden /><h2>Prior reports</h2></div><p className="muted">Up to 5 earlier reports</p>
-      {data.history.length ? <ul className="history-list">{data.history.map(report => <li key={report.id}><details><summary><FileText size={15} aria-hidden /><span><strong>{formatDate(report.report_date)}</strong><small>Source {report.id}</small></span><ChevronRight size={15} aria-hidden /></summary><p className="source-label">Historical report — not current-image evidence</p><p className="history-text">{report.text}</p></details></li>)}</ul> : <p className="muted">No earlier reports; analysis will use the current image.</p>}
-    </section>
+    <PriorStudies actor={data.session.doctor_id} studyId={data.study.id} />
     <section className="context-section audit-section"><button type="button" className="button ghost" aria-expanded={audit} onClick={onAudit}><ShieldCheck size={16} aria-hidden />Reading audit <ChevronRight size={15} aria-hidden /></button>{audit && <Audit data={data} />}</section>
   </div>;
 }
