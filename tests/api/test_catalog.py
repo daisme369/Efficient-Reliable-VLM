@@ -49,7 +49,7 @@ class CatalogTests(unittest.TestCase):
     def test_worklist_matches_the_web_demo_fixture(self):
         body = self.doctor.get("/api/v1/patients").json()
         self.assertEqual([p["code"] for p in body["items"]], [f"PX-{1042 + i}" for i in range(10)])
-        self.assertEqual(body["items"][0], {"id": 1, "code": "PX-1042", "name": "Eleanor Brooks", "birth_year": 1958, "sex": "Female", "study_count": 2})
+        self.assertEqual(body["items"][0], {"id": 1, "code": "PX-1042", "name": "Eleanor Brooks", "birth_year": 1958, "sex": "Female", "study_count": 2, "has_urgent": False})
         self.assertIsNone(body["next_cursor"])
         self.assertEqual([p["code"] for p in self.doctor2.get("/api/v1/patients").json()["items"]], ["PX-1042", "PX-1052", "PX-1053"])
 

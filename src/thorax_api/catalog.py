@@ -121,14 +121,15 @@ class Catalog:
         with connect(self.path) as db:
             rows = db.execute(
                 """SELECT p.id, p.code, p.name, p.birth_year, p.sex,
-                          (SELECT COUNT(*) FROM studies s WHERE s.patient_id = p.id) AS study_count
+                          (SELECT COUNT(*) FROM studies s WHERE s.patient_id = p.id) AS study_count,
+                          CASE WHEN EXISTS (SELECT 1 FROM studies s WHERE s.patient_id = p.id AND s.priority = 'urgent' AND NOT EXISTS (
+                               SELECT 1 FROM reading_sessions r WHERE r.study_id = s.id AND r.status = 'final')) THEN 1 ELSE 0 END AS has_urgent
                    FROM patients p JOIN assignments a ON a.patient_id = p.id
                    WHERE a.doctor_id = ? AND a.active = 1 AND (LOWER(p.name) LIKE ? OR LOWER(p.code) LIKE ?)
-                   ORDER BY CASE WHEN EXISTS (SELECT 1 FROM studies s WHERE s.patient_id = p.id AND s.priority = 'urgent' AND NOT EXISTS (
-                                SELECT 1 FROM reading_sessions r WHERE r.study_id = s.id AND r.status = 'final')) THEN 0 ELSE 1 END, p.id""",
+                   ORDER BY has_urgent DESC, p.id""",
                 (doctor_id, pattern, pattern),
             ).fetchall()
-        return [dict(row) for row in rows]
+        return [{**dict(row), "has_urgent": bool(row["has_urgent"])} for row in rows]
 
     def _study_rows(self, where: str, params: tuple, actor_id: int) -> list[dict]:
         # Reading status comes from reading_sessions (created by ReadingStore, see reading.py).

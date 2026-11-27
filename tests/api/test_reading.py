@@ -591,6 +591,20 @@ class SignoffTests(ReadingBase):
             rev = r.json()["session_revision"]
         return sid, r.json()["resource_id"], rev
 
+    def test_patient_list_flags_unsigned_urgent(self):
+        from thorax_api.db import connect
+
+        self.make_urgent(2421)
+        items = self.doctor.get("/api/v1/patients").json()["items"]
+        flags = {p["id"]: p["has_urgent"] for p in items}
+        self.assertIs(flags[2], True)
+        self.assertIs(flags[1], False)
+        self.assertEqual(items[0]["id"], 2)
+        with connect(self.db) as db:
+            db.execute("INSERT INTO reading_sessions (id, doctor_id, patient_id, study_id, status, revision) VALUES (99001, 1, 2, 2421, 'final', 1)")
+        flags = {p["id"]: p["has_urgent"] for p in self.doctor.get("/api/v1/patients").json()["items"]}
+        self.assertIs(flags[2], False)
+
     def test_routine_handoff_then_doctor_signs(self):
         sid, rid, rev = self.ready_draft(self.annotator)
         refused = self.write("post", f"/api/v1/sessions/{sid}/reports/{rid}/approve", {"findings_version": 1}, revision=rev, who=self.annotator)
