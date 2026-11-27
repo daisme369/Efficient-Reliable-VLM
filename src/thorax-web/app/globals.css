@@ -138,6 +138,8 @@ input, textarea, select { min-width: 0; }
 .data-table thead th:first-child, .data-table tbody th:first-child { padding-left: 24px; }
 .data-table th { font-weight: 650; }
 .data-table .row-expanded { background: #f1f8fb; }
+.data-table tr.row-urgent > :first-child { box-shadow: inset 4px 0 0 var(--error-text); }
+.urgent-bar { display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: var(--error-bg); color: var(--error-text); font-weight: 700; border-left: 4px solid var(--error-text); }
 .patient-cell { display: inline-flex; align-items: center; gap: 10px; }
 .data-table .study-cell { padding: 16px 24px; background: var(--canvas); }
 .study-list { display: grid; gap: 12px; }

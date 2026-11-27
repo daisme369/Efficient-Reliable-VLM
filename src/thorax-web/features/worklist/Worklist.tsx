@@ -57,8 +57,8 @@ function AssignedPatients({ actor, localDemo }: { actor: number; localDemo: bool
           <table className="data-table">
             <thead><tr><th scope="col">Patient</th><th scope="col">Patient code</th><th scope="col">Birth year</th><th scope="col">Sex</th><th scope="col">Studies</th><th scope="col"><span className="sr-only">Expand studies</span></th></tr></thead>
             {rows.map(patient => <tbody key={patient.id}>
-              <tr className={expanded === patient.id ? 'row-expanded' : ''}>
-                <th scope="row"><span className="patient-cell"><span aria-hidden className="avatar">{patient.name.split(/\s+/).slice(0, 2).map(part => part[0]).join('')}</span>{patient.name}</span></th>
+              <tr className={[expanded === patient.id && 'row-expanded', patient.has_urgent && 'row-urgent'].filter(Boolean).join(' ') || undefined}>
+                <th scope="row"><span className="patient-cell"><span aria-hidden className="avatar">{patient.name.split(/\s+/).slice(0, 2).map(part => part[0]).join('')}</span>{patient.name}{patient.has_urgent && <Badge tone="error">Urgent</Badge>}</span></th>
                 <td className="mono">{patient.code}</td><td className="mono">{patient.birth_year ?? '—'}</td><td>{patient.sex ?? '—'}</td><td className="mono">{patient.study_count}</td>
                 <td className="align-right"><button className="button ghost" aria-expanded={expanded === patient.id} aria-label={`${expanded === patient.id ? 'Hide' : 'Show'} studies for ${patient.name}`} aria-controls={`patient-studies-${patient.id}`} onClick={() => { setExpanded(expanded === patient.id ? null : patient.id); void refresh(true).catch(() => {}); }}>{expanded === patient.id ? <ChevronDown size={17} aria-hidden /> : <ChevronRight size={17} aria-hidden />}{expanded === patient.id ? 'Hide studies' : 'Show studies'}</button></td>
               </tr>
@@ -104,7 +104,7 @@ export function PatientStudies({ actor, patientId, patientLabel, canUpload, admi
       <table className="data-table nested-table"><thead><tr><th scope="col">Study date</th><th scope="col">Indication</th><th scope="col">Images</th><th scope="col">Study status</th>{!admin && <th scope="col">Reading status</th>}<th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
         <tbody>{studies.map(study => {
           const href = `/patients/${patientId}/studies/${study.id}`;
-          return <tr key={study.id}><th scope="row" className="mono">{formatDate(study.study_date)}</th><td>{study.indication || '—'}</td><td className="mono">{study.image_count}</td><td><span className="badge-row">{study.priority === 'urgent' && <Badge tone="error">Urgent</Badge>}<Badge tone={study.status === 'preliminary' ? 'error' : study.status === 'awaiting_signoff' ? 'pending' : 'neutral'}>{studyStatusLabel[study.status]}</Badge></span></td>
+          return <tr key={study.id} className={study.priority === 'urgent' && study.status !== 'final' ? 'row-urgent' : undefined}><th scope="row" className="mono">{formatDate(study.study_date)}</th><td>{study.indication || '—'}</td><td className="mono">{study.image_count}</td><td><span className="badge-row">{study.priority === 'urgent' && <Badge tone="error">Urgent</Badge>}<Badge tone={study.status === 'preliminary' ? 'error' : study.status === 'awaiting_signoff' ? 'pending' : 'neutral'}>{studyStatusLabel[study.status]}</Badge></span></td>
             {!admin && <td><Badge tone={study.own_session_status === 'final' || study.own_session_status === 'findings_approved' ? 'approved' : study.own_session_status === 'active' ? 'info' : 'neutral'}>{readingLabel(study.own_session_status)}</Badge></td>}
             <td className="align-right"><div className="study-actions">
               {canUpload && study.editable && <>

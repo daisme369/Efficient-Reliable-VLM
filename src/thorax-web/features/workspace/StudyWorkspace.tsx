@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Archive, ChevronRight, ClipboardCheck, FlaskConical, Images, LockKeyhole, MessageSquare, PanelLeft, ShieldCheck, UserRound } from 'lucide-react';
+import { Archive, ChevronRight, ClipboardCheck, FlaskConical, Images, LockKeyhole, MessageSquare, PanelLeft, ShieldCheck, Siren, UserRound } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
@@ -226,6 +226,7 @@ function Reading({ actor, data, reload, onDenied }: { actor: number; data: Works
 
   return <AppShell workspace onWorklist={() => go(() => router.push('/worklist'))} onSignOut={() => go(signout)}>
     <main id="main-content" className="workspace">
+      {data.study.priority === 'urgent' && data.study.status !== 'final' && <div className="urgent-bar"><Siren size={17} aria-hidden />Urgent study — not yet signed</div>}
       <div className="identity-strip">
         <span className="identity-icon"><UserRound size={21} aria-hidden /></span>
         <dl><div><dt>Patient</dt><dd className="patient-name">{data.patient.name}</dd></div><div><dt>Patient code</dt><dd className="mono">{data.patient.code}</dd></div>

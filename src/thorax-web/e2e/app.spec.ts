@@ -249,7 +249,9 @@ test('annotator releases a preliminary on an urgent study; doctor grades it', as
 
   const doctor = await (await browser.newContext()).newPage();
   await signIn(doctor, 'doctor@thorax.demo', PASSWORDS.doctor, /\/worklist$/);
+  await expect(doctor.locator('tr.row-urgent', { hasText: 'PX-1045' }).getByText('Urgent')).toBeVisible();
   await doctor.goto('/patients/4/studies/2441?panel=report');
+  await expect(doctor.getByText('Urgent study — not yet signed')).toBeVisible();
   await expect(doctor.getByText('PRELIMINARY: not signed by a doctor')).toBeVisible();
   await expect(doctor.getByText('Critical finding communicated to ER doctor, phone')).toBeVisible();
   const sign = doctor.getByRole('button', { name: 'Approve final report (Gate 2)' });
@@ -260,6 +262,7 @@ test('annotator releases a preliminary on an urgent study; doctor grades it', as
   await doctor.getByRole('dialog').getByRole('button', { name: 'Approve final report' }).click();
   await expect(doctor.getByRole('heading', { name: 'Final chest X-ray report' })).toBeVisible({ timeout: 20_000 });
   await expect(doctor.getByText('PRELIMINARY: not signed by a doctor')).toHaveCount(0);
+  await expect(doctor.getByText('Urgent study — not yet signed')).toHaveCount(0);
 
   const admin = await (await browser.newContext()).newPage();
   await signIn(admin, 'admin@thorax.demo', PASSWORDS.admin, /\/admin$/);

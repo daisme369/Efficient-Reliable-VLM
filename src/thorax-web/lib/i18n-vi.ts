@@ -813,6 +813,7 @@ export const VI: Record<string, string> = {
   'Awaiting sign-off': 'Chờ ký duyệt',
   'Preliminary released': 'Đã phát hành sơ bộ',
   'Urgent': 'Khẩn',
+  'Urgent study — not yet signed': 'Ca khẩn — chưa ký',
   'Routine': 'Thường quy',
   'Priority': 'Mức ưu tiên',
   'Send to doctor': 'Gửi bác sĩ',

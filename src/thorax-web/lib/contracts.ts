@@ -39,6 +39,8 @@ export interface PatientIdentity {
 
 export interface PatientSummary extends PatientIdentity {
   study_count: number;
+  /** Thorax backend only: has an urgent study not yet signed final. */
+  has_urgent?: boolean;
 }
 
 export interface StudyDTO {
