@@ -50,7 +50,7 @@ def fold(text: str) -> str:
 
 
 def _word(term: str) -> re.Pattern:
-    stem, plural = (term[:-1] + "(?:y|ies)", "") if term.endswith("y") else (re.escape(term), "(?:e?s)?")
+    stem, plural = (re.escape(term[:-1]) + "(?:y|ies)", "") if term.endswith("y") else (re.escape(term), "(?:e?s)?")
     return re.compile(r"(?<![a-z0-9])" + stem + plural + r"(?![a-z0-9])")
 
 
@@ -61,7 +61,7 @@ def _negated(folded: str, start: int, end: int) -> bool:
         and not _STOP.search(folded, m.end(), start)  # "but"/"however" ends the negation's scope
         for m in _CUE.finditer(folded)
     )
-    clause = re.split(r",|" + _STOP.pattern, folded[end:], maxsplit=1)[0]  # a post-cue only reaches the end of its clause
+    clause = _STOP.split(folded[end:], maxsplit=1)[0]  # a post-cue reaches back across commas, only but/however end it
     return before or bool(_POST_CUE.search(clause))
 
 

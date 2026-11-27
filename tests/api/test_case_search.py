@@ -107,7 +107,25 @@ class MatchingTests(unittest.TestCase):
         self.assertIsNone(match("The left effusion has resolved.", ["pleural_effusion"], "effusion"))
         self.assertIsNone(match("Pneumothorax is not seen.", ["pneumothorax"], "pneumothorax"))
         self.assertIsNone(match("Tràn dịch đã hết.", ["pleural_effusion"], "tràn dịch"))
-        self.assertIsNotNone(match("Small effusion, pneumothorax is not seen.", ["pleural_effusion"], "effusion"))
+        self.assertIsNone(match("Small effusion, pneumothorax is not seen.", ["pleural_effusion"], "effusion"))  # accepted cost of crossing commas
+
+    def test_post_negation_crosses_commas(self):
+        from thorax_api.case_search import match
+        for text in ("Effusion, previously seen, has resolved.", "Left effusion, seen on prior, is no longer seen."):
+            self.assertIsNone(match(text, ["pleural_effusion"], "effusion"), text)
+        text = "Effusion, pneumothorax and consolidation have resolved."
+        for cid in ("pleural_effusion", "consolidation"):
+            self.assertIsNone(match(text, [cid], "x"), cid)
+        self.assertIsNotNone(match("Small effusion but pneumothorax is not seen.", ["pleural_effusion"], "effusion"))
+
+    def test_query_with_regex_characters_does_not_crash(self):
+        from thorax_api.case_search import detect, match
+        self.assertIsNone(match("some text", ["query"], "a(y"))
+        detect("a(y")
+
+    def test_query_dot_is_literal(self):
+        from thorax_api.case_search import match
+        self.assertIsNone(match("abcy", ["query"], "a.cy"))
 
     def test_decimal_does_not_split_sentence(self):
         from thorax_api.case_search import match
